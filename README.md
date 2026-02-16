@@ -34,7 +34,7 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 
-🧠 StatLocker (Working Title)
+#🧠 DeadlockBuilder (Working Title)
 
 A Deadlock build planner + AI-powered match review coach.
 
@@ -48,15 +48,18 @@ Analyze match performance
 
 Receive structured, actionable improvement feedback
 
-🚀 Vision
+#🚀 Vision
 
-StatLocker combines three pillars:
+##StatLocker combines three pillars:
 
-Hero Exploration – Deep hero stats and ability insights
+###Hero Exploration
+Deep hero stats and ability insights
 
-Build Planner – Structured item + ability planning with intelligent suggestions
+###Build Planner
+Structured item + ability planning with intelligent suggestions
 
-Match Review Coach – AI-assisted feedback on gameplay performance
+###Match Review Coach
+AI-assisted feedback on gameplay performance
 
 The goal is to build the Deadlock equivalent of:
 
@@ -64,7 +67,7 @@ OP.GG + U.GG + Path of Building + AI Coach
 
 But focused on clarity, speed, and actionable feedback.
 
-🏗 Tech Stack
+#🏗 Tech Stack
 
 Next.js (App Router)
 
@@ -78,7 +81,7 @@ LocalStorage (v1 build persistence)
 
 Future: Database (Supabase/Postgres), KV cache
 
-📂 Project Structure
+#📂 Project Structure
 app/
   build/
     BuildClient.tsx
@@ -105,15 +108,15 @@ lib/
   ruleEngine.ts
   types.ts
 
-📊 Data Sources
+#📊 Data Sources
 Static Data (Cached with ISR)
 
-Heroes
+##Heroes
 https://assets.deadlock-api.com/v2/heroes
 
-Items (planned)
+##Items (planned)
 
-Abilities (planned)
+##Abilities (planned)
 
 Example fetch pattern:
 
@@ -121,77 +124,57 @@ fetch(url, {
   next: { revalidate: 3600 },
 });
 
-Dynamic Data (No Cache)
+##Dynamic Data (No Cache)
 
-Match telemetry
+##Match telemetry
 
-Replay/log upload analysis
+##Replay/log upload analysis
 
 fetch(url, {
   cache: "no-store",
 });
 
-🧩 Core Features
-1️⃣ Hero Explorer
+#🧩 Core Features
+##1️⃣ Hero Explorer
 Route
 /heroes
 /heroes/[slug]
 
-Features
+#Features
 
 Hero grid
-
 Search + filter
-
 Hero detail page
-
 Ability display
-
 Base stats
-
 Build entry point
-
 Definition of Done
-
 All heroes render correctly
-
 Detail page loads without errors
-
 “Start Build” routes to /build/[heroId]
 
-2️⃣ Build Planner
+#2️⃣ Build Planner
 Routes
 /build
 /build/[heroId]
 
-Layout (3 Panel System)
-
-Left Panel
-
+##Layout (3 Panel System)
+###Left Panel
 Hero image
-
 Class
-
 Ability leveling planner
-
 Derived stats
 
-Center Panel
-
+###Center Panel
 Items grouped by category:
 
 Spirit
-
 Gun
-
 Vitality
 
-Right Panel
-
+###Right Panel
 Build summary
-
 Suggested items
-
 Warnings / synergy notes
 
 Build State Model
@@ -205,9 +188,7 @@ type BuildState = {
 Persisted in:
 
 v1: localStorage
-
 v2: Shareable URL
-
 v3: Database save
 
 Item Model
@@ -219,7 +200,7 @@ type Item = {
   tags: string[];
 };
 
-3️⃣ Deterministic Recommendation Engine
+#3️⃣ Deterministic Recommendation Engine
 
 LLMs are NOT used for scoring.
 
