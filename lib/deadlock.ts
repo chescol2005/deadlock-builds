@@ -1,3 +1,13 @@
+export type DeadlockHeroFlags = {
+  player_selectable?: boolean;
+  disabled?: boolean;
+  in_development?: boolean;
+  needs_testing?: boolean;
+  assigned_players_only?: boolean;
+  prerelease_only?: boolean;
+  limited_testing?: boolean;
+};
+
 export type DeadlockHeroListItem = {
   id: number;
   class_name: string;
@@ -8,7 +18,7 @@ export type DeadlockHeroListItem = {
     icon_hero_card?: string;
     icon_hero_card_webp?: string;
   };
-};
+} & DeadlockHeroFlags;
 
 export async function fetchHeroes(): Promise<DeadlockHeroListItem[]> {
   const res = await fetch("https://assets.deadlock-api.com/v2/heroes", {
@@ -41,7 +51,7 @@ export type DeadlockHeroDetail = {
   };
   starting_stats?: Record<string, { value: number; display_stat_name?: string }>;
   items?: Record<string, string>;
-};
+} & DeadlockHeroFlags;
 
 export function slugifyHeroName(name: string) {
   return name.toLowerCase().replace(/\s+/g, "-");
@@ -59,6 +69,7 @@ export async function fetchHeroByName(name: string): Promise<DeadlockHeroDetail>
 
   return res.json();
 }
+
 export async function fetchHeroById(id: number | string): Promise<DeadlockHeroDetail> {
   const res = await fetch(
     `https://assets.deadlock-api.com/v2/heroes/${encodeURIComponent(String(id))}`,
@@ -70,4 +81,63 @@ export async function fetchHeroById(id: number | string): Promise<DeadlockHeroDe
   }
 
   return res.json();
+}
+
+/**
+ * Centralized "visible heroes" helper.
+ * - Enriches list heroes with detail flags (and images fallback).
+ * - Filters out heroes where player_selectable === false AND disabled === true.
+ * - Sorts by name.
+ * - Fails open for individual detail errors (keeps the hero).
+ */
+export async function fetchVisibleHeroes(): Promise<DeadlockHeroListItem[]> {
+  const heroes = await fetchHeroes();
+
+  const enriched = await Promise.all(
+    heroes.map(async (h) => {
+      try {
+        const detail = await fetchHeroById(h.id);
+
+        const merged: DeadlockHeroListItem = {
+          id: h.id,
+          name: h.name,
+          class_name: h.class_name,
+          images: h.images ?? detail.images,
+          player_selectable: detail.player_selectable,
+          disabled: detail.disabled,
+          in_development: detail.in_development,
+          needs_testing: detail.needs_testing,
+          assigned_players_only: detail.assigned_players_only,
+          prerelease_only: detail.prerelease_only,
+          limited_testing: detail.limited_testing,
+        };
+
+        return merged;
+      } catch {
+        // Fail open on transient detail errors.
+        return h;
+      }
+    })
+  );
+
+  const visible = enriched.filter((h) => {
+    // Always exclude disabled heroes
+    if (h.disabled === true) return false;
+
+    // Exclude explicitly non-selectable heroes
+    if (h.player_selectable === false) return false;
+
+    // Optional: exclude special availability buckets
+    if (h.assigned_players_only === true) return false;
+    if (h.prerelease_only === true) return false;
+    if (h.limited_testing === true) return false;
+
+    // Optional: if you only want fully “released” heroes:
+    // if (h.in_development === true) return false;
+
+    return true;
+  });
+
+  visible.sort((a, b) => a.name.localeCompare(b.name));
+  return visible;
 }

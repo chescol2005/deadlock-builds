@@ -1,5 +1,5 @@
 import BuildClient from "../BuildClient";
-import { fetchHeroes } from "@/lib/deadlock";
+import { fetchVisibleHeroes } from "@/lib/deadlock";
 
 export default async function BuildHeroPage({
   params,
@@ -8,8 +8,7 @@ export default async function BuildHeroPage({
 }) {
   const { heroId } = await params;
 
-  const heroes = await fetchHeroes();
-  heroes.sort((a, b) => a.name.localeCompare(b.name));
+  const heroes = await fetchVisibleHeroes();
 
   return <BuildClient heroes={heroes} selectedHeroId={heroId} />;
 }
