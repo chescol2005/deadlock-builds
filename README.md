@@ -36,17 +36,12 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 # 🧠 DeadlockBuilder (Working Title)
 
-A Deadlock build planner + AI-powered match review coach.
-
-StatLocker is a modern web application built with Next.js (App Router) that helps players:
-
-Plan optimized builds
-
-Understand item synergies
-
-Analyze match performance
-
-Receive structured, actionable improvement feedback
+- A Deadlock build planner + AI-powered match review coach.
+- DeadlockBuilder is a modern web application built with Next.js (App Router) that helps players:
+- Plan optimized builds
+- Understand item synergies
+- Analyze match performance
+- Receive structured, actionable improvement feedback
 
 # 🚀 Vision
 
