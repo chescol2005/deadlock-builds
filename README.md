@@ -385,42 +385,37 @@ Seasonal balance tracking
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+```mermaid
 flowchart TB
-  U[User Browser] -->|HTTPS| N[Next.js App (Vercel)\nApp Router]
+  U[User Browser] -->|HTTPS| N[Next.js App Vercel]
 
   subgraph NEXT[Next.js Application]
-    R[App Routes\n/heroes\n/build\n/review] --> UI[UI Components\n(Server + Client)]
-    UI --> CS[Client State\nBuildClient + localStorage]
-    UI --> API[Route Handlers\n/app/api/*]
-    UI --> LIB[lib/*\nTypes + Normalizers]
+    R[App Routes] --> UI[UI Components]
+    UI --> CS[Client State]
+    UI --> API[Route Handlers]
+    UI --> LIB[lib/Types]
   end
 
-  %% Static-ish data (ISR)
-  N -->|Server fetch (ISR revalidate)| HAPI[Deadlock Assets API\n/v2/heroes\n(items/abilities later)]
+  N -->|Server fetch ISR| HAPI[Deadlock Assets API]
   HAPI --> LIB
 
-  %% Match review data (no-store)
-  API -->|Fetch no-store| MAPI[Match Data Source\n(Official/Community API)\nOR Upload Parser]
-  MAPI --> RN[reviewNormalizer.ts\nNormalize -> ReviewInput]
-  RN --> RE[ruleEngine.ts\nDeterministic checks]
-  RE --> OUT[CoachReport JSON\nStrengths / Mistakes / Top 3 Priorities]
+  API -->|Fetch no-store| MAPI[Match Data Source]
+  MAPI --> RN[reviewNormalizer.ts]
+  RN --> RE[ruleEngine.ts]
+  RE --> OUT[CoachReport JSON]
 
-  %% AI narrative (optional layer)
-  OUT -->|Optional| LLM[LLM Provider\nNarrative Coach]
-  LLM --> OUT2[Final Coach Report\nReadable bullets + evidence]
+  OUT -->|Optional| LLM[LLM Provider]
+  LLM --> OUT2[Final Coach Report]
 
-  %% Storage / caching
   subgraph STORE[Persistence + Caching]
-    LS[localStorage\nBuild v1]
-    KV[KV/Cache\nMatch report cache\n(matchId+playerId+hero)]
-    DB[(Database\nSaved builds,\nusers, history)]
+    LS[localStorage]
+    KV[KV/Cache]
+    DB[(Database)]
   end
 
   CS --> LS
   API --> KV
   API --> DB
 
-  %% Shareability
-  CS --> URL[Shareable URL Encoding\nBuild v2]
+  CS --> URL[Shareable URL Encoding]
   URL --> U
-
