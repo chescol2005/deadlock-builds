@@ -50,7 +50,7 @@ Receive structured, actionable improvement feedback
 
 # 🚀 Vision
 
-## StatLocker combines three pillars:
+## DeadlockBuilder combines three pillars:
 
 Hero Exploration
 Deep hero stats and ability insights
