@@ -384,3 +384,43 @@ Build export/import system
 Seasonal balance tracking
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+flowchart TB
+  U[User Browser] -->|HTTPS| N[Next.js App (Vercel)\nApp Router]
+
+  subgraph NEXT[Next.js Application]
+    R[App Routes\n/heroes\n/build\n/review] --> UI[UI Components\n(Server + Client)]
+    UI --> CS[Client State\nBuildClient + localStorage]
+    UI --> API[Route Handlers\n/app/api/*]
+    UI --> LIB[lib/*\nTypes + Normalizers]
+  end
+
+  %% Static-ish data (ISR)
+  N -->|Server fetch (ISR revalidate)| HAPI[Deadlock Assets API\n/v2/heroes\n(items/abilities later)]
+  HAPI --> LIB
+
+  %% Match review data (no-store)
+  API -->|Fetch no-store| MAPI[Match Data Source\n(Official/Community API)\nOR Upload Parser]
+  MAPI --> RN[reviewNormalizer.ts\nNormalize -> ReviewInput]
+  RN --> RE[ruleEngine.ts\nDeterministic checks]
+  RE --> OUT[CoachReport JSON\nStrengths / Mistakes / Top 3 Priorities]
+
+  %% AI narrative (optional layer)
+  OUT -->|Optional| LLM[LLM Provider\nNarrative Coach]
+  LLM --> OUT2[Final Coach Report\nReadable bullets + evidence]
+
+  %% Storage / caching
+  subgraph STORE[Persistence + Caching]
+    LS[localStorage\nBuild v1]
+    KV[KV/Cache\nMatch report cache\n(matchId+playerId+hero)]
+    DB[(Database\nSaved builds,\nusers, history)]
+  end
+
+  CS --> LS
+  API --> KV
+  API --> DB
+
+  %% Shareability
+  CS --> URL[Shareable URL Encoding\nBuild v2]
+  URL --> U
+
