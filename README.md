@@ -57,45 +57,46 @@ But focused on clarity, speed, and actionable feedback.
 
 # 🏗 Tech Stack
 
-Next.js (App Router)
-TypeScript
-Vercel hosting
-ISR (Incremental Static Regeneration)
-LocalStorage (v1 build persistence)
-Future: Database (Supabase/Postgres), KV cache
+- Next.js (App Router)
+- TypeScript
+- Vercel hosting
+- ISR (Incremental Static Regeneration)
+- LocalStorage (v1 build persistence)
+- Future: Database (Supabase/Postgres), KV cache
 
 # 📂 Project Structure
-app/
-  build/
-    BuildClient.tsx
-    page.tsx
-    [heroId]/
-      page.tsx
-  heroes/
-    page.tsx
-    [slug]/
-      page.tsx
-  review/
-    page.tsx
-    [matchId]/
-      page.tsx
-  api/
-    review/
-      route.ts
-
-lib/
-  deadlock.ts
-  buildStorage.ts
-  scoring.ts
-  reviewNormalizer.ts
-  ruleEngine.ts
-  types.ts
+        
+        app/
+          build/
+            BuildClient.tsx
+            page.tsx
+            [heroId]/
+              page.tsx
+          heroes/
+            page.tsx
+            [slug]/
+              page.tsx
+          review/
+            page.tsx
+            [matchId]/
+              page.tsx
+          api/
+            review/
+              route.ts
+        
+        lib/
+          deadlock.ts
+          buildStorage.ts
+          scoring.ts
+          reviewNormalizer.ts
+          ruleEngine.ts
+          types.ts
 
 # 📊 Data Sources
 ## Static Data (Cached with ISR)
 
 Heroes
-  https://assets.deadlock-api.com/v2/heroes
+    https://assets.deadlock-api.com/v2/heroes
 Items (planned)
 Abilities (planned)
     
