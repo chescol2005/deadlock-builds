@@ -5,6 +5,14 @@ import { useMemo, useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { DeadlockHeroListItem } from "@/lib/deadlock";
 
+function formatClassLabel(className: string) {
+  // hero_cadence -> Cadence
+  return className
+    .replace(/^hero_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function normalize(s: string) {
   return s.toLowerCase().trim();
 }
@@ -26,10 +34,19 @@ export default function HeroesGridClient({ heroes }: { heroes: DeadlockHeroListI
 
   const didMountRef = useRef(false);
 
-  const classes = useMemo(() => {
-    const set = new Set<string>();
-    for (const h of heroes) if (h.class_name) set.add(h.class_name);
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  const classOptions = useMemo(() => {
+    // Map key -> display name (take first occurrence)
+    const map = new Map<string, string>();
+    for (const h of heroes) {
+      if (h.class_name && !map.has(h.class_name)) {
+        map.set(h.class_name, h.name);
+      }
+    }
+
+    // Sort by label (hero name)
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [heroes]);
 
   const filtered = useMemo(() => {
@@ -102,16 +119,18 @@ export default function HeroesGridClient({ heroes }: { heroes: DeadlockHeroListI
           onChange={(e) => setClassFilter(e.target.value)}
           style={{ padding: "10px 12px", borderRadius: 10, minWidth: 200 }}
         >
-          <option value="">All classes</option>
-          {classes.map((c) => (
-            <option key={c} value={c}>
-              {c}
+          <option value="">All</option>
+          {classOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
             </option>
           ))}
         </select>
 
         <div style={{ opacity: 0.75, fontSize: 13 }}>
-          Showing {filtered.length} / {heroes.length}
+          {filtered.length === heroes.length
+            ? `Showing all ${heroes.length}`
+            : `Showing ${filtered.length} of ${heroes.length}`}
         </div>
 
         {(query || classFilter) && (
@@ -150,7 +169,9 @@ export default function HeroesGridClient({ heroes }: { heroes: DeadlockHeroListI
                 {/* keep id-based routing consistent with your current setup */}
                 <Link href={`/heroes/${h.id}`}>{h.name}</Link>
               </div>
-              <div style={{ opacity: 0.7, fontSize: 12 }}>{h.class_name}</div>
+              <div style={{ opacity: 0.7, fontSize: 12 }}>
+                {h.class_name ? formatClassLabel(h.class_name) : ""}
+              </div>
             </div>
           </li>
         ))}

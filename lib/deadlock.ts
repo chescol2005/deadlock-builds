@@ -141,3 +141,295 @@ export async function fetchVisibleHeroes(): Promise<DeadlockHeroListItem[]> {
   visible.sort((a, b) => a.name.localeCompare(b.name));
   return visible;
 }
+// lib/deadlock.ts (add below your existing exports)
+
+export type DeadlockItemApi = {
+  id: number;
+  class_name: string;
+  name: string;
+  start_trained?: boolean;
+  image?: string;
+  image_webp?: string;
+  hero?: number | null;
+  heroes?: number[];
+  update_time?: number;
+
+  type?: string; // e.g. "ability" etc per schema
+  ability_type?: string; // e.g. "signature", "innate"
+  behaviours?: string[];
+
+  description?: {
+    desc?: string;
+    quip?: string;
+    t1_desc?: string;
+    t2_desc?: string;
+    t3_desc?: string;
+    active?: string;
+    passive?: string;
+  };
+
+  properties?: Record<string, unknown>;
+  tooltip_details?: unknown;
+  upgrades?: unknown;
+  weapon_info?: unknown;
+  videos?: unknown;
+
+  [k: string]: unknown;
+};
+
+export type ItemLite = {
+  id: string; // normalized to string
+  name: string;
+  type?: string;
+  className?: string;
+  image?: string;
+  imageWebp?: string;
+  heroes: string[]; // hero IDs as strings
+  updatedAt?: number;
+};
+
+const ASSETS_BASE = "https://assets.deadlock-api.com/v2";
+
+export async function fetchItems(): Promise<DeadlockItemApi[]> {
+  const res = await fetch(`${ASSETS_BASE}/items`, {
+    cache: "no-store"
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch items: ${res.status} ${res.statusText}`);
+  }
+
+  return (await res.json()) as DeadlockItemApi[];
+}
+
+export function normalizeItems(items: DeadlockItemApi[]) {
+  const itemsById: Record<string, ItemLite> = {};
+  const itemsByHeroId: Record<string, string[]> = {};
+
+  for (const it of items) {
+    const id = String(it.id);
+
+    const heroesRaw = Array.isArray(it.heroes) ? it.heroes : [];
+    // Some responses include `hero` as a single value; merge it in if present.
+    const mergedHeroes = new Set<number>();
+    for (const h of heroesRaw) mergedHeroes.add(h);
+    if (typeof it.hero === "number") mergedHeroes.add(it.hero);
+
+    const heroes = Array.from(mergedHeroes).map(String);
+
+    itemsById[id] = {
+      id,
+      name: it.name,
+      type: typeof it.type === "string" ? it.type : undefined,
+      className: typeof it.class_name === "string" ? it.class_name : undefined,
+      image: typeof it.image === "string" ? it.image : undefined,
+      imageWebp: typeof it.image_webp === "string" ? it.image_webp : undefined,
+      heroes,
+      updatedAt: typeof it.update_time === "number" ? it.update_time : undefined,
+    };
+
+    for (const heroId of heroes) {
+      if (!itemsByHeroId[heroId]) itemsByHeroId[heroId] = [];
+      itemsByHeroId[heroId].push(id);
+    }
+  }
+
+  return { itemsById, itemsByHeroId };
+}
+
+// lib/deadlock.ts (add)
+
+export type DeadlockUpgradeItem = {
+  id: number;
+  class_name: string;
+  name: string;
+
+  image?: string;
+  image_webp?: string;
+
+  type: "upgrade";
+  item_slot_type: "weapon" | "vitality" | "spirit";
+  item_tier: 1 | 2 | 3 | 4;
+  cost: number;
+
+  activation?: string; // "passive" | "active" etc
+  is_active_item?: boolean;
+  shopable?: boolean;
+
+  properties?: Record<string, any>;
+
+  [k: string]: unknown;
+};
+
+export async function fetchUpgradeItems(): Promise<DeadlockUpgradeItem[]> {
+  const res = await fetch(`${ASSETS_BASE}/items/by-type/upgrade`, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch upgrade items: ${res.status} ${res.statusText}`);
+  }
+
+  return (await res.json()) as DeadlockUpgradeItem[];
+}
+
+export type ShopCategory = "weapon" | "vitality" | "spirit";
+export type ShopTier = 1 | 2 | 3 | 4;
+
+export type ShopItem = {
+  id: string;
+  name: string;
+  icon?: string;
+
+  category: ShopCategory;
+  tier: ShopTier;
+  cost: number;
+
+  isActive: boolean;
+  shopable: boolean;
+
+  // handy later for scoring
+  properties?: Record<string, any>;
+};
+
+export function normalizeUpgradeItems(items: DeadlockUpgradeItem[]): ShopItem[] {
+  const out = items
+    .map((it): ShopItem | null => {
+      const category = it.item_slot_type;
+      if (category !== "weapon" && category !== "vitality" && category !== "spirit") return null;
+
+      const tier = it.item_tier;
+      if (tier !== 1 && tier !== 2 && tier !== 3 && tier !== 4) return null;
+
+      const cost = Number(it.cost);
+      if (!Number.isFinite(cost) || cost <= 0) return null;
+
+      return {
+        id: String(it.id),
+        name: String(it.name ?? it.class_name ?? it.id),
+        icon: (it.image_webp as string | undefined) ?? (it.image as string | undefined),
+        category,
+        tier,
+        cost,
+        isActive: Boolean(it.is_active_item) || String(it.activation).toLowerCase() === "active",
+        shopable: Boolean(it.shopable),
+        properties: it.properties,
+      };
+    })
+    .filter((x): x is ShopItem => x !== null);
+
+  return out;
+}
+
+export type DeadlockAbilityItem = {
+  id: number;
+  class_name: string;
+  name: string;
+
+  image?: string;
+  image_webp?: string;
+
+  type: "ability";
+  ability_type?: string; // "signature" | "ultimate" | "innate" | etc
+
+  hero?: number | null;
+  heroes?: number[];
+
+  start_trained?: boolean;
+  update_time?: number;
+
+  properties?: Record<string, any>;
+  upgrades?: Array<{
+    property_upgrades?: Array<{
+      name: string;
+      bonus: string | number;
+      scale_stat_filter?: string;
+      upgrade_type?: string;
+    }>;
+  }>;
+
+  description?: Record<string, any>;
+  tooltip_details?: any;
+  videos?: { webm?: string; mp4?: string };
+
+  [k: string]: unknown;
+};
+
+export async function fetchAbilityItems(): Promise<DeadlockAbilityItem[]> {
+  const res = await fetch(`${ASSETS_BASE}/items/by-type/ability`, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch ability items: ${res.status} ${res.statusText}`);
+  }
+
+  return (await res.json()) as DeadlockAbilityItem[];
+}
+
+export type SignatureAbility = {
+  id: string;
+  className: string;
+  name: string;
+  icon?: string;
+
+  properties?: Record<string, any>;
+  upgrades?: DeadlockAbilityItem["upgrades"];
+  description?: DeadlockAbilityItem["description"];
+  videos?: DeadlockAbilityItem["videos"];
+};
+
+export type SignatureSlot = "signature1" | "signature2" | "signature3" | "signature4";
+
+export type HeroAbilitySlot = SignatureAbility & {
+  slot: SignatureSlot;
+  abilityType?: string; // "signature" | "ultimate" | "innate" | ...
+};
+
+export function getHeroSignatureSlotsFromHeroItems(
+  heroItems: Record<string, string> | undefined,
+  allAbilities: DeadlockAbilityItem[],
+  heroId: number | string
+): HeroAbilitySlot[] {
+  const hid = Number(heroId);
+
+  // index this hero's abilities by class_name
+  const byClass: Record<string, DeadlockAbilityItem> = {};
+  for (const a of allAbilities) {
+    if (!a?.class_name) continue;
+
+    const belongs =
+      Number(a.hero) === hid || (Array.isArray(a.heroes) && a.heroes.includes(hid));
+    if (!belongs) continue;
+
+    byClass[a.class_name] = a;
+  }
+
+  const slots: SignatureSlot[] = ["signature1", "signature2", "signature3", "signature4"];
+
+  return slots
+    .map((slot): HeroAbilitySlot | null => {
+      const cls = heroItems?.[slot];
+      if (!cls) return null;
+
+      const a = byClass[cls];
+      if (!a) return null;
+
+      // IMPORTANT:
+      // slot 4 is usually ability_type === "ultimate"
+      // so we do NOT filter ability_type here; we carry it through.
+      return {
+        slot,
+        id: String(a.id),
+        className: a.class_name,
+        name: a.name,
+        icon: (a.image_webp as string | undefined) ?? (a.image as string | undefined),
+        abilityType: typeof a.ability_type === "string" ? a.ability_type : undefined,
+        properties: a.properties,
+        upgrades: a.upgrades,
+        description: a.description,
+        videos: a.videos,
+      };
+    })
+    .filter((x): x is HeroAbilitySlot => x !== null);
+}

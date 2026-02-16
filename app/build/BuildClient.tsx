@@ -2,15 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { DeadlockHeroListItem } from "@/lib/deadlock";
+import type { DeadlockHeroListItem, ShopItem, HeroAbilitySlot } from "@/lib/deadlock";
 import { readBuild, removeFromBuild, clearBuild, BuildItem } from "@/lib/buildStorage";
+import { ShopGrid } from "@/app/heroes/components/ShopGrid";
 
 export default function BuildClient({
   heroes,
   selectedHeroId,
+  upgrades,
+  heroAbilities,
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
+  upgrades: ShopItem[];
+  heroAbilities: HeroAbilitySlot[];
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
@@ -93,48 +98,114 @@ export default function BuildClient({
       {!heroId ? (
         <div style={{ marginTop: 24, opacity: 0.8 }}>Select a hero to start a build.</div>
       ) : (
-        <section style={{ marginTop: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ margin: 0 }}>{selectedHero?.name ?? "Selected Hero"}</h2>
-            <button
-              onClick={() => setItems(clearBuild(heroId))}
-              disabled={items.length === 0}
-              style={{ padding: "6px 10px", borderRadius: 8 }}
-            >
-              Clear
-            </button>
-          </div>
+        <>
+          {/* Abilities (read-only) */}
+          <section style={{ marginTop: 24 }}>
+            <h2 style={{ margin: 0 }}>Abilities</h2>
 
-          {items.length === 0 ? (
-            <div style={{ marginTop: 12, opacity: 0.8 }}>
-              Blank canvas — add items from the hero page.
-            </div>
-          ) : (
-            <ul style={{ marginTop: 12, listStyle: "none", padding: 0, display: "grid", gap: 10 }}>
-              {items.map((it) => (
-                <li
-                  key={it.id}
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.15)",
-                    borderRadius: 12,
-                    padding: 12,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <div>{it.name}</div>
-                  <button
-                    onClick={() => setItems(removeFromBuild(heroId, it.id))}
-                    style={{ padding: "6px 10px", borderRadius: 8 }}
+            {heroAbilities?.length ? (
+              <ul
+                style={{
+                  marginTop: 12,
+                  listStyle: "none",
+                  padding: 0,
+                  display: "grid",
+                  gap: 10,
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                }}
+              >
+                {heroAbilities.map((a) => (
+                  <li
+                    key={`${a.slot}:${a.id}`}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: 12,
+                      padding: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      justifyContent: "space-between",
+                    }}
                   >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                      {a.icon ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={a.icon}
+                          alt={a.name}
+                          width={40}
+                          height={40}
+                          style={{ borderRadius: 10 }}
+                        />
+                      ) : null}
+
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{a.name}</div>
+                        <div style={{ opacity: 0.7, fontSize: 12 }}>
+                          {a.slot}
+                          {a.abilityType ? ` • ${a.abilityType}` : ""}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ opacity: 0.65, fontSize: 12 }}>Innate</div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div style={{ marginTop: 12, opacity: 0.8 }}>
+                No abilities found for this hero.
+              </div>
+            )}
+          </section>
+
+          <section style={{ marginTop: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0 }}>{selectedHero?.name ?? "Selected Hero"}</h2>
+              <button
+                onClick={() => setItems(clearBuild(heroId))}
+                disabled={items.length === 0}
+                style={{ padding: "6px 10px", borderRadius: 8 }}
+              >
+                Clear
+              </button>
+            </div>
+
+            {items.length === 0 ? (
+              <div style={{ marginTop: 12, opacity: 0.8 }}>
+                Blank canvas — add items from the shop below.
+              </div>
+            ) : (
+              <ul style={{ marginTop: 12, listStyle: "none", padding: 0, display: "grid", gap: 10 }}>
+                {items.map((it) => (
+                  <li
+                    key={it.id}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: 12,
+                      padding: 12,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ fontWeight: 650 }}>{it.name}</div>
+                    <button
+                      onClick={() => setItems(removeFromBuild(heroId, it.id))}
+                      style={{ padding: "6px 10px", borderRadius: 8 }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Shop UI */}
+          <ShopGrid heroId={heroId} items={upgrades} showBuildLink={false} />
+        </>
       )}
     </main>
   );

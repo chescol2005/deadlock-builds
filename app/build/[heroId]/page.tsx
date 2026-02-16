@@ -1,5 +1,12 @@
 import BuildClient from "../BuildClient";
-import { fetchVisibleHeroes } from "@/lib/deadlock";
+import {
+  fetchHeroes,
+  fetchHeroById,
+  fetchUpgradeItems,
+  normalizeUpgradeItems,
+  fetchAbilityItems,
+  getHeroSignatureSlotsFromHeroItems,
+} from "@/lib/deadlock";
 
 export default async function BuildHeroPage({
   params,
@@ -8,7 +15,26 @@ export default async function BuildHeroPage({
 }) {
   const { heroId } = await params;
 
-  const heroes = await fetchVisibleHeroes();
+  const heroes = await fetchHeroes();
+  heroes.sort((a, b) => a.name.localeCompare(b.name));
 
-  return <BuildClient heroes={heroes} selectedHeroId={heroId} />;
+  const upgrades = normalizeUpgradeItems(await fetchUpgradeItems());
+
+  // Abilities (4 slots) come from ability API + heroData.items.signature1-4
+  const heroData = await fetchHeroById(heroId);
+  const allAbilities = await fetchAbilityItems();
+  const heroAbilities = getHeroSignatureSlotsFromHeroItems(
+    heroData.items,
+    allAbilities,
+    heroData.id
+  );
+
+  return (
+    <BuildClient
+      heroes={heroes}
+      selectedHeroId={heroId}
+      upgrades={upgrades}
+      heroAbilities={heroAbilities}
+    />
+  );
 }
