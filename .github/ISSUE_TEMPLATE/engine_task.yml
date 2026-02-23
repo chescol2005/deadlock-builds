@@ -1,0 +1,31 @@
+name: Engine Task
+description: Deterministic engine/scoring/stat modeling work
+title: "[Engine] "
+labels: ["engine"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What outcome should this produce?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Bullet list of pass/fail criteria.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints / notes
+      description: Types, invariants, edge cases, references.
+    validations:
+      required: false
