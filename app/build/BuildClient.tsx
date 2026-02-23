@@ -10,16 +10,21 @@ export default function BuildClient({
   heroes,
   selectedHeroId,
   upgrades,
-  heroAbilities,
+  heroAbilities = [],
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
   upgrades: ShopItem[];
-  heroAbilities: HeroAbilitySlot[];
+  heroAbilities?: HeroAbilitySlot[];
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
-  const [items, setItems] = useState<BuildItem[]>([]);
+  const [refresh, setRefresh] = useState(0);
+
+  const items = useMemo(() => {
+    if (!heroId) return [];
+    return readBuild(heroId);
+  }, [heroId, refresh]);
 
   const selectedHero = useMemo(
     () => heroes.find((h) => String(h.id) === String(heroId)),
@@ -27,25 +32,14 @@ export default function BuildClient({
   );
 
   useEffect(() => {
-    if (!heroId) {
-      setItems([]);
-      return;
-    }
-    setItems(readBuild(heroId));
-  }, [heroId]);
-
-  useEffect(() => {
-    const handler = () => {
-      if (!heroId) return;
-      setItems(readBuild(heroId));
-    };
+    const handler = () => setRefresh((x) => x + 1);
     window.addEventListener("deadlock-build-changed", handler);
     window.addEventListener("storage", handler);
     return () => {
       window.removeEventListener("deadlock-build-changed", handler);
       window.removeEventListener("storage", handler);
     };
-  }, [heroId]);
+  }, []);
 
   return (
     <main style={{ padding: 32 }}>
@@ -163,9 +157,11 @@ export default function BuildClient({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h2 style={{ margin: 0 }}>{selectedHero?.name ?? "Selected Hero"}</h2>
               <button
-                onClick={() => setItems(clearBuild(heroId))}
+                onClick={() => {
+                  clearBuild(heroId);
+                  setRefresh((x) => x + 1);
+                }}
                 disabled={items.length === 0}
-                style={{ padding: "6px 10px", borderRadius: 8 }}
               >
                 Clear
               </button>
@@ -192,8 +188,10 @@ export default function BuildClient({
                   >
                     <div style={{ fontWeight: 650 }}>{it.name}</div>
                     <button
-                      onClick={() => setItems(removeFromBuild(heroId, it.id))}
-                      style={{ padding: "6px 10px", borderRadius: 8 }}
+                      onClick={() => {
+                        removeFromBuild(heroId, it.id);
+                        setRefresh((x) => x + 1);
+                      }}
                     >
                       Remove
                     </button>

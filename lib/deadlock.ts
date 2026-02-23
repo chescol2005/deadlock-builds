@@ -256,8 +256,7 @@ export type DeadlockUpgradeItem = {
   is_active_item?: boolean;
   shopable?: boolean;
 
-  properties?: Record<string, any>;
-
+  properties?: Record<string, unknown>;
   [k: string]: unknown;
 };
 
@@ -289,7 +288,7 @@ export type ShopItem = {
   shopable: boolean;
 
   // handy later for scoring
-  properties?: Record<string, any>;
+  properties?: Record<string, unknown>;
 };
 
 export function normalizeUpgradeItems(items: DeadlockUpgradeItem[]): ShopItem[] {
@@ -338,7 +337,8 @@ export type DeadlockAbilityItem = {
   start_trained?: boolean;
   update_time?: number;
 
-  properties?: Record<string, any>;
+  properties?: Record<string, unknown>;
+
   upgrades?: Array<{
     property_upgrades?: Array<{
       name: string;
@@ -348,8 +348,8 @@ export type DeadlockAbilityItem = {
     }>;
   }>;
 
-  description?: Record<string, any>;
-  tooltip_details?: any;
+  description?: Record<string, unknown>;
+  tooltip_details?: unknown;
   videos?: { webm?: string; mp4?: string };
 
   [k: string]: unknown;
@@ -373,7 +373,7 @@ export type SignatureAbility = {
   name: string;
   icon?: string;
 
-  properties?: Record<string, any>;
+  properties?: Record<string, unknown>;
   upgrades?: DeadlockAbilityItem["upgrades"];
   description?: DeadlockAbilityItem["description"];
   videos?: DeadlockAbilityItem["videos"];

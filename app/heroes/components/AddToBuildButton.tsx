@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { addToBuild, readBuild, BuildItem } from "@/lib/buildStorage";
 
 export function AddToBuildButton({
@@ -10,18 +10,13 @@ export function AddToBuildButton({
   heroId: string | number;
   item: BuildItem;
 }) {
-  const [added, setAdded] = useState(false);
-
-  useEffect(() => {
-    setAdded(readBuild(heroId).some((x) => x.id === item.id));
+  const added = useMemo(() => {
+    return readBuild(heroId).some((x) => x.id === item.id);
   }, [heroId, item.id]);
 
   return (
     <button
-      onClick={() => {
-        addToBuild(heroId, item);
-        setAdded(true);
-      }}
+      onClick={() => addToBuild(heroId, item)}
       disabled={added}
       style={{ padding: "6px 10px", borderRadius: 8 }}
     >
