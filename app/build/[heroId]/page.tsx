@@ -1,6 +1,7 @@
+import { redirect } from "next/navigation";
 import BuildClient from "../BuildClient";
 import {
-  fetchHeroes,
+  fetchVisibleHeroes,
   fetchHeroById,
   fetchUpgradeItems,
   normalizeUpgradeItems,
@@ -15,8 +16,14 @@ export default async function BuildHeroPage({
 }) {
   const { heroId } = await params;
 
-  const heroes = await fetchHeroes();
-  heroes.sort((a, b) => a.name.localeCompare(b.name));
+  // Keep hero set consistent with /build (visible/selectable only)
+  const heroes = await fetchVisibleHeroes();
+
+  // If someone navigates to a non-visible heroId, bounce them back
+  const isVisible = heroes.some((h) => String(h.id) === String(heroId));
+  if (!isVisible) {
+    redirect("/build");
+  }
 
   const upgrades = normalizeUpgradeItems(await fetchUpgradeItems());
 
