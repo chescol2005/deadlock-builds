@@ -37,7 +37,11 @@ export function recommendItems(
     };
   });
 
-  recommendations.sort((a, b) => b.finalScore - a.finalScore);
+  recommendations.sort((a, b) => {
+    if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
+    if (a.item.cost !== b.item.cost) return a.item.cost - b.item.cost;
+    return a.item.itemId.localeCompare(b.item.itemId);
+  });
 
   return {
     version: 1,
