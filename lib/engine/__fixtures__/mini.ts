@@ -1,17 +1,18 @@
-import { recommendItems } from "../engine";
-import type {
-  EngineInput,
-  EngineOutput,
-  ItemCandidate,
-  ScoringStage,
-  StageScore,
-} from "../types";
+// lib/engine/__fixtures__/mini.ts
+//
+// Smoke test + regression harness for the scoring engine.
+// Uses the real stage implementations — not stubs.
+//
+// Run with:  npx ts-node --project tsconfig.json lib/engine/__fixtures__/mini.ts
+// or wire into a test runner script if added to package.json.
 
-const BASE_STAGE_ID = "base-category" as const;
-const INTENT_STAGE_ID = "intent-weight" as const;
+import { recommendItems } from "../engine";
+import { baseCategoryStage } from "../stages/baseCategoryStage";
+import { intentWeightStage } from "../stages/intentWeightStage";
+import type { EngineInput, EngineOutput, ItemCandidate } from "../types";
 
 // ---------------------------------------------
-// Fake Candidates
+// Candidates
 // ---------------------------------------------
 const candidates: ReadonlyArray<ItemCandidate> = [
   {
@@ -25,7 +26,7 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
-    tags: ["damage"],
+    tags: ["burst", "damage"],
   },
   {
     itemId: "item_b",
@@ -38,7 +39,7 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
-    tags: ["tank"],
+    tags: ["tank", "armor"],
   },
   {
     itemId: "item_c",
@@ -51,80 +52,123 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
-    tags: ["mobility"],
+    tags: ["mobility", "speed"],
+  },
+  {
+    itemId: "item_d",
+    name: "Lifedrain Pendant",
+    cost: 3200,
+    categoryValues: {
+      damage: 20,
+      survivability: 60,
+      mobility: 0,
+      utility: 10,
+      economy: 5,
+    },
+    tags: ["sustain", "lifesteal", "heal"],
   },
 ];
 
 // ---------------------------------------------
-// Stage 1: Raw Category Sum
+// Test Cases
 // ---------------------------------------------
-const baseCategoryStage: ScoringStage = {
-  stageId: BASE_STAGE_ID,
-  score(_input: EngineInput, candidate: ItemCandidate): StageScore {
-    const total =
-      candidate.categoryValues.damage +
-      candidate.categoryValues.survivability +
-      candidate.categoryValues.mobility +
-      candidate.categoryValues.utility +
-      candidate.categoryValues.economy;
-
-    return {
-      stageId: BASE_STAGE_ID,
-      byCategory: candidate.categoryValues,
-      total,
-      reasons: ["Base category sum"],
-    };
-  },
+type TestCase = {
+  label: string;
+  input: EngineInput;
+  expect: {
+    topItemId: string;
+    minFinalScore?: number;
+  };
 };
 
-// ---------------------------------------------
-// Stage 2: Intent-weighted Score (simple, deterministic)
-// Maps intent keys -> categories in a transparent way.
-// ---------------------------------------------
-const intentStage: ScoringStage = {
-  stageId: INTENT_STAGE_ID,
-  score(input: EngineInput, candidate: ItemCandidate): StageScore {
-    // NOTE: simple v1 mapping for smoke test purposes
-    const weighted =
-      candidate.categoryValues.damage * input.intent.burst +
-      candidate.categoryValues.survivability * input.intent.tank +
-      candidate.categoryValues.mobility * input.intent.mobility +
-      candidate.categoryValues.utility * input.intent.utility;
-
-    return {
-      stageId: INTENT_STAGE_ID,
-      byCategory: {},
-      total: weighted,
-      reasons: ["Intent-weighted total"],
-    };
+const testCases: TestCase[] = [
+  {
+    label: "Pure burst intent → Burst Blade wins",
+    input: {
+      heroId: "hero_test",
+      intent: { burst: 1, sustain: 0, tank: 0, mobility: 0, utility: 0 },
+      currentItems: [],
+    },
+    expect: { topItemId: "item_a" },
   },
-};
-
-// ---------------------------------------------
-// Sample Input
-// ---------------------------------------------
-const input: EngineInput = {
-  heroId: "hero_test",
-  intent: {
-    burst: 1,
-    sustain: 0,
-    tank: 0,
-    mobility: 0,
-    utility: 0,
+  {
+    label: "Pure tank intent → Tank Shield wins",
+    input: {
+      heroId: "hero_test",
+      intent: { burst: 0, sustain: 0, tank: 1, mobility: 0, utility: 0 },
+      currentItems: [],
+    },
+    expect: { topItemId: "item_b" },
   },
-  currentItems: [],
-};
+  {
+    label: "Pure sustain intent → Lifedrain Pendant wins",
+    input: {
+      heroId: "hero_test",
+      intent: { burst: 0, sustain: 1, tank: 0, mobility: 0, utility: 0 },
+      currentItems: [],
+    },
+    expect: { topItemId: "item_d" },
+  },
+  {
+    label: "Pure mobility intent → Balanced Boots wins",
+    input: {
+      heroId: "hero_test",
+      intent: { burst: 0, sustain: 0, tank: 0, mobility: 1, utility: 0 },
+      currentItems: [],
+    },
+    expect: { topItemId: "item_c" },
+  },
+  {
+    label: "Even intent → deterministic sort (finalScore desc, cost asc, itemId asc)",
+    input: {
+      heroId: "hero_test",
+      intent: { burst: 1, sustain: 1, tank: 1, mobility: 1, utility: 1 },
+      currentItems: [],
+    },
+    // With equal weights normalized to 0.2 each, item_d has high survivability
+    // + economy + utility. Top item is score-dependent — just assert it's stable.
+    expect: { topItemId: "item_d" },
+  },
+];
 
 // ---------------------------------------------
-// Run Engine
+// Runner
 // ---------------------------------------------
-const output: EngineOutput = recommendItems(input, candidates, [
-  baseCategoryStage,
-  intentStage,
-]);
+let passed = 0;
+let failed = 0;
 
-console.log("ENGINE SMOKE TEST OUTPUT");
-console.log(JSON.stringify(output, null, 2));
+for (const tc of testCases) {
+  const output: EngineOutput = recommendItems(tc.input, candidates, [
+    baseCategoryStage,
+    intentWeightStage,
+  ]);
 
-// Optional: quick sanity expectation
-console.log("Top item:", output.recommendations[0]?.item.itemId);
+  const top = output.recommendations[0];
+  const topId = top?.item.itemId;
+
+  const ok = topId === tc.expect.topItemId &&
+    (tc.expect.minFinalScore === undefined || (top?.finalScore ?? 0) >= tc.expect.minFinalScore);
+
+  if (ok) {
+    console.log(`  ✅ ${tc.label}`);
+    passed++;
+  } else {
+    console.error(`  ❌ ${tc.label}`);
+    console.error(`     expected top: ${tc.expect.topItemId}, got: ${topId}`);
+    console.error(`     scores: ${output.recommendations.map(r => `${r.item.itemId}=${r.finalScore.toFixed(4)}`).join(" | ")}`);
+    failed++;
+  }
+}
+
+console.log(`\n${passed} passed, ${failed} failed`);
+
+// ---------------------------------------------
+// Verbose dump for the first test case (burst)
+// ---------------------------------------------
+console.log("\n--- Verbose output: pure burst ---");
+const verboseOutput: EngineOutput = recommendItems(
+  testCases[0].input,
+  candidates,
+  [baseCategoryStage, intentWeightStage]
+);
+console.log(JSON.stringify(verboseOutput, null, 2));
