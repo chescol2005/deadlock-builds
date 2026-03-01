@@ -10,7 +10,8 @@ export type IntentKey = (typeof INTENT_KEYS)[number];
 
 export const SCORE_CATEGORIES = [
   "damage",
-  "survivability",
+  "tankiness",   // replaces survivability for armor/hp items
+  "sustain",     // new — lifesteal, regen, healing items
   "mobility",
   "utility",
   "economy",

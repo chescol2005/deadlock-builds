@@ -24,11 +24,11 @@ import { SCORE_CATEGORIES } from "../types";
 // Not all intent keys map 1:1 to score categories; this makes the
 // relationship explicit rather than relying on string coincidence.
 const INTENT_TO_CATEGORY: Readonly<Record<string, ScoreCategory>> = {
-  burst:      "damage",
-  sustain:    "survivability",
-  tank:       "survivability",
-  mobility:   "mobility",
-  utility:    "utility",
+  burst:    "damage",
+  sustain:  "sustain",    // now distinct
+  tank:     "tankiness",  // now distinct
+  mobility: "mobility",
+  utility:  "utility",
 } as const;
 
 export const baseCategoryStage: ScoringStage = {
