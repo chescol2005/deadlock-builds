@@ -1,17 +1,11 @@
-export const INTENT_KEYS = [
-  "burst",
-  "sustain",
-  "tank",
-  "mobility",
-  "utility",
-] as const;
+export const INTENT_KEYS = ["burst", "sustain", "tank", "mobility", "utility"] as const;
 
 export type IntentKey = (typeof INTENT_KEYS)[number];
 
 export const SCORE_CATEGORIES = [
   "damage",
-  "tankiness",   // replaces survivability for armor/hp items
-  "sustain",     // new — lifesteal, regen, healing items
+  "tankiness", // replaces survivability for armor/hp items
+  "sustain", // new — lifesteal, regen, healing items
   "mobility",
   "utility",
   "economy",
@@ -22,30 +16,30 @@ export type ScoreCategory = (typeof SCORE_CATEGORIES)[number];
 export type IntentWeights = Readonly<Record<IntentKey, number>>;
 
 export interface EngineInput {
-	heroId: string;
-	intent: IntentWeights;
-	currentItems: ReadonlyArray<string>;
-	matchContext?: Readonly<Record<string, string | number | boolean>>;
+  heroId: string;
+  intent: IntentWeights;
+  currentItems: ReadonlyArray<string>;
+  matchContext?: Readonly<Record<string, string | number | boolean>>;
 }
 
 export interface ScoreBreakdown {
-	byCategory: Partial<Record<ScoreCategory, number>>;
-	total: number;
+  byCategory: Partial<Record<ScoreCategory, number>>;
+  total: number;
 }
 
 export interface ItemCandidate {
-	itemId: string;
-	name: string;
-	cost: number;
-	categoryValues: Readonly<Record<ScoreCategory, number>>;
-	tags: ReadonlyArray<string>;
+  itemId: string;
+  name: string;
+  cost: number;
+  categoryValues: Readonly<Record<ScoreCategory, number>>;
+  tags: ReadonlyArray<string>;
 }
 
 export interface StageScore {
-	stageId: string;
-	byCategory: Partial<Record<ScoreCategory, number>>;
-	total: number;
-	reasons: ReadonlyArray<string>;
+  stageId: string;
+  byCategory: Partial<Record<ScoreCategory, number>>;
+  total: number;
+  reasons: ReadonlyArray<string>;
 }
 
 export interface ItemRecommendation {

@@ -14,13 +14,13 @@ import { SCORE_CATEGORIES } from "./types";
 export function recommendItems(
   input: EngineInput,
   candidates: ReadonlyArray<ItemCandidate>,
-  stages: ReadonlyArray<ScoringStage>
+  stages: ReadonlyArray<ScoringStage>,
 ): EngineOutput {
   const normalizedIntent = normalizeIntent(input.intent);
 
   const recommendations: ItemRecommendation[] = candidates.map((candidate) => {
     const stageScores = stages.map((s) =>
-      s.score({ ...input, intent: normalizedIntent }, candidate)
+      s.score({ ...input, intent: normalizedIntent }, candidate),
     );
 
     const breakdown = aggregateStageScores(stageScores);
@@ -59,11 +59,13 @@ function normalizeIntent(intent: EngineInput["intent"]): EngineInput["intent"] {
 
   // Preserve keys; normalize values deterministically
   return Object.fromEntries(
-    entries.map(([k, v]) => [k, (Number.isFinite(v) ? v : 0) / sum])
+    entries.map(([k, v]) => [k, (Number.isFinite(v) ? v : 0) / sum]),
   ) as EngineInput["intent"];
 }
 
-function aggregateStageScores(stageScores: ReadonlyArray<{ byCategory: Partial<Record<ScoreCategory, number>>; total: number }>) {
+function aggregateStageScores(
+  stageScores: ReadonlyArray<{ byCategory: Partial<Record<ScoreCategory, number>>; total: number }>,
+) {
   const byCategory: Partial<Record<ScoreCategory, number>> = {};
   let total = 0;
 

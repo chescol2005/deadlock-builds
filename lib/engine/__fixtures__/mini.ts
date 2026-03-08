@@ -33,7 +33,14 @@ const candidates: ReadonlyArray<ItemCandidate> = [
     itemId: "item_c",
     name: "Balanced Boots",
     cost: 2500,
-    categoryValues: { damage: 40, tankiness: 20, sustain: 20, mobility: 20, utility: 0, economy: 0 },
+    categoryValues: {
+      damage: 40,
+      tankiness: 20,
+      sustain: 20,
+      mobility: 20,
+      utility: 0,
+      economy: 0,
+    },
     tags: ["mobility", "speed"],
   },
   {
@@ -122,7 +129,8 @@ for (const tc of testCases) {
   const top = output.recommendations[0];
   const topId = top?.item.itemId;
 
-  const ok = topId === tc.expect.topItemId &&
+  const ok =
+    topId === tc.expect.topItemId &&
     (tc.expect.minFinalScore === undefined || (top?.finalScore ?? 0) >= tc.expect.minFinalScore);
 
   if (ok) {
@@ -131,7 +139,9 @@ for (const tc of testCases) {
   } else {
     console.error(`  ❌ ${tc.label}`);
     console.error(`     expected top: ${tc.expect.topItemId}, got: ${topId}`);
-    console.error(`     scores: ${output.recommendations.map(r => `${r.item.itemId}=${r.finalScore.toFixed(4)}`).join(" | ")}`);
+    console.error(
+      `     scores: ${output.recommendations.map((r) => `${r.item.itemId}=${r.finalScore.toFixed(4)}`).join(" | ")}`,
+    );
     failed++;
   }
 }
@@ -142,9 +152,8 @@ console.log(`\n${passed} passed, ${failed} failed`);
 // Verbose dump for the first test case (burst)
 // ---------------------------------------------
 console.log("\n--- Verbose output: pure burst ---");
-const verboseOutput: EngineOutput = recommendItems(
-  testCases[0].input,
-  candidates,
-  [baseCategoryStage, intentWeightStage]
-);
+const verboseOutput: EngineOutput = recommendItems(testCases[0].input, candidates, [
+  baseCategoryStage,
+  intentWeightStage,
+]);
 console.log(JSON.stringify(verboseOutput, null, 2));

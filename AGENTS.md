@@ -25,6 +25,7 @@ Location:
 `lib/engine/`
 
 Responsibilities:
+
 - Item scoring
 - Intent normalization
 - Stage-based score aggregation
@@ -32,6 +33,7 @@ Responsibilities:
 - Producing `EngineOutput`
 
 Rules:
+
 - No network calls
 - No browser APIs
 - Pure functions only
@@ -48,12 +50,14 @@ Location:
 `lib/`
 
 Responsibilities:
+
 - Fetch external API data
 - Normalize raw API responses
 - Enforce data contracts
 - Provide stable typed structures to engine
 
 Rules:
+
 - No UI logic
 - No scoring logic
 - No AI behavior
@@ -69,12 +73,14 @@ Future Location:
 `lib/review/` or `lib/analysis/`
 
 Responsibilities:
+
 - Analyze match data
 - Interpret engine output
 - Provide strengths/mistakes feedback
 - Generate natural language explanations
 
 Rules:
+
 - Must not alter deterministic scoring
 - Must consume engine output, not re-compute it
 - Must treat engine output as canonical
@@ -89,12 +95,14 @@ Location:
 `app/`
 
 Responsibilities:
+
 - Render engine results
 - Display breakdowns
 - Collect user input
 - Trigger engine execution
 
 Rules:
+
 - No scoring logic
 - No normalization logic
 - No data mutation
@@ -109,12 +117,14 @@ UI reflects system state — it does not compute it.
 If multi-step workflows are introduced:
 
 Responsibilities:
+
 - Sequence data ingestion
 - Call engine
 - Trigger review analysis
 - Coordinate outputs
 
 Rules:
+
 - Must not embed scoring logic
 - Must not mutate engine output
 
@@ -125,6 +135,7 @@ Rules:
 Data Agent → Engine Agent → Review Agent → UI Agent
 
 Never:
+
 - UI → Engine internals
 - Review → Engine mutation
 - Engine → Network
@@ -153,6 +164,7 @@ If a feature requires non-determinism, it belongs in Review Agent, not Engine Ag
 Engine output must include a version field.
 
 If scoring behavior changes:
+
 - Increment version
 - Document change
 - Update tests
@@ -162,15 +174,18 @@ If scoring behavior changes:
 # Testing Expectations
 
 Engine Agent:
+
 - Unit tested
 - Snapshot safe
 - Deterministic
 
 Data Agent:
+
 - Schema validated
 - Defensive parsing
 
 Review Agent:
+
 - Evaluated qualitatively
 - Never relied on for numeric truth
 
@@ -185,6 +200,7 @@ DeadlockFoundry.gg aims to become:
 - A scalable competitive analytics platform
 
 To support this:
+
 - Deterministic core remains stable
 - AI layers remain interpreters, not authorities
 - Architecture prevents logic drift

@@ -11,24 +11,18 @@
 //
 // Final stage total = sum of all category contributions
 
-import type {
-  EngineInput,
-  ItemCandidate,
-  ScoreCategory,
-  ScoringStage,
-  StageScore,
-} from "../types";
+import type { EngineInput, ItemCandidate, ScoreCategory, ScoringStage, StageScore } from "../types";
 import { SCORE_CATEGORIES } from "../types";
 
 // Intent key → ScoreCategory mapping.
 // Not all intent keys map 1:1 to score categories; this makes the
 // relationship explicit rather than relying on string coincidence.
 const INTENT_TO_CATEGORY: Readonly<Record<string, ScoreCategory>> = {
-  burst:    "damage",
-  sustain:  "sustain",    // now distinct
-  tank:     "tankiness",  // now distinct
+  burst: "damage",
+  sustain: "sustain", // now distinct
+  tank: "tankiness", // now distinct
   mobility: "mobility",
-  utility:  "utility",
+  utility: "utility",
 } as const;
 
 export const baseCategoryStage: ScoringStage = {
@@ -53,8 +47,7 @@ export const baseCategoryStage: ScoringStage = {
 
       // Economy category is unweighted by intent — it's always considered.
       // Items with economy value are always partially credited.
-      const effectiveWeight =
-        cat === "economy" ? 1 : intentWeight;
+      const effectiveWeight = cat === "economy" ? 1 : intentWeight;
 
       if (effectiveWeight === 0) continue;
 
@@ -63,7 +56,7 @@ export const baseCategoryStage: ScoringStage = {
       total += contribution;
 
       reasons.push(
-        `${cat}: ${rawValue.toFixed(2)} × ${effectiveWeight.toFixed(3)} = ${contribution.toFixed(3)}`
+        `${cat}: ${rawValue.toFixed(2)} × ${effectiveWeight.toFixed(3)} = ${contribution.toFixed(3)}`,
       );
     }
 

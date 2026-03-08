@@ -28,11 +28,7 @@ function formatValue(v: unknown) {
   }
 }
 
-export default async function HeroPage({
-  params,
-}: {
-  params: Promise<{ hero: string[] }>;
-}) {
+export default async function HeroPage({ params }: { params: Promise<{ hero: string[] }> }) {
   const { hero } = await params;
 
   const segments = hero ?? [];
@@ -53,7 +49,7 @@ export default async function HeroPage({
   const signatureAbilities = getHeroSignatureSlotsFromHeroItems(
     heroData.items,
     allAbilities,
-    heroData.id
+    heroData.id,
   );
 
   // Purchasable shop items: upgrades

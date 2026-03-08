@@ -3,6 +3,7 @@
 This engine is deterministic, explainable, and pure.
 
 Rules:
+
 - No side effects
 - No async logic inside scoring
 - No UI imports

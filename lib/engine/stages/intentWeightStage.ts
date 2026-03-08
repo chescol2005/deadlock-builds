@@ -1,4 +1,4 @@
- // lib/engine/stages/intentWeightStage.ts
+// lib/engine/stages/intentWeightStage.ts
 //
 // Stage 2: Intent Tag Bonus
 //
@@ -13,13 +13,7 @@
 // - Tags are matched case-insensitively
 // - No tag match = zero score from this stage (not penalized)
 
-import type {
-  EngineInput,
-  IntentKey,
-  ItemCandidate,
-  ScoringStage,
-  StageScore,
-} from "../types";
+import type { EngineInput, IntentKey, ItemCandidate, ScoringStage, StageScore } from "../types";
 import { INTENT_KEYS } from "../types";
 
 // How much score each matching tag contributes.
@@ -34,11 +28,11 @@ const MAX_TAGS_SCORED = 3;
 // Canonical tag sets per intent key.
 // Tags are lowercase. Items must include at least one of these to qualify.
 const INTENT_TAGS: Readonly<Record<IntentKey, ReadonlyArray<string>>> = {
-  burst:    ["burst", "nuke", "one-shot", "amp", "damage"],
-  sustain:  ["sustain", "lifesteal", "regen", "heal", "drain"],
-  tank:     ["tank", "armor", "shield", "barrier", "endure"],
+  burst: ["burst", "nuke", "one-shot", "amp", "damage"],
+  sustain: ["sustain", "lifesteal", "regen", "heal", "drain"],
+  tank: ["tank", "armor", "shield", "barrier", "endure"],
   mobility: ["mobility", "dash", "speed", "blink", "move"],
-  utility:  ["utility", "slow", "silence", "stun", "debuff", "cc"],
+  utility: ["utility", "slow", "silence", "stun", "debuff", "cc"],
 };
 
 function getDominantIntent(intent: EngineInput["intent"]): IntentKey {
@@ -93,7 +87,7 @@ export const intentWeightStage: ScoringStage = {
 
     return {
       stageId: "intentWeightStage",
-      byCategory: {},  // tag bonus doesn't attribute to a specific category
+      byCategory: {}, // tag bonus doesn't attribute to a specific category
       total: bonus,
       reasons: [
         `dominant intent: ${dominantIntent} (weight ${dominantWeight.toFixed(3)})`,
