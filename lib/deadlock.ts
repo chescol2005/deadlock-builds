@@ -60,7 +60,7 @@ export function slugifyHeroName(name: string) {
 export async function fetchHeroByName(name: string): Promise<DeadlockHeroDetail> {
   const res = await fetch(
     `https://assets.deadlock-api.com/v2/heroes/by-name/${encodeURIComponent(name)}`,
-    { next: { revalidate: 3600 } }
+    { next: { revalidate: 3600 } },
   );
 
   if (!res.ok) {
@@ -73,7 +73,7 @@ export async function fetchHeroByName(name: string): Promise<DeadlockHeroDetail>
 export async function fetchHeroById(id: number | string): Promise<DeadlockHeroDetail> {
   const res = await fetch(
     `https://assets.deadlock-api.com/v2/heroes/${encodeURIComponent(String(id))}`,
-    { next: { revalidate: 3600 } }
+    { next: { revalidate: 3600 } },
   );
 
   if (!res.ok) {
@@ -117,7 +117,7 @@ export async function fetchVisibleHeroes(): Promise<DeadlockHeroListItem[]> {
         // Fail open on transient detail errors.
         return h;
       }
-    })
+    }),
   );
 
   const visible = enriched.filter((h) => {
@@ -192,7 +192,7 @@ const ASSETS_BASE = "https://assets.deadlock-api.com/v2";
 
 export async function fetchItems(): Promise<DeadlockItemApi[]> {
   const res = await fetch(`${ASSETS_BASE}/items`, {
-    cache: "no-store"
+    cache: "no-store",
   });
 
   if (!res.ok) {
@@ -389,7 +389,7 @@ export type HeroAbilitySlot = SignatureAbility & {
 export function getHeroSignatureSlotsFromHeroItems(
   heroItems: Record<string, string> | undefined,
   allAbilities: DeadlockAbilityItem[],
-  heroId: number | string
+  heroId: number | string,
 ): HeroAbilitySlot[] {
   const hid = Number(heroId);
 
@@ -398,8 +398,7 @@ export function getHeroSignatureSlotsFromHeroItems(
   for (const a of allAbilities) {
     if (!a?.class_name) continue;
 
-    const belongs =
-      Number(a.hero) === hid || (Array.isArray(a.heroes) && a.heroes.includes(hid));
+    const belongs = Number(a.hero) === hid || (Array.isArray(a.heroes) && a.heroes.includes(hid));
     if (!belongs) continue;
 
     byClass[a.class_name] = a;

@@ -106,7 +106,9 @@ export default function HeroesGridClient({ heroes }: { heroes: DeadlockHeroListI
 
       <p style={{ opacity: 0.8 }}>Loaded {heroes.length} heroes from the Deadlock Assets API.</p>
 
-      <div style={{ marginTop: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <div
+        style={{ marginTop: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}
+      >
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}

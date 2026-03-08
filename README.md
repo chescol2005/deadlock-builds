@@ -33,7 +33,6 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-
 # 🧠 DeadlockBuilder (Working Title)
 
 - A Deadlock build planner + AI-powered match review coach.
@@ -47,12 +46,12 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 ## DeadlockBuilder combines three pillars:
 
-1) Hero Exploration - Deep hero stats and ability insights
-2) Build Planner - Structured item + ability planning with intelligent suggestions
-3) Match Review Coach - AI-assisted feedback on gameplay performance
+1. Hero Exploration - Deep hero stats and ability insights
+2. Build Planner - Structured item + ability planning with intelligent suggestions
+3. Match Review Coach - AI-assisted feedback on gameplay performance
 
 The goal is to build the Deadlock equivalent of:
-    OP.GG + U.GG + Path of Building + AI Coach. 
+OP.GG + U.GG + Path of Building + AI Coach.
 But focused on clarity, speed, and actionable feedback.
 
 # 🏗 Tech Stack
@@ -65,7 +64,7 @@ But focused on clarity, speed, and actionable feedback.
 - Future: Database (Supabase/Postgres), KV cache
 
 # 📂 Project Structure
-        
+
         app/
           build/
             BuildClient.tsx
@@ -83,7 +82,7 @@ But focused on clarity, speed, and actionable feedback.
           api/
             review/
               route.ts
-        
+
         lib/
           deadlock.ts
           buildStorage.ts
@@ -93,13 +92,14 @@ But focused on clarity, speed, and actionable feedback.
           types.ts
 
 # 📊 Data Sources
+
 ## Static Data (Cached with ISR)
 
 Heroes
-    https://assets.deadlock-api.com/v2/heroes
+https://assets.deadlock-api.com/v2/heroes
 Items (planned)
 Abilities (planned)
-    
+
     Example fetch pattern:
       fetch(url, {
         next: { revalidate: 3600 },
@@ -109,18 +109,21 @@ Abilities (planned)
 
 - Match telemetry
 - Replay/log upload analysis
-      
-      fetch(url, {
-        cache: "no-store",
-      });
+  fetch(url, {
+  cache: "no-store",
+  });
 
 # 🧩 Core Features
+
 ## 1️⃣ Hero Explorer
+
 ### Route
+
     /heroes
     /heroes/[slug]
 
 ### Features
+
 - Hero grid
 - Search + filter
 - Hero detail page
@@ -129,34 +132,42 @@ Abilities (planned)
 - Build entry point
 
 ### Definition of Done
+
 - All heroes render correctly
 - Detail page loads without errors
 - “Start Build” routes to /build/[heroId]
 
 ## 2️⃣ Build Planner
+
 ### Routes
+
     /build
     /build/[heroId]
 
 ### Layout (3 Panel System)
+
 #### Left Panel
+
 - Hero image
 - Class
 - Ability leveling planner
 - Derived stats
 
 #### Center Panel
+
 - Items grouped by category:
-    - Spirit
-    - Gun
-    - Vitality
+  - Spirit
+  - Gun
+  - Vitality
 
 #### Right Panel
+
 - Build summary
 - Suggested items
 - Warnings / synergy notes
 
 ## Build State Model
+
     type BuildState = {
       heroId: string;
       items: BuildItem[];
@@ -164,11 +175,13 @@ Abilities (planned)
     };
 
 Persisted in:
+
 - v1: localStorage
 - v2: Shareable URL
 - v3: Database save
 
 ### Item Model
+
     type Item = {
       id: string;
       name: string;
@@ -178,9 +191,11 @@ Persisted in:
     };
 
 ## 3️⃣ Deterministic Recommendation Engine
+
 LLMs are NOT used for scoring.
 
 ### User selects goal:
+
 - Burst
 - Sustain
 - Tank
@@ -201,7 +216,7 @@ LLMs are NOT used for scoring.
       spiritPower * weight.spiritPower +
       cooldownReduction * weight.cooldownReduction +
       health * weight.health
-    
+
 ### Output:
 
 - Top 3 recommended items
@@ -209,19 +224,23 @@ LLMs are NOT used for scoring.
 - Anti-synergy warnings
 
 ## 4️⃣ Match Review Coach
+
 ### Routes
 
     /review
     /review/[matchId]
 
 ### User Input
+
 - Match ID
 - Hero
 - Player name or slot
 - Optional role intent
 
 ### Review Pipeline
+
 #### Step 1 – Ingest
+
 Fetch match telemetry.
 
 #### Step 2 – Normalize
@@ -238,6 +257,7 @@ Fetch match telemetry.
 #### Step 3 – Rule Engine
 
 Examples:
+
 - Early death streaks
 - Late first item
 - Fighting before spike
@@ -247,6 +267,7 @@ Examples:
 #### Step 4 – AI Narrative Layer (Optional)
 
 LLM receives:
+
 - Normalized summary
 - Rule flags
 
@@ -257,60 +278,74 @@ LLM produces:
 - 🎯 Top 3 improvement priorities
 
 Important:
-    AI writes the explanation, not the facts.
+AI writes the explanation, not the facts.
 
 # 🧠 Architectural Principles
+
 ## 1. Normalize external data immediately
+
 Never trust external API shape directly in UI.
 
 ## 2. Deterministic logic before AI
+
 Math first. LLM second.
 
 ## 3. Cache static data aggressively
+
 Heroes/items rarely change.
 
 ## 4. Never cache match telemetry
+
 Always fetch fresh.
 
 ## 5. Keep UI reactive and state-driven
+
 Build page is fully client-side.
 
 # 🛣 Roadmap
+
 ## Phase 1 – Core MVP
+
 - Hero explorer
 - Basic build planner
 - Item grouping
 - Clear/remove build
 
 ## Phase 2 – Intelligence
+
 - Deterministic scoring engine
 - Suggested next items
 - Anti-synergy detection
 
 ## Phase 3 – Review MVP
+
 - Match ID ingestion
 - Rule-based feedback
 - Basic coaching output
 
 ## Phase 4 – AI Layer
+
 - LLM narrative generation
 - Personalized improvement advice
 - Historical match comparison
 
 ## Phase 5 – Community + Persistence
+
 - Accounts
 - Saved builds
 - Public build pages
 - Match history tracking
 
 # 🎯 Definition of Success
+
 A user can:
-1) Pick a hero
-2) Build items
-3) Understand why items are good
-4) Paste a Match ID
-5) Receive actionable, prioritized feedback
-6) Share the build or review with a URL
+
+1. Pick a hero
+2. Build items
+3. Understand why items are good
+4. Paste a Match ID
+5. Receive actionable, prioritized feedback
+6. Share the build or review with a URL
 
 # 🔮 Long-Term Expansion Ideas
 
@@ -357,3 +392,4 @@ flowchart TB
 
   CS --> URL[Shareable URL Encoding]
   URL --> U
+```

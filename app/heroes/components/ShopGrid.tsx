@@ -79,28 +79,28 @@ export function ShopGrid({
     return m;
   }, [filtered]);
 
-    return (
-      <section style={{ marginTop: 20 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0 }}>Shop</h2>
+  return (
+    <section style={{ marginTop: 20 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0 }}>Shop</h2>
 
-          {showBuildLink ? (
-            <Link
-              href={`/build/${heroId}`}
-              style={{
-                opacity: 0.9,
-                textDecoration: "none",
-                border: `1px solid ${meta.border}`,
-                padding: "6px 10px",
-                borderRadius: 999,
-                background: meta.accentSoft,
-                color: meta.accent,
-                fontWeight: 800,
-              }}
-            >
-              Build →
-            </Link>
-          ) : null}
+        {showBuildLink ? (
+          <Link
+            href={`/build/${heroId}`}
+            style={{
+              opacity: 0.9,
+              textDecoration: "none",
+              border: `1px solid ${meta.border}`,
+              padding: "6px 10px",
+              borderRadius: 999,
+              background: meta.accentSoft,
+              color: meta.accent,
+              fontWeight: 800,
+            }}
+          >
+            Build →
+          </Link>
+        ) : null}
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 8 }}>
@@ -161,9 +161,7 @@ export function ShopGrid({
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                <div style={{ fontWeight: 900, color: meta.accent }}>
-                  Tier {tier}
-                </div>
+                <div style={{ fontWeight: 900, color: meta.accent }}>Tier {tier}</div>
                 <div style={{ opacity: 0.8 }}>${tierCost(tier)}</div>
               </div>
 
