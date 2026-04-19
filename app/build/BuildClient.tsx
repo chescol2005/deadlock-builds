@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   DeadlockHeroListItem,
@@ -11,7 +11,8 @@ import type {
   AbilityLevel,
   AbilityLevels,
 } from "@/lib/deadlock";
-import { readBuild, removeFromBuild, clearBuild } from "@/lib/buildStorage";
+import { serializeBuild } from "@/lib/buildSerializer";
+import type { BuildState } from "@/lib/buildSerializer";
 import { ItemBrowser } from "@/app/build/components/ItemBrowser";
 import { AbilityLevelingPanel } from "@/app/build/components/AbilityLevelingPanel";
 import { BuildSummaryPanel } from "@/app/build/components/BuildSummaryPanel";
@@ -27,54 +28,75 @@ export default function BuildClient({
   selectedHeroId,
   upgrades,
   heroAbilities = [],
+  initialState = null,
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
   upgrades: ShopItem[];
   heroAbilities?: HeroAbilitySlot[];
+  initialState?: BuildState | null;
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
-  const [refresh, setRefresh] = useState(0);
   const [activeTab, setActiveTab] = useState<ShopCategory>("weapon");
-  const [abilityLevels, setAbilityLevels] = useState<AbilityLevels>({});
 
-  const buildItems = useMemo(() => {
-    if (!heroId) return [];
-    return readBuild(heroId);
-  }, [heroId, refresh]);
+  // Initialize directly from server-provided initialState — no localStorage read on any render
+  const [selectedItems, setSelectedItems] = useState<ShopItem[]>(() => {
+    if (!initialState) return [];
+    const byId = new Map(upgrades.map((u) => [u.id, u]));
+    return initialState.itemIds.flatMap((id) => {
+      const item = byId.get(id);
+      return item ? [item] : [];
+    });
+  });
 
-  const selectedIds = useMemo(
-    () => new Set(buildItems.map((it) => it.id)),
-    [buildItems]
+  const [abilityLevels, setAbilityLevels] = useState<AbilityLevels>(
+    initialState?.abilityLevels ?? {},
   );
 
-  const selectedItems = useMemo(() => {
-    if (buildItems.length === 0) return [];
-    const byId = new Map(upgrades.map((u) => [u.id, u]));
-    return buildItems.flatMap((it) => {
-      const shopItem = byId.get(it.id);
-      return shopItem ? [shopItem] : [];
-    });
-  }, [buildItems, upgrades]);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  const selectedIds = useMemo(
+    () => new Set(selectedItems.map((it) => it.id)),
+    [selectedItems],
+  );
 
   const selectedHero = useMemo(
     () => heroes.find((h) => String(h.id) === String(heroId)),
-    [heroes, heroId]
+    [heroes, heroId],
   );
-
-  useEffect(() => {
-    const handler = () => setRefresh((x) => x + 1);
-    window.addEventListener("deadlock-build-changed", handler);
-    window.addEventListener("storage", handler);
-    return () => {
-      window.removeEventListener("deadlock-build-changed", handler);
-      window.removeEventListener("storage", handler);
-    };
-  }, []);
 
   function handleLevelChange(slot: SignatureSlot, level: AbilityLevel) {
     setAbilityLevels((prev) => ({ ...prev, [slot]: level }));
+  }
+
+  function handleToggleItem(item: ShopItem) {
+    setSelectedItems((prev) =>
+      prev.some((it) => it.id === item.id)
+        ? prev.filter((it) => it.id !== item.id)
+        : [...prev, item],
+    );
+  }
+
+  async function handleCopyShareLink() {
+    const state: BuildState = {
+      heroId,
+      itemIds: selectedItems.map((it) => it.id),
+      abilityLevels,
+    };
+    const encoded = serializeBuild(state);
+    const url = `${window.location.origin}${window.location.pathname}?build=${encoded}`;
+
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyState("copied");
+      setFailedUrl(null);
+      setTimeout(() => setCopyState("idle"), 2000);
+    } catch {
+      setCopyState("failed");
+      setFailedUrl(url);
+    }
   }
 
   return (
@@ -87,6 +109,7 @@ export default function BuildClient({
           onChange={(e) => {
             const next = e.target.value;
             setHeroId(next);
+            setSelectedItems([]);
             setAbilityLevels({});
             if (!next) router.push("/build");
             else router.push(`/build/${next}`);
@@ -124,6 +147,65 @@ export default function BuildClient({
             </div>
           </div>
         ) : null}
+
+        {heroId ? (
+          <div style={{ marginLeft: "auto", position: "relative" }}>
+            <button
+              onClick={handleCopyShareLink}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.35)",
+                background:
+                  copyState === "copied" ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.12)",
+                color: copyState === "copied" ? "#4ade80" : "inherit",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 13,
+                whiteSpace: "nowrap",
+                transition: "background 0.15s, color 0.15s",
+              }}
+            >
+              {copyState === "copied" ? "Copied!" : "Copy Share Link"}
+            </button>
+            {copyState === "failed" && failedUrl ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  right: 0,
+                  background: "#1e1e2e",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  zIndex: 50,
+                  minWidth: 320,
+                  maxWidth: 400,
+                }}
+              >
+                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
+                  Clipboard unavailable — copy manually:
+                </div>
+                <input
+                  readOnly
+                  value={failedUrl}
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                  style={{
+                    width: "100%",
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 6,
+                    padding: "6px 8px",
+                    fontSize: 11,
+                    fontFamily: "monospace",
+                    color: "inherit",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       {!heroId ? (
@@ -159,17 +241,14 @@ export default function BuildClient({
               >
                 <h2 style={{ margin: 0 }}>{selectedHero?.name ?? "Selected Hero"}</h2>
                 <button
-                  onClick={() => {
-                    clearBuild(heroId);
-                    setRefresh((x) => x + 1);
-                  }}
-                  disabled={buildItems.length === 0}
+                  onClick={() => setSelectedItems([])}
+                  disabled={selectedItems.length === 0}
                 >
                   Clear
                 </button>
               </div>
 
-              {buildItems.length === 0 ? (
+              {selectedItems.length === 0 ? (
                 <div style={{ marginTop: 12, opacity: 0.6 }}>No items added yet.</div>
               ) : (
                 <ul
@@ -202,10 +281,9 @@ export default function BuildClient({
                       >
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{it.name}</div>
                         <button
-                          onClick={() => {
-                            removeFromBuild(heroId, it.id);
-                            setRefresh((x) => x + 1);
-                          }}
+                          onClick={() =>
+                            setSelectedItems((prev) => prev.filter((x) => x.id !== it.id))
+                          }
                           style={{
                             padding: "4px 8px",
                             borderRadius: 6,
@@ -226,11 +304,11 @@ export default function BuildClient({
             </section>
 
             <ItemBrowser
-              heroId={heroId}
               items={upgrades}
               activeTab={activeTab}
               onTabChange={setActiveTab}
               selectedIds={selectedIds}
+              onToggle={handleToggleItem}
             />
           </div>
 

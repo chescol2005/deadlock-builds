@@ -8,13 +8,18 @@ import {
   fetchAbilityItems,
   getHeroSignatureSlotsFromHeroItems,
 } from "@/lib/deadlock";
+import { deserializeBuild } from "@/lib/buildSerializer";
+import type { BuildState } from "@/lib/buildSerializer";
 
 export default async function BuildHeroPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ heroId: string }>;
+  searchParams: Promise<{ build?: string }>;
 }) {
   const { heroId } = await params;
+  const { build } = await searchParams;
 
   // Keep hero set consistent with /build (visible/selectable only)
   const heroes = await fetchVisibleHeroes();
@@ -33,8 +38,17 @@ export default async function BuildHeroPage({
   const heroAbilities = getHeroSignatureSlotsFromHeroItems(
     heroData.items,
     allAbilities,
-    heroData.id
+    heroData.id,
   );
+
+  let initialState: BuildState | null = null;
+  if (build) {
+    try {
+      initialState = deserializeBuild(build);
+    } catch {
+      // Malformed param — fall through to empty state
+    }
+  }
 
   return (
     <BuildClient
@@ -42,6 +56,7 @@ export default async function BuildHeroPage({
       selectedHeroId={heroId}
       upgrades={upgrades}
       heroAbilities={heroAbilities}
+      initialState={initialState}
     />
   );
 }

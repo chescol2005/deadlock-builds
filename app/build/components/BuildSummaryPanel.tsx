@@ -1,9 +1,5 @@
 import type { ShopItem } from "@/lib/deadlock";
-import {
-  calculateDamageSplit,
-  calculateStatTotals,
-  calculateTotalCost,
-} from "@/lib/buildCalculations";
+import { calculateDamageSplit, calculateTotalCost } from "@/lib/buildCalculations";
 
 const COLORS = {
   spirit: { solid: "#7c3aed", label: "Spirit" },
@@ -17,7 +13,6 @@ function fmt(n: number): string {
 
 export function BuildSummaryPanel({ selectedItems }: { selectedItems: ShopItem[] }) {
   const split = calculateDamageSplit(selectedItems);
-  const stats = calculateStatTotals(selectedItems);
   const totalCost = calculateTotalCost(selectedItems);
   const hasItems = selectedItems.length > 0;
 
@@ -97,26 +92,17 @@ export function BuildSummaryPanel({ selectedItems }: { selectedItems: ShopItem[]
           Stat Contributions
         </div>
 
-        <div style={{ display: "grid", gap: 8 }}>
-          {(["spirit", "gun", "vitality"] as const).map((cat) => (
-            <div
-              key={cat}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "8px 12px",
-                borderRadius: 8,
-                border: `1px solid ${COLORS[cat].solid}40`,
-                background: `${COLORS[cat].solid}12`,
-              }}
-            >
-              <span style={{ color: COLORS[cat].solid, fontWeight: 700, fontSize: 13 }}>
-                {COLORS[cat].label}
-              </span>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>{fmt(stats[cat])}</span>
-            </div>
-          ))}
+        <div
+          style={{
+            padding: "12px 14px",
+            borderRadius: 8,
+            border: "1px solid rgba(255,255,255,0.10)",
+            background: "rgba(255,255,255,0.04)",
+            fontSize: 13,
+            opacity: 0.55,
+          }}
+        >
+          Stat data coming in M4
         </div>
       </section>
 
