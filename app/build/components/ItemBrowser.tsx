@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { addToBuild, removeFromBuild } from "@/lib/buildStorage";
 import type { ShopCategory, ShopItem, ShopTier } from "@/lib/deadlock";
 
 const TIERS: ShopTier[] = [1, 2, 3, 4];
@@ -46,17 +45,17 @@ function tierCost(t: ShopTier): number {
 }
 
 export function ItemBrowser({
-  heroId,
   items,
   activeTab,
   onTabChange,
   selectedIds,
+  onToggle,
 }: {
-  heroId: string;
   items: ShopItem[];
   activeTab: ShopCategory;
   onTabChange: (tab: ShopCategory) => void;
   selectedIds: ReadonlySet<string>;
+  onToggle: (item: ShopItem) => void;
 }) {
   const meta = TAB_META[activeTab];
 
@@ -153,7 +152,9 @@ export function ItemBrowser({
                           background: isSelected ? meta.accentSoft : "transparent",
                         }}
                       >
-                        <div style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}>
+                        <div
+                          style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}
+                        >
                           {it.icon ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
@@ -198,13 +199,7 @@ export function ItemBrowser({
                         </div>
 
                         <button
-                          onClick={() => {
-                            if (isSelected) {
-                              removeFromBuild(heroId, it.id);
-                            } else {
-                              addToBuild(heroId, { id: it.id, name: it.name });
-                            }
-                          }}
+                          onClick={() => onToggle(it)}
                           style={{
                             padding: "5px 9px",
                             borderRadius: 8,

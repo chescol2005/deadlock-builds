@@ -225,7 +225,7 @@ export function ShopGrid({
                         </div>
                       </div>
 
-                      <AddToBuildButton heroId={heroId} item={{ id: it.id, name: it.name }} />
+                      <AddToBuildButton heroId={heroId} />
                     </li>
                   ))}
                 </ul>

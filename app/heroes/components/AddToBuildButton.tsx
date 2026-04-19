@@ -1,20 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
-import { addToBuild, readBuild, BuildItem } from "@/lib/buildStorage";
+import Link from "next/link";
 
-export function AddToBuildButton({ heroId, item }: { heroId: string | number; item: BuildItem }) {
-  const added = useMemo(() => {
-    return readBuild(heroId).some((x) => x.id === item.id);
-  }, [heroId, item.id]);
-
+export function AddToBuildButton({ heroId }: { heroId: string | number }) {
   return (
-    <button
-      onClick={() => addToBuild(heroId, item)}
-      disabled={added}
-      style={{ padding: "6px 10px", borderRadius: 8 }}
+    <Link
+      href={`/build/${heroId}`}
+      style={{ padding: "6px 10px", borderRadius: 8, textDecoration: "none" }}
     >
-      {added ? "Added" : "Add to Build"}
-    </button>
+      Build →
+    </Link>
   );
 }
