@@ -287,6 +287,10 @@ export type ShopItem = {
   isActive: boolean;
   shopable: boolean;
 
+  spiritBonus: number;
+  gunBonus: number;
+  vitalityBonus: number;
+
   // handy later for scoring
   properties?: Record<string, unknown>;
 };
@@ -312,6 +316,9 @@ export function normalizeUpgradeItems(items: DeadlockUpgradeItem[]): ShopItem[] 
         cost,
         isActive: Boolean(it.is_active_item) || String(it.activation).toLowerCase() === "active",
         shopable: Boolean(it.shopable),
+        spiritBonus: 0,
+        gunBonus: 0,
+        vitalityBonus: 0,
         properties: it.properties,
       };
     })
@@ -380,6 +387,9 @@ export type SignatureAbility = {
 };
 
 export type SignatureSlot = "signature1" | "signature2" | "signature3" | "signature4";
+
+export type AbilityLevel = 0 | 1 | 2 | 3 ;
+export type AbilityLevels = Partial<Record<SignatureSlot, AbilityLevel>>;
 
 export type HeroAbilitySlot = SignatureAbility & {
   slot: SignatureSlot;
