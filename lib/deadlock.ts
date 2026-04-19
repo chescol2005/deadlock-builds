@@ -388,7 +388,7 @@ export type SignatureAbility = {
 
 export type SignatureSlot = "signature1" | "signature2" | "signature3" | "signature4";
 
-export type AbilityLevel = 0 | 1 | 2 | 3 ;
+export type AbilityLevel = 0 | 1 | 2 | 3;
 export type AbilityLevels = Partial<Record<SignatureSlot, AbilityLevel>>;
 
 export type HeroAbilitySlot = SignatureAbility & {
