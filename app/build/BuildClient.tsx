@@ -16,6 +16,10 @@ import type { BuildState } from "@/lib/buildSerializer";
 import { ItemBrowser } from "@/app/build/components/ItemBrowser";
 import { AbilityLevelingPanel } from "@/app/build/components/AbilityLevelingPanel";
 import { BuildSummaryPanel } from "@/app/build/components/BuildSummaryPanel";
+import { SuggestedItemsPanel } from "@/app/build/components/SuggestedItemsPanel";
+import type { Item } from "@/lib/items";
+import type { BuildGoal } from "@/lib/scoring/goalWeights";
+import { getConsumedComponents, resolveAddItem } from "@/lib/buildUtils";
 
 const CATEGORY_COLORS: Record<ShopCategory, string> = {
   weapon: "#ea580c",
@@ -23,27 +27,39 @@ const CATEGORY_COLORS: Record<ShopCategory, string> = {
   spirit: "#7c3aed",
 };
 
+const GOALS: { value: BuildGoal; label: string }[] = [
+  { value: "burst", label: "Burst" },
+  { value: "dps", label: "DPS" },
+  { value: "tank", label: "Tank" },
+  { value: "sustain", label: "Sustain" },
+  { value: "mobility", label: "Mobility" },
+];
+
 export default function BuildClient({
   heroes,
   selectedHeroId,
   upgrades,
   heroAbilities = [],
   initialState = null,
+  allItems = [],
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
   upgrades: ShopItem[];
   heroAbilities?: HeroAbilitySlot[];
   initialState?: BuildState | null;
+  allItems?: Item[];
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
   const [activeTab, setActiveTab] = useState<ShopCategory>("weapon");
+  const [selectedGoal, setSelectedGoal] = useState<BuildGoal>("burst");
 
-  // Initialize directly from server-provided initialState — no localStorage read on any render
-  const [selectedItems, setSelectedItems] = useState<ShopItem[]>(() => {
+  // Single source of truth for all build items — both ItemBrowser and SuggestedItemsPanel
+  // write here so resolveAddItem/getConsumedComponents see the full build state.
+  const [buildItems, setBuildItems] = useState<Item[]>(() => {
     if (!initialState) return [];
-    const byId = new Map(upgrades.map((u) => [u.id, u]));
+    const byId = new Map(allItems.map((i) => [i.id, i]));
     return initialState.itemIds.flatMap((id) => {
       const item = byId.get(id);
       return item ? [item] : [];
@@ -57,10 +73,7 @@ export default function BuildClient({
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
-  const selectedIds = useMemo(
-    () => new Set(selectedItems.map((it) => it.id)),
-    [selectedItems],
-  );
+  const selectedIds = useMemo(() => new Set(buildItems.map((it) => it.id)), [buildItems]);
 
   const selectedHero = useMemo(
     () => heroes.find((h) => String(h.id) === String(heroId)),
@@ -71,18 +84,34 @@ export default function BuildClient({
     setAbilityLevels((prev) => ({ ...prev, [slot]: level }));
   }
 
-  function handleToggleItem(item: ShopItem) {
-    setSelectedItems((prev) =>
+  // ItemBrowser toggle: look up the Item in allItems so resolveAddItem can walk
+  // componentItems. Without this, chain discounts and consumed state never fire.
+  function handleToggleItem(shopItem: ShopItem) {
+    const item = allItems.find((i) => i.id === shopItem.id);
+    if (!item) return;
+    setBuildItems((prev) =>
       prev.some((it) => it.id === item.id)
         ? prev.filter((it) => it.id !== item.id)
-        : [...prev, item],
+        : resolveAddItem(prev, item, allItems),
     );
+  }
+
+  const consumedComponents = useMemo(() => getConsumedComponents(buildItems), [buildItems]);
+
+  function handleAddSuggestedItem(item: Item) {
+    setBuildItems((prev) =>
+      prev.some((it) => it.id === item.id) ? prev : resolveAddItem(prev, item, allItems),
+    );
+  }
+
+  function handleRemoveItem(itemId: string) {
+    setBuildItems((prev) => prev.filter((it) => it.id !== itemId));
   }
 
   async function handleCopyShareLink() {
     const state: BuildState = {
       heroId,
-      itemIds: selectedItems.map((it) => it.id),
+      itemIds: buildItems.map((it) => it.id),
       abilityLevels,
     };
     const encoded = serializeBuild(state);
@@ -101,7 +130,7 @@ export default function BuildClient({
 
   return (
     <main style={{ padding: 32 }}>
-      <header style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      <header style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <h1 style={{ margin: 0 }}>Build</h1>
 
         <select
@@ -109,7 +138,7 @@ export default function BuildClient({
           onChange={(e) => {
             const next = e.target.value;
             setHeroId(next);
-            setSelectedItems([]);
+            setBuildItems([]);
             setAbilityLevels({});
             if (!next) router.push("/build");
             else router.push(`/build/${next}`);
@@ -145,6 +174,32 @@ export default function BuildClient({
               <div style={{ fontWeight: 700, lineHeight: 1.1 }}>{selectedHero.name}</div>
               <div style={{ opacity: 0.7, fontSize: 12 }}>{selectedHero.class_name}</div>
             </div>
+          </div>
+        ) : null}
+
+        {/* Build goal selector */}
+        {heroId ? (
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 8 }}>
+            <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>Goal:</span>
+            {GOALS.map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setSelectedGoal(value)}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 999,
+                  border: `1px solid ${selectedGoal === value ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.2)"}`,
+                  background: selectedGoal === value ? "rgba(255,255,255,0.15)" : "transparent",
+                  color: "inherit",
+                  fontWeight: selectedGoal === value ? 700 : 400,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         ) : null}
 
@@ -239,16 +294,21 @@ export default function BuildClient({
                   alignItems: "center",
                 }}
               >
-                <h2 style={{ margin: 0 }}>{selectedHero?.name ?? "Selected Hero"}</h2>
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <h2 style={{ margin: 0 }}>{selectedHero?.name ?? "Selected Hero"}</h2>
+                  <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>
+                    {buildItems.length} / 12 slots
+                  </span>
+                </div>
                 <button
-                  onClick={() => setSelectedItems([])}
-                  disabled={selectedItems.length === 0}
+                  onClick={() => setBuildItems([])}
+                  disabled={buildItems.length === 0}
                 >
                   Clear
                 </button>
               </div>
 
-              {selectedItems.length === 0 ? (
+              {buildItems.length === 0 ? (
                 <div style={{ marginTop: 12, opacity: 0.6 }}>No items added yet.</div>
               ) : (
                 <ul
@@ -260,8 +320,11 @@ export default function BuildClient({
                     gap: 8,
                   }}
                 >
-                  {selectedItems.map((it) => {
-                    const accentColor = CATEGORY_COLORS[it.category];
+                  {buildItems.map((it) => {
+                    const accentColor =
+                      it.category === "gun"
+                        ? CATEGORY_COLORS.weapon
+                        : CATEGORY_COLORS[it.category as ShopCategory] ?? "#7c3aed";
                     return (
                       <li
                         key={it.id}
@@ -279,11 +342,14 @@ export default function BuildClient({
                           background: `${accentColor}0d`,
                         }}
                       >
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{it.name}</div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>{it.name}</div>
+                          <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
+                            T{it.tier} · ◈ {it.cost.toLocaleString("en-US")}
+                          </div>
+                        </div>
                         <button
-                          onClick={() =>
-                            setSelectedItems((prev) => prev.filter((x) => x.id !== it.id))
-                          }
+                          onClick={() => handleRemoveItem(it.id)}
                           style={{
                             padding: "4px 8px",
                             borderRadius: 6,
@@ -309,12 +375,21 @@ export default function BuildClient({
               onTabChange={setActiveTab}
               selectedIds={selectedIds}
               onToggle={handleToggleItem}
+              slotsFull={buildItems.length >= 12}
             />
           </div>
 
           {/* Right panel */}
-          <div>
-            <BuildSummaryPanel selectedItems={selectedItems} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            <SuggestedItemsPanel
+              allItems={allItems}
+              currentBuild={buildItems}
+              selectedGoal={selectedGoal}
+              onAdd={handleAddSuggestedItem}
+              consumedComponents={consumedComponents}
+              slotsFull={buildItems.length >= 12}
+            />
+            <BuildSummaryPanel selectedItems={buildItems} />
           </div>
         </div>
       )}

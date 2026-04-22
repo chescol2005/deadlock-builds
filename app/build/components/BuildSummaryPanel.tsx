@@ -1,4 +1,9 @@
-import type { ShopItem } from "@/lib/deadlock";
+"use client";
+
+import type { Item } from "@/lib/items";
+import type { CategoryBonus } from "@/lib/categoryBonuses";
+import { isApproachingSignificantBonus } from "@/lib/categoryBonuses";
+import { detectAntiSynergies } from "@/lib/scoring/antiSynergy";
 import { calculateDamageSplit, calculateTotalCost } from "@/lib/buildCalculations";
 
 const COLORS = {
@@ -11,10 +16,102 @@ function fmt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-export function BuildSummaryPanel({ selectedItems }: { selectedItems: ShopItem[] }) {
-  const split = calculateDamageSplit(selectedItems);
-  const totalCost = calculateTotalCost(selectedItems);
-  const hasItems = selectedItems.length > 0;
+type CategoryKey = "gun" | "vitality" | "spirit";
+
+type BonusRowProps = {
+  label: string;
+  souls: number;
+  bonus: CategoryBonus | null;
+  toNextTier: number | null;
+  color: string;
+  getBonusValue: (b: CategoryBonus) => string;
+};
+
+function BonusRow({ label, souls, bonus, toNextTier, color, getBonusValue }: BonusRowProps) {
+  const approaching = isApproachingSignificantBonus(souls);
+  const atSignificant = bonus?.isSignificant === true || (bonus !== null && souls >= 4800);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        padding: "8px 10px",
+        borderRadius: 8,
+        border: `1px solid ${color}33`,
+        background: `${color}0a`,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color }}>{label}</span>
+        {bonus ? (
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: atSignificant ? "#facc15" : "rgba(255,255,255,0.85)",
+            }}
+          >
+            {atSignificant ? "★ " : ""}
+            {getBonusValue(bonus)}
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, opacity: 0.4 }}>No bonus yet</span>
+        )}
+      </div>
+
+      {approaching ? (
+        <div style={{ fontSize: 11, color: "#facc15", fontWeight: 600 }}>
+          {fmt(toNextTier ?? 0)} souls to +49% bonus!
+        </div>
+      ) : toNextTier !== null && !atSignificant ? (
+        <div style={{ fontSize: 11, opacity: 0.45 }}>{fmt(toNextTier)} to next tier</div>
+      ) : null}
+    </div>
+  );
+}
+
+const BONUS_META: Record<
+  CategoryKey,
+  { label: string; color: string; getBonusValue: (b: CategoryBonus) => string }
+> = {
+  gun: {
+    label: "Weapon",
+    color: COLORS.gun.solid,
+    getBonusValue: (b) => `+${b.weaponDamagePercent}% Weapon Damage`,
+  },
+  vitality: {
+    label: "Vitality",
+    color: COLORS.vitality.solid,
+    getBonusValue: (b) => `+${b.healthBonus}% Max Health`,
+  },
+  spirit: {
+    label: "Spirit",
+    color: COLORS.spirit.solid,
+    getBonusValue: (b) => `+${b.spiritPowerBonus} Spirit Power`,
+  },
+};
+
+export function BuildSummaryPanel({
+  selectedItems,
+  suggestedBuildItems = [],
+}: {
+  selectedItems: Item[];
+  suggestedBuildItems?: Item[];
+}) {
+  const allBuildItems = [...selectedItems, ...suggestedBuildItems];
+  const split = calculateDamageSplit(allBuildItems);
+  const totalCost = calculateTotalCost(allBuildItems);
+  const hasItems = allBuildItems.length > 0;
+
+  const antiSynergies = detectAntiSynergies(allBuildItems);
+
+  const bonusRows: { key: CategoryKey; souls: number; bonus: CategoryBonus | null; toNextTier: number | null }[] = [
+    { key: "gun", souls: split.gun, bonus: split.gunBonus, toNextTier: split.gunToNextTier },
+    { key: "vitality", souls: split.vitality, bonus: split.vitalityBonus, toNextTier: split.vitalityToNextTier },
+    { key: "spirit", souls: split.spirit, bonus: split.spiritBonus, toNextTier: split.spiritToNextTier },
+  ];
 
   return (
     <aside style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -77,7 +174,7 @@ export function BuildSummaryPanel({ selectedItems }: { selectedItems: ShopItem[]
         )}
       </section>
 
-      {/* Section 2: Stat Totals */}
+      {/* Section 2: Category Investment Bonuses */}
       <section>
         <div
           style={{
@@ -89,24 +186,68 @@ export function BuildSummaryPanel({ selectedItems }: { selectedItems: ShopItem[]
             marginBottom: 10,
           }}
         >
-          Stat Contributions
+          Investment Bonuses
         </div>
 
-        <div
-          style={{
-            padding: "12px 14px",
-            borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.10)",
-            background: "rgba(255,255,255,0.04)",
-            fontSize: 13,
-            opacity: 0.55,
-          }}
-        >
-          Stat data coming in M4
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {bonusRows.map(({ key, souls, bonus, toNextTier }) => {
+            const meta = BONUS_META[key];
+            return (
+              <BonusRow
+                key={key}
+                label={meta.label}
+                souls={souls}
+                bonus={bonus}
+                toNextTier={toNextTier}
+                color={meta.color}
+                getBonusValue={meta.getBonusValue}
+              />
+            );
+          })}
         </div>
       </section>
 
-      {/* Section 3: Total Soul Cost */}
+      {/* Section 3: Anti-synergy warnings */}
+      {antiSynergies.length > 0 && (
+        <section>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "#f97316",
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+              marginBottom: 10,
+            }}
+          >
+            Conflicts Detected
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {antiSynergies.map(({ itemIds, reason }) => (
+              <div
+                key={itemIds.join("+")}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(249,115,22,0.35)",
+                  background: "rgba(249,115,22,0.08)",
+                  fontSize: 12,
+                  color: "#fdba74",
+                  lineHeight: 1.4,
+                }}
+              >
+                <span style={{ fontWeight: 700 }}>
+                  {itemIds[0]} + {itemIds[1]}:
+                </span>{" "}
+                {reason}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Section 4: Total Soul Cost */}
       <section>
         <div
           style={{
