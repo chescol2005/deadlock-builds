@@ -1,3 +1,5 @@
+export type { Item, ItemCategory, ItemTier, ItemTag, ItemStats } from "./items";
+
 export type DeadlockHeroFlags = {
   player_selectable?: boolean;
   disabled?: boolean;
@@ -308,7 +310,7 @@ export function normalizeUpgradeItems(items: DeadlockUpgradeItem[]): ShopItem[] 
       if (!Number.isFinite(cost) || cost <= 0) return null;
 
       return {
-        id: String(it.id),
+        id: it.class_name,
         name: String(it.name ?? it.class_name ?? it.id),
         icon: (it.image_webp as string | undefined) ?? (it.image as string | undefined),
         category,

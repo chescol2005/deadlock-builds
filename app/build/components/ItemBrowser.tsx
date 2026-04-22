@@ -50,12 +50,14 @@ export function ItemBrowser({
   onTabChange,
   selectedIds,
   onToggle,
+  slotsFull = false,
 }: {
   items: ShopItem[];
   activeTab: ShopCategory;
   onTabChange: (tab: ShopCategory) => void;
   selectedIds: ReadonlySet<string>;
   onToggle: (item: ShopItem) => void;
+  slotsFull?: boolean;
 }) {
   const meta = TAB_META[activeTab];
 
@@ -130,7 +132,7 @@ export function ItemBrowser({
                     padding: 0,
                     margin: 0,
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
                     gap: 10,
                   }}
                 >
@@ -143,34 +145,45 @@ export function ItemBrowser({
                           border: isSelected
                             ? `2px solid ${meta.solid}`
                             : "1px solid rgba(255,255,255,0.10)",
+                          borderLeft: `4px solid ${meta.solid}`,
                           borderRadius: 12,
-                          padding: isSelected ? 9 : 10,
+                          padding: "0 10px",
                           display: "flex",
                           gap: 10,
                           alignItems: "center",
-                          justifyContent: "space-between",
+                          height: 60,
+                          boxSizing: "border-box",
                           background: isSelected ? meta.accentSoft : "transparent",
+                          overflow: "hidden",
                         }}
                       >
                         <div
-                          style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}
+                          style={{
+                            display: "flex",
+                            gap: 8,
+                            alignItems: "center",
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: "hidden",
+                          }}
                         >
                           {it.icon ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={it.icon}
                               alt={it.name}
-                              width={34}
-                              height={34}
-                              style={{ borderRadius: 10, flexShrink: 0 }}
+                              width={32}
+                              height={32}
+                              style={{ borderRadius: 8, flexShrink: 0 }}
                             />
                           ) : null}
 
-                          <div style={{ minWidth: 0 }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
                             <div
                               style={{
                                 fontWeight: 700,
-                                lineHeight: 1.15,
+                                fontSize: 13,
+                                lineHeight: 1.2,
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
@@ -178,42 +191,63 @@ export function ItemBrowser({
                             >
                               {it.name}
                             </div>
-                            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 5,
+                                marginTop: 3,
+                                alignItems: "center",
+                              }}
+                            >
+                              <span style={{ fontSize: 11, opacity: 0.75 }}>
+                                ${it.cost.toLocaleString("en-US")}
+                              </span>
                               {it.isActive ? (
                                 <span
                                   style={{
-                                    fontSize: 11,
-                                    padding: "2px 6px",
+                                    fontSize: 10,
+                                    padding: "1px 5px",
                                     borderRadius: 999,
                                     border: `1px solid ${meta.border}`,
                                     color: meta.accent,
                                     background: meta.accentSoft,
+                                    flexShrink: 0,
                                   }}
                                 >
                                   ACTIVE
                                 </span>
                               ) : null}
-                              <span style={{ fontSize: 11, opacity: 0.75 }}>${it.cost}</span>
                             </div>
                           </div>
                         </div>
 
                         <button
                           onClick={() => onToggle(it)}
+                          disabled={!isSelected && slotsFull}
                           style={{
-                            padding: "5px 9px",
+                            width: 96,
+                            flexShrink: 0,
+                            padding: "5px 6px",
                             borderRadius: 8,
                             border: `1px solid ${isSelected ? meta.solid : "rgba(255,255,255,0.2)"}`,
                             background: isSelected ? meta.accentSoft : "transparent",
-                            color: isSelected ? meta.accent : "rgba(255,255,255,0.75)",
+                            color: isSelected
+                              ? meta.accent
+                              : !isSelected && slotsFull
+                                ? "rgba(255,255,255,0.3)"
+                                : "rgba(255,255,255,0.75)",
                             fontWeight: isSelected ? 700 : 400,
-                            cursor: "pointer",
+                            cursor: !isSelected && slotsFull ? "not-allowed" : "pointer",
                             fontSize: 12,
                             whiteSpace: "nowrap",
-                            flexShrink: 0,
+                            textAlign: "center",
                           }}
                         >
-                          {isSelected ? "Added" : "Add"}
+                          {isSelected
+                            ? "Added"
+                            : slotsFull
+                              ? "Build Full"
+                              : `Add $${it.cost.toLocaleString("en-US")}`}
                         </button>
                       </li>
                     );

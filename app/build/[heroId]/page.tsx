@@ -10,6 +10,7 @@ import {
 } from "@/lib/deadlock";
 import { deserializeBuild } from "@/lib/buildSerializer";
 import type { BuildState } from "@/lib/buildSerializer";
+import { getItems } from "@/lib/itemStore";
 
 export default async function BuildHeroPage({
   params,
@@ -30,7 +31,10 @@ export default async function BuildHeroPage({
     redirect("/build");
   }
 
-  const upgrades = normalizeUpgradeItems(await fetchUpgradeItems());
+  const [upgrades, allItems] = await Promise.all([
+    fetchUpgradeItems().then(normalizeUpgradeItems),
+    getItems(),
+  ]);
 
   // Abilities (4 slots) come from ability API + heroData.items.signature1-4
   const heroData = await fetchHeroById(heroId);
@@ -57,6 +61,7 @@ export default async function BuildHeroPage({
       upgrades={upgrades}
       heroAbilities={heroAbilities}
       initialState={initialState}
+      allItems={allItems}
     />
   );
 }
