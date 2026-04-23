@@ -10,7 +10,6 @@ import {
 } from "../../../lib/deadlock";
 import { ShopGrid } from "../components/ShopGrid";
 
-
 export default async function HeroPage({ params }: { params: Promise<{ hero: string[] }> }) {
   const { hero } = await params;
 
