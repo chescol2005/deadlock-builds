@@ -92,7 +92,12 @@ export function normalizeItem(raw: UpgradeV2Raw): Item {
     cost: Number(raw.cost),
     tags: tags.length > 0 ? tags : ["utility"],
     stats: parsedStats,
-    icon: (raw.image_webp as string | undefined) ?? (raw.image as string | undefined),
+    icon:
+      raw.shop_image_webp ??
+      raw.shop_image ??
+      raw.shop_image_small_webp ??
+      raw.shop_image_small ??
+      undefined,
     componentItems: raw.component_items ?? [],
     upgradesInto: [],
   };

@@ -10,24 +10,6 @@ import {
 } from "../../../lib/deadlock";
 import { ShopGrid } from "../components/ShopGrid";
 
-function formatLabel(key: string) {
-  return key
-    .replace(/_/g, " ")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function formatValue(v: unknown) {
-  if (typeof v === "number") return String(v);
-  if (typeof v === "boolean") return v ? "true" : "false";
-  if (typeof v === "string") return v;
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
-}
-
 export default async function HeroPage({ params }: { params: Promise<{ hero: string[] }> }) {
   const { hero } = await params;
 

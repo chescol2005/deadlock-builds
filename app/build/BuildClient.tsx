@@ -17,15 +17,10 @@ import { ItemBrowser } from "@/app/build/components/ItemBrowser";
 import { AbilityLevelingPanel } from "@/app/build/components/AbilityLevelingPanel";
 import { BuildSummaryPanel } from "@/app/build/components/BuildSummaryPanel";
 import { SuggestedItemsPanel } from "@/app/build/components/SuggestedItemsPanel";
-import type { Item } from "@/lib/items";
+import { CategoryManager } from "@/app/build/components/CategoryManager";
+import type { Item, BuildCategory } from "@/lib/items";
 import type { BuildGoal } from "@/lib/scoring/goalWeights";
 import { getConsumedComponents, resolveAddItem } from "@/lib/buildUtils";
-
-const CATEGORY_COLORS: Record<ShopCategory, string> = {
-  weapon: "#ea580c",
-  vitality: "#16a34a",
-  spirit: "#7c3aed",
-};
 
 const GOALS: { value: BuildGoal; label: string }[] = [
   { value: "burst", label: "Burst" },
@@ -34,6 +29,17 @@ const GOALS: { value: BuildGoal; label: string }[] = [
   { value: "sustain", label: "Sustain" },
   { value: "mobility", label: "Mobility" },
 ];
+
+function cleanCategories(
+  categories: BuildCategory[],
+  buildItems: Item[],
+): BuildCategory[] {
+  const buildClassnames = new Set(buildItems.map((i) => i.id));
+  return categories.map((cat) => ({
+    ...cat,
+    itemIds: cat.itemIds.filter((id) => buildClassnames.has(id)),
+  }));
+}
 
 export default function BuildClient({
   heroes,
@@ -55,8 +61,6 @@ export default function BuildClient({
   const [activeTab, setActiveTab] = useState<ShopCategory>("weapon");
   const [selectedGoal, setSelectedGoal] = useState<BuildGoal>("burst");
 
-  // Single source of truth for all build items — both ItemBrowser and SuggestedItemsPanel
-  // write here so resolveAddItem/getConsumedComponents see the full build state.
   const [buildItems, setBuildItems] = useState<Item[]>(() => {
     if (!initialState) return [];
     const byId = new Map(allItems.map((i) => [i.id, i]));
@@ -70,8 +74,17 @@ export default function BuildClient({
     initialState?.abilityLevels ?? {},
   );
 
+  const [categories, setCategories] = useState<BuildCategory[]>(
+    initialState?.categories ?? [],
+  );
+
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  const cleanedCategories = useMemo(
+    () => cleanCategories(categories, buildItems),
+    [categories, buildItems],
+  );
 
   const selectedIds = useMemo(() => new Set(buildItems.map((it) => it.id)), [buildItems]);
 
@@ -84,15 +97,13 @@ export default function BuildClient({
     setAbilityLevels((prev) => ({ ...prev, [slot]: level }));
   }
 
-  // ItemBrowser toggle: look up the Item in allItems so resolveAddItem can walk
-  // componentItems. Without this, chain discounts and consumed state never fire.
   function handleToggleItem(shopItem: ShopItem) {
     const item = allItems.find((i) => i.id === shopItem.id);
     if (!item) return;
     setBuildItems((prev) =>
       prev.some((it) => it.id === item.id)
         ? prev.filter((it) => it.id !== item.id)
-        : resolveAddItem(prev, item, allItems),
+        : resolveAddItem(prev, item),
     );
   }
 
@@ -100,7 +111,7 @@ export default function BuildClient({
 
   function handleAddSuggestedItem(item: Item) {
     setBuildItems((prev) =>
-      prev.some((it) => it.id === item.id) ? prev : resolveAddItem(prev, item, allItems),
+      prev.some((it) => it.id === item.id) ? prev : resolveAddItem(prev, item),
     );
   }
 
@@ -113,6 +124,7 @@ export default function BuildClient({
       heroId,
       itemIds: buildItems.map((it) => it.id),
       abilityLevels,
+      categories: cleanedCategories,
     };
     const encoded = serializeBuild(state);
     const url = `${window.location.origin}${window.location.pathname}?build=${encoded}`;
@@ -140,6 +152,7 @@ export default function BuildClient({
             setHeroId(next);
             setBuildItems([]);
             setAbilityLevels({});
+            setCategories([]);
             if (!next) router.push("/build");
             else router.push(`/build/${next}`);
           }}
@@ -204,7 +217,27 @@ export default function BuildClient({
         ) : null}
 
         {heroId ? (
-          <div style={{ marginLeft: "auto", position: "relative" }}>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", position: "relative" }}>
+            <span style={{ fontSize: 12, opacity: 0.5 }}>{buildItems.length} / 12 slots</span>
+            <button
+              onClick={() => {
+                setBuildItems([]);
+                setCategories([]);
+              }}
+              disabled={buildItems.length === 0}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "transparent",
+                color: "inherit",
+                cursor: buildItems.length === 0 ? "not-allowed" : "pointer",
+                opacity: buildItems.length === 0 ? 0.4 : 1,
+                fontSize: 12,
+              }}
+            >
+              Clear
+            </button>
             <button
               onClick={handleCopyShareLink}
               style={{
@@ -286,88 +319,13 @@ export default function BuildClient({
 
           {/* Center panel */}
           <div>
-            <section>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <h2 style={{ margin: 0 }}>{selectedHero?.name ?? "Selected Hero"}</h2>
-                  <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>
-                    {buildItems.length} / 12 slots
-                  </span>
-                </div>
-                <button
-                  onClick={() => setBuildItems([])}
-                  disabled={buildItems.length === 0}
-                >
-                  Clear
-                </button>
-              </div>
-
-              {buildItems.length === 0 ? (
-                <div style={{ marginTop: 12, opacity: 0.6 }}>No items added yet.</div>
-              ) : (
-                <ul
-                  style={{
-                    marginTop: 12,
-                    listStyle: "none",
-                    padding: 0,
-                    display: "grid",
-                    gap: 8,
-                  }}
-                >
-                  {buildItems.map((it) => {
-                    const accentColor =
-                      it.category === "gun"
-                        ? CATEGORY_COLORS.weapon
-                        : CATEGORY_COLORS[it.category as ShopCategory] ?? "#7c3aed";
-                    return (
-                      <li
-                        key={it.id}
-                        style={{
-                          borderLeft: `3px solid ${accentColor}`,
-                          borderTop: "1px solid rgba(255,255,255,0.10)",
-                          borderRight: "1px solid rgba(255,255,255,0.10)",
-                          borderBottom: "1px solid rgba(255,255,255,0.10)",
-                          borderRadius: 10,
-                          padding: "10px 12px",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 12,
-                          background: `${accentColor}0d`,
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{it.name}</div>
-                          <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
-                            T{it.tier} · ◈ {it.cost.toLocaleString("en-US")}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleRemoveItem(it.id)}
-                          style={{
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid rgba(255,255,255,0.15)",
-                            background: "transparent",
-                            color: "rgba(255,255,255,0.6)",
-                            cursor: "pointer",
-                            fontSize: 12,
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
+            <CategoryManager
+              categories={cleanedCategories}
+              buildItems={buildItems}
+              onCategoriesChange={setCategories}
+              onRemoveBuildItem={handleRemoveItem}
+              consumedComponents={consumedComponents}
+            />
 
             <ItemBrowser
               items={upgrades}

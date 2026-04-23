@@ -41,7 +41,7 @@ export function getEffectiveAddCost(item: Item, currentBuild: Item[], allItems: 
 
 // Adds newItem to the build, removing any of its componentItems that are currently
 // present. Components not in the build are simply absent — they do not block the add.
-export function resolveAddItem(currentBuild: Item[], newItem: Item, _allItems: Item[]): Item[] {
+export function resolveAddItem(currentBuild: Item[], newItem: Item): Item[] {
   const componentSet = new Set(newItem.componentItems ?? []);
   const withoutConsumed = currentBuild.filter((it) => !componentSet.has(it.id));
   return [...withoutConsumed, newItem];

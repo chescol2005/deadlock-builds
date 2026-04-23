@@ -15,6 +15,10 @@ export type UpgradeV2Raw = {
   component_items?: string[];
   image?: string;
   image_webp?: string;
+  shop_image?: string | null;
+  shop_image_webp?: string | null;
+  shop_image_small?: string | null;
+  shop_image_small_webp?: string | null;
   properties?: Record<
     string,
     {

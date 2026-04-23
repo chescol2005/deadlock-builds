@@ -1,5 +1,15 @@
 export type ItemCategory = "gun" | "vitality" | "spirit";
 
+export type BuildCategory = {
+  id: string;
+  name: string;
+  itemIds: string[];
+};
+
+export type CategoryState = {
+  categories: BuildCategory[];
+};
+
 export type ItemTier = 1 | 2 | 3 | 4;
 
 export type ItemTag = "burst" | "sustain" | "tankiness" | "mobility" | "utility" | "dps";
