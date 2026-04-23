@@ -248,6 +248,8 @@ export type DeadlockUpgradeItem = {
 
   image?: string;
   image_webp?: string;
+  shop_image?: string | null;
+  shop_image_webp?: string | null;
 
   type: "upgrade";
   item_slot_type: "weapon" | "vitality" | "spirit";
@@ -312,7 +314,7 @@ export function normalizeUpgradeItems(items: DeadlockUpgradeItem[]): ShopItem[] 
       return {
         id: it.class_name,
         name: String(it.name ?? it.class_name ?? it.id),
-        icon: (it.image_webp as string | undefined) ?? (it.image as string | undefined),
+        icon: it.shop_image_webp ?? it.shop_image ?? undefined,
         category,
         tier,
         cost,
