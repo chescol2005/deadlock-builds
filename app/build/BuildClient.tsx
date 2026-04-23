@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   DeadlockHeroListItem,
@@ -81,10 +81,10 @@ export default function BuildClient({
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
-  // Keep category state consistent when buildItems changes
-  useEffect(() => {
-    setCategories((prev) => cleanCategories(prev, buildItems));
-  }, [buildItems]);
+  const cleanedCategories = useMemo(
+    () => cleanCategories(categories, buildItems),
+    [categories, buildItems],
+  );
 
   const selectedIds = useMemo(() => new Set(buildItems.map((it) => it.id)), [buildItems]);
 
@@ -103,7 +103,7 @@ export default function BuildClient({
     setBuildItems((prev) =>
       prev.some((it) => it.id === item.id)
         ? prev.filter((it) => it.id !== item.id)
-        : resolveAddItem(prev, item, allItems),
+        : resolveAddItem(prev, item),
     );
   }
 
@@ -111,7 +111,7 @@ export default function BuildClient({
 
   function handleAddSuggestedItem(item: Item) {
     setBuildItems((prev) =>
-      prev.some((it) => it.id === item.id) ? prev : resolveAddItem(prev, item, allItems),
+      prev.some((it) => it.id === item.id) ? prev : resolveAddItem(prev, item),
     );
   }
 
@@ -124,7 +124,7 @@ export default function BuildClient({
       heroId,
       itemIds: buildItems.map((it) => it.id),
       abilityLevels,
-      categories,
+      categories: cleanedCategories,
     };
     const encoded = serializeBuild(state);
     const url = `${window.location.origin}${window.location.pathname}?build=${encoded}`;
@@ -320,7 +320,7 @@ export default function BuildClient({
           {/* Center panel */}
           <div>
             <CategoryManager
-              categories={categories}
+              categories={cleanedCategories}
               buildItems={buildItems}
               onCategoriesChange={setCategories}
               onRemoveBuildItem={handleRemoveItem}
