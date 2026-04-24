@@ -1,5 +1,20 @@
 export type ItemCategory = "gun" | "vitality" | "spirit";
 
+export type ItemPhase = "early" | "mid" | "late";
+
+export type ItemAssignment = {
+  itemId: string;
+  phase: ItemPhase | null;
+  active: boolean;
+  sellPriority: boolean;
+  optional: boolean;
+};
+
+export type ItemDestination =
+  | { type: "phase"; phase: ItemPhase }
+  | { type: "category"; categoryId: string }
+  | { type: "uncategorized" };
+
 export type BuildCategory = {
   id: string;
   name: string;

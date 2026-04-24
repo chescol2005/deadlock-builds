@@ -142,7 +142,13 @@ export function ItemBrowser({
                       <li
                         key={it.id}
                         style={{
-                          border: isSelected
+                          borderTop: isSelected
+                            ? `2px solid ${meta.solid}`
+                            : "1px solid rgba(255,255,255,0.10)",
+                          borderRight: isSelected
+                            ? `2px solid ${meta.solid}`
+                            : "1px solid rgba(255,255,255,0.10)",
+                          borderBottom: isSelected
                             ? `2px solid ${meta.solid}`
                             : "1px solid rgba(255,255,255,0.10)",
                           borderLeft: `4px solid ${meta.solid}`,

@@ -1,5 +1,19 @@
 import type { CategoryBonus } from "./categoryBonuses";
 import { getCurrentBonusTier, getSoulsToNextTier } from "./categoryBonuses";
+import type { Item, ItemAssignment } from "./items";
+
+export const SELL_REFUND_RATE = 0.5;
+export const getSellRefund = (cost: number): number => Math.floor(cost * SELL_REFUND_RATE);
+
+export function getActiveItems(items: Item[], assignments: ItemAssignment[]): Item[] {
+  const activeIds = new Set(assignments.filter((a) => a.active).map((a) => a.itemId));
+  return items.filter((it) => activeIds.has(it.id));
+}
+
+export function getPlanItems(items: Item[], assignments: ItemAssignment[]): Item[] {
+  const optionalIds = new Set(assignments.filter((a) => a.optional).map((a) => a.itemId));
+  return items.filter((it) => !optionalIds.has(it.id));
+}
 
 export type BuildableItem = {
   category: "gun" | "weapon" | "vitality" | "spirit";

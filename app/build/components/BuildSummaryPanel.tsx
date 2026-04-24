@@ -1,10 +1,17 @@
 "use client";
 
-import type { Item } from "@/lib/items";
+import { useState } from "react";
+import type { Item, ItemAssignment } from "@/lib/items";
 import type { CategoryBonus } from "@/lib/categoryBonuses";
 import { isApproachingSignificantBonus } from "@/lib/categoryBonuses";
 import { detectAntiSynergies } from "@/lib/scoring/antiSynergy";
-import { calculateDamageSplit, calculateTotalCost } from "@/lib/buildCalculations";
+import {
+  calculateDamageSplit,
+  calculateTotalCost,
+  getActiveItems,
+  getPlanItems,
+} from "@/lib/buildCalculations";
+import { ActiveItemsGrid } from "./ActiveItemsGrid";
 
 const COLORS = {
   spirit: { solid: "#7c3aed", label: "Spirit" },
@@ -96,25 +103,97 @@ const BONUS_META: Record<
 export function BuildSummaryPanel({
   selectedItems,
   suggestedBuildItems = [],
+  assignments = [],
+  activeError = null,
+  onToggleActive,
 }: {
   selectedItems: Item[];
   suggestedBuildItems?: Item[];
+  assignments?: ItemAssignment[];
+  activeError?: string | null;
+  onToggleActive?: (itemId: string) => void;
 }) {
+  const [mode, setMode] = useState<"active" | "plan">("plan");
+
   const allBuildItems = [...selectedItems, ...suggestedBuildItems];
-  const split = calculateDamageSplit(allBuildItems);
-  const totalCost = calculateTotalCost(allBuildItems);
-  const hasItems = allBuildItems.length > 0;
+
+  const displayItems =
+    mode === "active"
+      ? getActiveItems(allBuildItems, assignments)
+      : getPlanItems(allBuildItems, assignments);
+
+  const split = calculateDamageSplit(displayItems);
+  const totalCost = calculateTotalCost(displayItems);
+  const hasItems = displayItems.length > 0;
 
   const antiSynergies = detectAntiSynergies(allBuildItems);
 
-  const bonusRows: { key: CategoryKey; souls: number; bonus: CategoryBonus | null; toNextTier: number | null }[] = [
+  const bonusRows: {
+    key: CategoryKey;
+    souls: number;
+    bonus: CategoryBonus | null;
+    toNextTier: number | null;
+  }[] = [
     { key: "gun", souls: split.gun, bonus: split.gunBonus, toNextTier: split.gunToNextTier },
-    { key: "vitality", souls: split.vitality, bonus: split.vitalityBonus, toNextTier: split.vitalityToNextTier },
-    { key: "spirit", souls: split.spirit, bonus: split.spiritBonus, toNextTier: split.spiritToNextTier },
+    {
+      key: "vitality",
+      souls: split.vitality,
+      bonus: split.vitalityBonus,
+      toNextTier: split.vitalityToNextTier,
+    },
+    {
+      key: "spirit",
+      souls: split.spirit,
+      bonus: split.spiritBonus,
+      toNextTier: split.spiritToNextTier,
+    },
   ];
 
   return (
     <aside style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Active Items Grid */}
+      {onToggleActive ? (
+        <ActiveItemsGrid
+          allItems={allBuildItems}
+          assignments={assignments}
+          activeError={activeError}
+          onToggleActive={onToggleActive}
+        />
+      ) : null}
+
+      {/* Mode toggle */}
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          padding: 3,
+          background: "rgba(255,255,255,0.06)",
+          borderRadius: 8,
+          border: "1px solid rgba(255,255,255,0.1)",
+        }}
+      >
+        {(["plan", "active"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            style={{
+              flex: 1,
+              padding: "5px 8px",
+              borderRadius: 6,
+              border: "none",
+              background: mode === m ? "rgba(255,255,255,0.12)" : "transparent",
+              color: "inherit",
+              fontSize: 12,
+              fontWeight: mode === m ? 700 : 400,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {m === "plan" ? "Full Plan" : "Active Build"}
+          </button>
+        ))}
+      </div>
+
       {/* Section 1: Soul Cost Split Bar */}
       <section>
         <div
