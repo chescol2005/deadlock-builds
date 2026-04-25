@@ -5,6 +5,7 @@ export type BuildState = {
   heroId: string;
   itemIds: string[];
   abilityLevels: AbilityLevels;
+  boonLevel: number;
   categories: BuildCategory[];
   // Parallel arrays — index matches itemIds index
   phases: Array<ItemPhase | null>;
@@ -46,6 +47,8 @@ export function deserializeBuild(encoded: string): BuildState {
     heroId: raw.heroId,
     itemIds,
     abilityLevels: parseAbilityLevels(raw.abilityLevels),
+    boonLevel:
+      typeof raw.boonLevel === "number" ? Math.max(0, Math.min(35, Math.floor(raw.boonLevel))) : 0,
     categories: parseCategories(raw.categories),
     phases: parsePhases(raw.phases, len),
     active: parseBooleans(raw.active, len),
@@ -113,6 +116,7 @@ if (process.env.NODE_ENV === "development") {
       heroId: "test-hero-42",
       itemIds: ["111", "222", "333"],
       abilityLevels: { signature1: 1, signature2: 2, signature4: 3 },
+      boonLevel: 5,
       categories: [
         { id: "cat-1", name: "Core", itemIds: ["111"] },
         { id: "cat-2", name: "Situational", itemIds: ["222", "333"] },
@@ -129,6 +133,7 @@ if (process.env.NODE_ENV === "development") {
         decoded.heroId === testState.heroId &&
         decoded.itemIds.join(",") === testState.itemIds.join(",") &&
         JSON.stringify(decoded.abilityLevels) === JSON.stringify(testState.abilityLevels) &&
+        decoded.boonLevel === testState.boonLevel &&
         JSON.stringify(decoded.categories) === JSON.stringify(testState.categories) &&
         JSON.stringify(decoded.phases) === JSON.stringify(testState.phases) &&
         JSON.stringify(decoded.active) === JSON.stringify(testState.active) &&

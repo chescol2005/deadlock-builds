@@ -2,15 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type {
-  DeadlockHeroListItem,
-  ShopItem,
-  ShopCategory,
-  HeroAbilitySlot,
-  SignatureSlot,
-  AbilityLevel,
-  AbilityLevels,
-} from "@/lib/deadlock";
+import type { DeadlockHeroListItem, ShopItem, ShopCategory, SignatureSlot, AbilityLevel, AbilityLevels } from "@/lib/deadlock";
 import { serializeBuild } from "@/lib/buildSerializer";
 import type { BuildState } from "@/lib/buildSerializer";
 import { getItemAssignments } from "@/lib/buildSerializer";
@@ -23,6 +15,15 @@ import type { Item, BuildCategory, ItemAssignment, ItemDestination, ItemPhase } 
 import type { BuildGoal } from "@/lib/scoring/goalWeights";
 import { getConsumedComponents, resolveAddItem } from "@/lib/buildUtils";
 import { arrayMove } from "@dnd-kit/sortable";
+import type { HeroBaseStats } from "@/lib/heroStats";
+import { calculateStatsAtBoon } from "@/lib/heroStats";
+import type { HeroAbility } from "@/lib/abilityCoefficients";
+import { totalPointsSpent, pointCostForNextLevel } from "@/lib/abilityCoefficients";
+import {
+  BOON_THRESHOLDS,
+  getAbilityPointsAtSouls,
+  getAbilityUnlocksAtSouls,
+} from "@/lib/boonSystem";
 
 const GOALS: { value: BuildGoal; label: string }[] = [
   { value: "burst", label: "Burst" },
@@ -46,10 +47,7 @@ const DEFAULT_ASSIGNMENT: AssignmentData = {
   optional: false,
 };
 
-function cleanCategories(
-  categories: BuildCategory[],
-  buildItems: Item[],
-): BuildCategory[] {
+function cleanCategories(categories: BuildCategory[], buildItems: Item[]): BuildCategory[] {
   const buildClassnames = new Set(buildItems.map((i) => i.id));
   return categories.map((cat) => ({
     ...cat,
@@ -57,18 +55,112 @@ function cleanCategories(
   }));
 }
 
+
+function StatRow({ label, value, perBoon }: { label: string; value: number; perBoon?: number }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "baseline",
+        gap: 8,
+        padding: "3px 0",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <span style={{ fontSize: 12, opacity: 0.7 }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 600 }}>
+        {Math.round(value * 10) / 10}
+        {perBoon != null && perBoon > 0 ? (
+          <span style={{ fontSize: 11, opacity: 0.45, marginLeft: 4 }}>
+            +{Math.round(perBoon * 100) / 100}/boon
+          </span>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+function HeroStatsPanel({
+  stats,
+  boonLevel,
+}: {
+  stats: HeroBaseStats;
+  boonLevel: number;
+}) {
+  const scaled = calculateStatsAtBoon(stats, boonLevel);
+
+  return (
+    <section style={{ marginTop: 12 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          opacity: 0.5,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          marginBottom: 6,
+        }}
+      >
+        Weapon Stats
+      </div>
+      <StatRow
+        label="Bullet Damage"
+        value={scaled.bulletDamage}
+        perBoon={stats.bulletDamagePerBoon}
+      />
+      <StatRow label="Light Melee" value={scaled.lightMeleeDamage} perBoon={stats.lightMeleePerBoon} />
+      <StatRow label="Heavy Melee" value={scaled.heavyMeleeDamage} perBoon={stats.heavyMeleePerBoon} />
+
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          opacity: 0.5,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          marginTop: 10,
+          marginBottom: 6,
+        }}
+      >
+        Vitality Stats
+      </div>
+      <StatRow label="Max Health" value={scaled.maxHealth} perBoon={stats.maxHealthPerBoon} />
+      <StatRow label="Health Regen" value={stats.healthRegen} />
+      <StatRow label="Move Speed" value={stats.moveSpeed} />
+
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          opacity: 0.5,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          marginTop: 10,
+          marginBottom: 6,
+        }}
+      >
+        Spirit Stats
+      </div>
+      <StatRow label="Spirit Power" value={scaled.spiritPower} perBoon={stats.spiritPowerPerBoon} />
+    </section>
+  );
+}
+
 export default function BuildClient({
   heroes,
   selectedHeroId,
   upgrades,
   heroAbilities = [],
+  heroBaseStats = null,
   initialState = null,
   allItems = [],
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
   upgrades: ShopItem[];
-  heroAbilities?: HeroAbilitySlot[];
+  heroAbilities?: HeroAbility[];
+  heroBaseStats?: HeroBaseStats | null;
   initialState?: BuildState | null;
   allItems?: Item[];
 }) {
@@ -90,11 +182,14 @@ export default function BuildClient({
     initialState?.abilityLevels ?? {},
   );
 
+  const [manualBoonLevel, setManualBoonLevel] = useState<number>(
+    initialState?.boonLevel ?? 0,
+  );
+
   const [categories, setCategories] = useState<BuildCategory[]>(
     initialState?.categories ?? [],
   );
 
-  // Per-item assignment state — keyed by item ID
   const [assignmentMap, setAssignmentMap] = useState<Map<string, AssignmentData>>(() => {
     if (!initialState) return new Map();
     const assignments = getItemAssignments(initialState);
@@ -132,7 +227,6 @@ export default function BuildClient({
     [assignmentMap],
   );
 
-  // Derive ItemAssignment[] for components
   const itemAssignments = useMemo<ItemAssignment[]>(
     () =>
       buildItems.map((it) => {
@@ -147,6 +241,20 @@ export default function BuildClient({
       }),
     [buildItems, assignmentMap],
   );
+
+  const boonSouls = useMemo(
+    () => BOON_THRESHOLDS[manualBoonLevel]?.souls ?? 0,
+    [manualBoonLevel],
+  );
+  const availableAbilityPoints = useMemo(
+    () => getAbilityPointsAtSouls(boonSouls),
+    [boonSouls],
+  );
+  const unlockedAbilitySlots = useMemo(
+    () => getAbilityUnlocksAtSouls(boonSouls),
+    [boonSouls],
+  );
+  const pointsSpent = useMemo(() => totalPointsSpent(abilityLevels), [abilityLevels]);
 
   function handleLevelChange(slot: SignatureSlot, level: AbilityLevel) {
     setAbilityLevels((prev) => ({ ...prev, [slot]: level }));
@@ -188,12 +296,10 @@ export default function BuildClient({
       const cur = next.get(itemId) ?? { ...DEFAULT_ASSIGNMENT };
       switch (dest.type) {
         case "phase":
-          // Preserve sell/optional flags — they are independent of location
           next.set(itemId, { ...cur, phase: dest.phase });
           break;
         case "category":
         case "uncategorized":
-          // Preserve sell/optional flags — they are independent of location
           next.set(itemId, { ...cur, phase: null });
           break;
       }
@@ -273,6 +379,7 @@ export default function BuildClient({
       heroId,
       itemIds: buildItems.map((it) => it.id),
       abilityLevels,
+      boonLevel: manualBoonLevel,
       categories: cleanedCategories,
       phases: buildItems.map((it) => assignmentMap.get(it.id)?.phase ?? null),
       active: buildItems.map((it) => assignmentMap.get(it.id)?.active ?? false),
@@ -292,6 +399,8 @@ export default function BuildClient({
       setFailedUrl(url);
     }
   }
+
+  const ultimateUnlocked = manualBoonLevel >= 7;
 
   return (
     <main style={{ padding: 32 }}>
@@ -322,8 +431,7 @@ export default function BuildClient({
 
         {selectedHero ? (
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {selectedHero.images?.icon_image_small_webp ||
-            selectedHero.images?.icon_image_small ? (
+            {selectedHero.images?.icon_image_small_webp || selectedHero.images?.icon_image_small ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={
@@ -344,7 +452,6 @@ export default function BuildClient({
           </div>
         ) : null}
 
-        {/* Build goal selector */}
         {heroId ? (
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 8 }}>
             <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>Goal:</span>
@@ -476,10 +583,101 @@ export default function BuildClient({
         >
           {/* Left panel */}
           <div>
+            {/* Boon level control */}
+            <div
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: `1px solid ${ultimateUnlocked ? "rgba(250,204,21,0.4)" : manualBoonLevel === 6 ? "rgba(250,204,21,0.25)" : "rgba(255,255,255,0.12)"}`,
+                background: ultimateUnlocked
+                  ? "rgba(250,204,21,0.08)"
+                  : manualBoonLevel === 6
+                    ? "rgba(250,204,21,0.04)"
+                    : "rgba(255,255,255,0.04)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.7 }}>Boon Level</span>
+                <button
+                  onClick={() => setManualBoonLevel(Math.max(0, manualBoonLevel - 1))}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 5,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "transparent",
+                    color: "inherit",
+                    cursor: manualBoonLevel > 0 ? "pointer" : "not-allowed",
+                    opacity: manualBoonLevel > 0 ? 1 : 0.35,
+                    fontWeight: 700,
+                    fontSize: 14,
+                    lineHeight: 1,
+                  }}
+                >
+                  −
+                </button>
+                <span style={{ minWidth: 24, textAlign: "center", fontWeight: 700, fontSize: 15 }}>
+                  {manualBoonLevel}
+                </span>
+                <button
+                  onClick={() => setManualBoonLevel(Math.min(35, manualBoonLevel + 1))}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 5,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "transparent",
+                    color: "inherit",
+                    cursor: manualBoonLevel < 35 ? "pointer" : "not-allowed",
+                    opacity: manualBoonLevel < 35 ? 1 : 0.35,
+                    fontWeight: 700,
+                    fontSize: 14,
+                    lineHeight: 1,
+                  }}
+                >
+                  +
+                </button>
+                <span style={{ fontSize: 12, color: "#888" }}>
+                  {availableAbilityPoints} ability pts
+                </span>
+              </div>
+              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+                {pointsSpent}/{availableAbilityPoints} pts used
+              </div>
+              {ultimateUnlocked ? (
+                <div style={{ marginTop: 4, fontSize: 11, color: "#facc15", fontWeight: 600 }}>
+                  ⚡ Ultimate unlocked
+                </div>
+              ) : manualBoonLevel === 6 ? (
+                <div style={{ marginTop: 4, fontSize: 11, color: "#facc15" }}>
+                  1 boon to ultimate unlock
+                </div>
+              ) : (
+                <div style={{ marginTop: 4, fontSize: 11, opacity: 0.45 }}>
+                  Ultimate unlocks at boon 7
+                </div>
+              )}
+            </div>
+
+            {/* Hero base stats */}
+            {heroBaseStats ? (
+              <HeroStatsPanel stats={heroBaseStats} boonLevel={manualBoonLevel} />
+            ) : null}
+
             <AbilityLevelingPanel
               abilities={heroAbilities}
               abilityLevels={abilityLevels}
               onLevelChange={handleLevelChange}
+              availableAbilityPoints={availableAbilityPoints}
+              unlockedAbilitySlots={unlockedAbilitySlots}
+              planSouls={boonSouls}
+              spiritPower={
+                heroBaseStats
+                  ? calculateStatsAtBoon(heroBaseStats, manualBoonLevel).spiritPower
+                  : 0
+              }
+              pointsSpent={pointsSpent}
+              pointCostForNextLevel={pointCostForNextLevel}
             />
           </div>
 

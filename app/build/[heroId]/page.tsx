@@ -1,16 +1,12 @@
 import { redirect } from "next/navigation";
 import BuildClient from "../BuildClient";
-import {
-  fetchVisibleHeroes,
-  fetchHeroById,
-  fetchUpgradeItems,
-  normalizeUpgradeItems,
-  fetchAbilityItems,
-  getHeroSignatureSlotsFromHeroItems,
-} from "@/lib/deadlock";
+import { fetchVisibleHeroes, fetchHeroById, fetchUpgradeItems, normalizeUpgradeItems } from "@/lib/deadlock";
 import { deserializeBuild } from "@/lib/buildSerializer";
 import type { BuildState } from "@/lib/buildSerializer";
 import { getItems } from "@/lib/itemStore";
+import { getHeroStats } from "@/lib/heroStore";
+import { fetchHeroAbilityItems } from "@/lib/api/deadlockApi";
+import { mapHeroAbilities } from "@/lib/abilityCoefficients";
 
 export default async function BuildHeroPage({
   params,
@@ -31,19 +27,17 @@ export default async function BuildHeroPage({
     redirect("/build");
   }
 
-  const [upgrades, allItems] = await Promise.all([
+  const heroIdNum = Number(heroId);
+
+  const [upgrades, allItems, heroData, rawAbilities, heroBaseStats] = await Promise.all([
     fetchUpgradeItems().then(normalizeUpgradeItems),
     getItems(),
+    fetchHeroById(heroId),
+    fetchHeroAbilityItems(heroIdNum),
+    getHeroStats(heroIdNum),
   ]);
 
-  // Abilities (4 slots) come from ability API + heroData.items.signature1-4
-  const heroData = await fetchHeroById(heroId);
-  const allAbilities = await fetchAbilityItems();
-  const heroAbilities = getHeroSignatureSlotsFromHeroItems(
-    heroData.items,
-    allAbilities,
-    heroData.id,
-  );
+  const heroAbilities = mapHeroAbilities(rawAbilities, heroData.items);
 
   let initialState: BuildState | null = null;
   if (build) {
@@ -60,6 +54,7 @@ export default async function BuildHeroPage({
       selectedHeroId={heroId}
       upgrades={upgrades}
       heroAbilities={heroAbilities}
+      heroBaseStats={heroBaseStats}
       initialState={initialState}
       allItems={allItems}
     />
