@@ -641,8 +641,21 @@ export default function BuildClient({
                   {availableAbilityPoints} ability pts
                 </span>
               </div>
-              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
-                {pointsSpent}/{availableAbilityPoints} pts used
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  opacity: 0.7,
+                  display: "flex",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span>
+                  {pointsSpent}/{availableAbilityPoints} pts used
+                </span>
+                <span style={{ fontSize: 11, opacity: 0.65 }}>
+                  {manualBoonLevel === 0 ? "0 souls" : `~${boonSouls.toLocaleString()} souls`}
+                </span>
               </div>
               {ultimateUnlocked ? (
                 <div style={{ marginTop: 4, fontSize: 11, color: "#facc15", fontWeight: 600 }}>
@@ -722,6 +735,10 @@ export default function BuildClient({
               assignments={itemAssignments}
               activeError={activeError}
               onToggleActive={handleToggleActive}
+              manualBoonLevel={manualBoonLevel}
+              allItems={allItems}
+              heroAbilities={heroAbilities}
+              abilityLevels={abilityLevels}
             />
           </div>
         </div>
