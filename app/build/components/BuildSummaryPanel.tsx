@@ -11,7 +11,10 @@ import {
   getActiveItems,
   getPlanItems,
 } from "@/lib/buildCalculations";
+import type { HeroAbility } from "@/lib/abilityCoefficients";
+import type { AbilityLevels } from "@/lib/deadlock";
 import { ActiveItemsGrid } from "./ActiveItemsGrid";
+import { SoulTimeline } from "./SoulTimeline";
 
 const COLORS = {
   spirit: { solid: "#7c3aed", label: "Spirit" },
@@ -106,12 +109,20 @@ export function BuildSummaryPanel({
   assignments = [],
   activeError = null,
   onToggleActive,
+  manualBoonLevel = 0,
+  allItems = [],
+  heroAbilities,
+  abilityLevels,
 }: {
   selectedItems: Item[];
   suggestedBuildItems?: Item[];
   assignments?: ItemAssignment[];
   activeError?: string | null;
   onToggleActive?: (itemId: string) => void;
+  manualBoonLevel?: number;
+  allItems?: Item[];
+  heroAbilities?: HeroAbility[];
+  abilityLevels?: AbilityLevels;
 }) {
   const [mode, setMode] = useState<"active" | "plan">("plan");
 
@@ -286,7 +297,17 @@ export function BuildSummaryPanel({
         </div>
       </section>
 
-      {/* Section 3: Anti-synergy warnings */}
+      {/* Section 3: Soul Economy Timeline */}
+      <SoulTimeline
+        buildItems={selectedItems}
+        assignments={assignments}
+        manualBoonLevel={manualBoonLevel}
+        allItems={allItems}
+        heroAbilities={heroAbilities}
+        abilityLevels={abilityLevels}
+      />
+
+      {/* Section 4: Anti-synergy warnings */}
       {antiSynergies.length > 0 && (
         <section>
           <div
@@ -326,7 +347,7 @@ export function BuildSummaryPanel({
         </section>
       )}
 
-      {/* Section 4: Total Soul Cost */}
+      {/* Section 5: Total Soul Cost */}
       <section>
         <div
           style={{

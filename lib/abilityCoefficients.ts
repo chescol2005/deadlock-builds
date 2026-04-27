@@ -31,6 +31,49 @@ export type HeroAbility = {
 
 const TIER_POINT_COSTS = [1, 2, 5] as const;
 
+const PROPERTY_LABELS: Record<string, string> = {
+  AbilityCooldown: "Cooldown",
+  AbilityDuration: "Duration",
+  AbilityCastRange: "Cast Range",
+  AbilityCharges: "Charges",
+  AbilityCooldownBetweenCharge: "Charge Cooldown",
+  BonusHealthRegen: "Health Regen",
+  BonusMaxHealth: "Max Health",
+  TechPower: "Spirit Power",
+  WeaponPower: "Weapon Damage",
+  BulletLifesteal: "Bullet Lifesteal",
+  TechLifesteal: "Spirit Lifesteal",
+  MoveSpeed: "Move Speed",
+  BonusClipSize: "Clip Size",
+  FireRate: "Fire Rate",
+  BulletDamage: "Bullet Damage",
+  StatusResistancePercent: "Status Resistance",
+  BaseAttackDamagePercent: "Weapon Damage",
+  SlowDuration: "Slow Duration",
+  StunDuration: "Stun Duration",
+  BonusArmor: "Bullet Resist",
+  TechArmor: "Spirit Resist",
+};
+
+function formatPropertyUpgrade(name: string, bonus: string | number): string {
+  const label = PROPERTY_LABELS[name] ?? name;
+  const value = typeof bonus === "number" ? bonus : parseFloat(bonus);
+  const sign = value >= 0 ? "+" : "";
+
+  if (name.includes("Cooldown") || name.includes("Duration")) {
+    return `${sign}${value}s ${label}`;
+  }
+  if (
+    name.includes("Percent") ||
+    name.includes("Lifesteal") ||
+    name.includes("Rate") ||
+    name.includes("Resistance")
+  ) {
+    return `${sign}${value}% ${label}`;
+  }
+  return `${sign}${value} ${label}`;
+}
+
 function safeNum(v: number | string | undefined | null): number | null {
   if (v == null) return null;
   const n = typeof v === "number" ? v : parseFloat(String(v));
@@ -46,13 +89,20 @@ function buildUpgradeTier(
   const entry = raw?.[index];
 
   const descKey = `t${index + 1}_desc` as keyof typeof descriptionMap;
-  const description = descriptionMap[descKey] ?? "";
+  const apiDescription = descriptionMap[descKey] ?? "";
 
   const statChanges: AbilityUpgradeTier["statChanges"] =
     entry?.property_upgrades?.map((pu) => ({
       stat: pu.name,
       delta: String(pu.bonus),
     })) ?? [];
+
+  const description =
+    apiDescription.trim().length > 0
+      ? apiDescription
+      : (entry?.property_upgrades
+          ?.map((pu) => formatPropertyUpgrade(pu.name, pu.bonus))
+          .join(", ") ?? "");
 
   return { pointCost, description, statChanges };
 }
