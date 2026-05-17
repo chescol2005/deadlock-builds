@@ -610,10 +610,11 @@ export default function BuildClient({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "300px 1fr 280px",
-            gap: 24,
+            gridTemplateColumns: "280px minmax(0, 1fr) 300px 260px",
+            gap: 0,
             marginTop: 24,
             alignItems: "start",
+            justifyContent: "stretch",
           }}
         >
           {/* Left panel */}
@@ -730,7 +731,7 @@ export default function BuildClient({
           </div>
 
           {/* Center panel */}
-          <div>
+          <div style={{ marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
             <CategoryManager
               categories={cleanedCategories}
               buildItems={buildItems}
@@ -756,15 +757,7 @@ export default function BuildClient({
           </div>
 
           {/* Right panel */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-            <SuggestedItemsPanel
-              allItems={allItems}
-              currentBuild={buildItems}
-              selectedGoal={selectedGoal}
-              onAdd={handleAddSuggestedItem}
-              consumedComponents={consumedComponents}
-              slotsFull={false}
-            />
+          <div style={{ marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
             <BuildSummaryPanel
               selectedItems={buildItems}
               assignments={itemAssignments}
@@ -775,6 +768,18 @@ export default function BuildClient({
               heroAbilities={heroAbilities}
               abilityLevels={abilityLevels}
               itemStatTotals={itemStatTotals}
+            />
+          </div>
+
+          {/* Far right panel */}
+          <div style={{ marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+            <SuggestedItemsPanel
+              allItems={allItems}
+              currentBuild={buildItems}
+              selectedGoal={selectedGoal}
+              onAdd={handleAddSuggestedItem}
+              consumedComponents={consumedComponents}
+              slotsFull={false}
             />
           </div>
         </div>
