@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(npx tsc *)",
+      "Bash(npx next *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(gh pr create --title 'feat\\(M2\\): Complete Build Planner UI — item browser, ability leveling, build summary' --body ' *)",
+      "Bash(npx prettier *)"
+    ]
+  }
+}

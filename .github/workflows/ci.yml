@@ -50,3 +50,6 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Fixture Tests (mini)
+        run: npm run mini

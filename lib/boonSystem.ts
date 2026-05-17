@@ -299,3 +299,15 @@ export function getSoulsToNextBoon(soulsSpent: number): number | null {
 export function isApproachingUltimateUnlock(soulsSpent: number): boolean {
   return soulsSpent >= 2800 && soulsSpent < 3600;
 }
+
+export function getAbilityUnlockOrder(): {
+  souls: number;
+  unlockNumber: 1 | 2 | 3 | 4;
+  isUltimate: boolean;
+}[] {
+  return ABILITY_SLOT_UNLOCK_SOULS.map((souls, i) => ({
+    souls,
+    unlockNumber: (i + 1) as 1 | 2 | 3 | 4,
+    isUltimate: i === 3,
+  }));
+}

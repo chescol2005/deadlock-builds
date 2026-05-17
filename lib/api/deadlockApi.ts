@@ -61,6 +61,7 @@ export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
 // ─── Hero ability items ───────────────────────────────────────────────────────
 
 export type AbilityPropertyScaleFunction = {
+  class_name?: string;
   specific_stat_scale_type?: string;
   stat_scale?: number;
 };

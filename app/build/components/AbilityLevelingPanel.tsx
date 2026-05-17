@@ -332,10 +332,10 @@ function AbilityCard({
               {ability.upgrades.map((tier, i) => {
                 const purchased = level > i;
                 const tierCost = TIER_COSTS[i];
-                const hasDesc = tier.description.trim().length > 0;
-                const changes = tier.statChanges
-                  .map((c) => `${c.stat}: ${c.delta}`)
-                  .join(", ");
+                const descHtml =
+                  tier.description.trim().length > 0
+                    ? tier.description
+                    : (tier.statChanges.map((c) => `${c.stat}: ${c.delta}`).join(", ") || "—");
                 return (
                   <div
                     key={i}
@@ -350,15 +350,15 @@ function AbilityCard({
                   >
                     <TierBadge cost={tierCost} purchased={purchased} />
                     <span
+                      className="ability-upgrade-desc"
+                      dangerouslySetInnerHTML={{ __html: descHtml }}
                       style={{
                         fontSize: 11,
                         lineHeight: 1.4,
                         opacity: purchased ? 1 : 0.65,
                         flex: 1,
                       }}
-                    >
-                      {hasDesc ? tier.description : changes || "—"}
-                    </span>
+                    />
                   </div>
                 );
               })}
