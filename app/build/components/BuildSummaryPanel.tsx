@@ -11,6 +11,7 @@ import {
   getActiveItems,
   getPlanItems,
 } from "@/lib/buildCalculations";
+import type { StatTotals } from "@/lib/buildCalculations";
 import type { HeroAbility } from "@/lib/abilityCoefficients";
 import type { AbilityLevels } from "@/lib/deadlock";
 import { ActiveItemsGrid } from "./ActiveItemsGrid";
@@ -113,6 +114,7 @@ export function BuildSummaryPanel({
   allItems = [],
   heroAbilities,
   abilityLevels,
+  itemStatTotals,
 }: {
   selectedItems: Item[];
   suggestedBuildItems?: Item[];
@@ -123,6 +125,7 @@ export function BuildSummaryPanel({
   allItems?: Item[];
   heroAbilities?: HeroAbility[];
   abilityLevels?: AbilityLevels;
+  itemStatTotals?: StatTotals;
 }) {
   const [mode, setMode] = useState<"active" | "plan">("plan");
 
@@ -347,7 +350,65 @@ export function BuildSummaryPanel({
         </section>
       )}
 
-      {/* Section 5: Total Soul Cost */}
+      {/* Section 5: Stat Contributions */}
+      {itemStatTotals &&
+      (itemStatTotals.spiritPowerFlat > 0 ||
+        itemStatTotals.weaponDamageFlat > 0 ||
+        itemStatTotals.bonusHealthFlat > 0) ? (
+        <section>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              opacity: 0.6,
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+              marginBottom: 10,
+            }}
+          >
+            Stat Contributions
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {itemStatTotals.spiritPowerFlat > 0 ? (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ opacity: 0.7 }}>Spirit Power</span>
+                <span style={{ fontWeight: 600, color: COLORS.spirit.solid }}>
+                  +{itemStatTotals.spiritPowerFlat}
+                  {itemStatTotals.spiritPowerPercent > 0
+                    ? ` (+${itemStatTotals.spiritPowerPercent}%)`
+                    : ""}
+                </span>
+              </div>
+            ) : null}
+            {itemStatTotals.weaponDamageFlat > 0 ? (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ opacity: 0.7 }}>Weapon Damage</span>
+                <span style={{ fontWeight: 600, color: COLORS.gun.solid }}>
+                  +{itemStatTotals.weaponDamageFlat}
+                </span>
+              </div>
+            ) : null}
+            {itemStatTotals.bonusHealthFlat > 0 ? (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ opacity: 0.7 }}>Bonus Health</span>
+                <span style={{ fontWeight: 600, color: COLORS.vitality.solid }}>
+                  +{itemStatTotals.bonusHealthFlat}
+                </span>
+              </div>
+            ) : null}
+            {itemStatTotals.healthRegen > 0 ? (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ opacity: 0.7 }}>Health Regen</span>
+                <span style={{ fontWeight: 600, color: COLORS.vitality.solid }}>
+                  +{itemStatTotals.healthRegen}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Section 6: Total Soul Cost */}
       <section>
         <div
           style={{

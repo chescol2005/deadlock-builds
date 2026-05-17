@@ -123,7 +123,8 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
   const scaleType = scaleFn?.specific_stat_scale_type;
   const scaleVal = scaleFn?.stat_scale ?? null;
 
-  const isSpiritScale = scaleType === "ETechPower";
+  const isSpiritScale =
+    scaleFn?.class_name === "scale_function_tech_damage" || scaleType === "ETechPower";
   const isWeaponScale = scaleType !== undefined && !isSpiritScale;
 
   const spiritScaling = isSpiritScale && scaleVal != null ? scaleVal : null;

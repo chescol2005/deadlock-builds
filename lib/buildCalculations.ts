@@ -43,7 +43,18 @@ export type StatTotals = {
   spirit: number;
   gun: number;
   vitality: number;
+  spiritPowerFlat: number;
+  spiritPowerPercent: number;
+  bonusHealthFlat: number;
+  weaponDamageFlat: number;
+  healthRegen: number;
 };
+
+const SPIRIT_POWER_KEYS = ["TechPower"];
+const SPIRIT_POWER_PERCENT_KEYS = ["TechPowerPercent"];
+const HEALTH_BONUS_KEYS = ["BonusHealth"];
+const WEAPON_DAMAGE_KEYS = ["WeaponPower", "BulletDamage"];
+const HEALTH_REGEN_KEYS = ["BonusHealthRegen", "OutOfCombatHealthRegen"];
 
 export function calculateDamageSplit(items: BuildableItem[]): DamageSplit {
   let spirit = 0;
@@ -68,16 +79,48 @@ export function calculateDamageSplit(items: BuildableItem[]): DamageSplit {
   };
 }
 
-export function calculateStatTotals(items: BuildableItem[]): StatTotals {
-  let spirit = 0;
-  let gun = 0;
-  let vitality = 0;
-  for (const it of items) {
-    spirit += it.spiritBonus ?? 0;
-    gun += it.gunBonus ?? 0;
-    vitality += it.vitalityBonus ?? 0;
+export function calculateStatTotals(items: Item[], assignments?: ItemAssignment[]): StatTotals {
+  const optionalIds = assignments
+    ? new Set(assignments.filter((a) => a.optional).map((a) => a.itemId))
+    : new Set<string>();
+  const activeItems = assignments ? items.filter((it) => !optionalIds.has(it.id)) : items;
+
+  const totals: StatTotals = {
+    spirit: 0,
+    gun: 0,
+    vitality: 0,
+    spiritPowerFlat: 0,
+    spiritPowerPercent: 0,
+    bonusHealthFlat: 0,
+    weaponDamageFlat: 0,
+    healthRegen: 0,
+  };
+
+  for (const item of activeItems) {
+    for (const [key, value] of Object.entries(item.stats)) {
+      if (SPIRIT_POWER_KEYS.includes(key)) {
+        totals.spiritPowerFlat += value;
+        totals.spirit += value;
+      }
+      if (SPIRIT_POWER_PERCENT_KEYS.includes(key)) {
+        totals.spiritPowerPercent += value;
+        totals.spirit += value;
+      }
+      if (HEALTH_BONUS_KEYS.includes(key)) {
+        totals.bonusHealthFlat += value;
+        totals.vitality += value;
+      }
+      if (WEAPON_DAMAGE_KEYS.includes(key)) {
+        totals.weaponDamageFlat += value;
+        totals.gun += value;
+      }
+      if (HEALTH_REGEN_KEYS.includes(key)) {
+        totals.healthRegen += value;
+      }
+    }
   }
-  return { spirit, gun, vitality };
+
+  return totals;
 }
 
 export function calculateTotalCost(items: BuildableItem[]): number {

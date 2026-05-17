@@ -24,6 +24,8 @@ import {
   getAbilityPointsAtSouls,
   getAbilityUnlocksAtSouls,
 } from "@/lib/boonSystem";
+import { calculateStatTotals } from "@/lib/buildCalculations";
+import type { StatTotals } from "@/lib/buildCalculations";
 
 const GOALS: { value: BuildGoal; label: string }[] = [
   { value: "burst", label: "Burst" },
@@ -84,11 +86,21 @@ function StatRow({ label, value, perBoon }: { label: string; value: number; perB
 function HeroStatsPanel({
   stats,
   boonLevel,
+  itemTotals,
 }: {
   stats: HeroBaseStats;
   boonLevel: number;
+  itemTotals?: StatTotals;
 }) {
   const scaled = calculateStatsAtBoon(stats, boonLevel);
+
+  const totalSpiritPower =
+    scaled.spiritPower +
+    (itemTotals?.spiritPowerFlat ?? 0) +
+    (scaled.spiritPower * (itemTotals?.spiritPowerPercent ?? 0)) / 100;
+
+  const totalMaxHealth = scaled.maxHealth + (itemTotals?.bonusHealthFlat ?? 0);
+  const totalHealthRegen = stats.healthRegen + (itemTotals?.healthRegen ?? 0);
 
   return (
     <section style={{ marginTop: 12 }}>
@@ -125,8 +137,13 @@ function HeroStatsPanel({
       >
         Vitality Stats
       </div>
-      <StatRow label="Max Health" value={scaled.maxHealth} perBoon={stats.maxHealthPerBoon} />
-      <StatRow label="Health Regen" value={stats.healthRegen} />
+      <StatRow label="Max Health" value={totalMaxHealth} perBoon={stats.maxHealthPerBoon} />
+      {itemTotals && itemTotals.bonusHealthFlat > 0 ? (
+        <div style={{ fontSize: 11, opacity: 0.45, padding: "1px 0 3px", textAlign: "right" }}>
+          {Math.round(scaled.maxHealth)} base + {itemTotals.bonusHealthFlat} items
+        </div>
+      ) : null}
+      <StatRow label="Health Regen" value={totalHealthRegen} />
       <StatRow label="Move Speed" value={stats.moveSpeed} />
 
       <div
@@ -142,7 +159,14 @@ function HeroStatsPanel({
       >
         Spirit Stats
       </div>
-      <StatRow label="Spirit Power" value={scaled.spiritPower} perBoon={stats.spiritPowerPerBoon} />
+      <StatRow label="Spirit Power" value={totalSpiritPower} perBoon={stats.spiritPowerPerBoon} />
+      {itemTotals && (itemTotals.spiritPowerFlat > 0 || itemTotals.spiritPowerPercent > 0) ? (
+        <div style={{ fontSize: 11, opacity: 0.45, padding: "1px 0 3px", textAlign: "right" }}>
+          {Math.round(scaled.spiritPower)} base
+          {itemTotals.spiritPowerFlat > 0 ? ` + ${itemTotals.spiritPowerFlat} items` : ""}
+          {itemTotals.spiritPowerPercent > 0 ? ` + ${itemTotals.spiritPowerPercent}%` : ""}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -255,6 +279,17 @@ export default function BuildClient({
     [boonSouls],
   );
   const pointsSpent = useMemo(() => totalPointsSpent(abilityLevels), [abilityLevels]);
+
+  const itemStatTotals = useMemo(
+    () => calculateStatTotals(buildItems, itemAssignments),
+    [buildItems, itemAssignments],
+  );
+
+  const totalSpiritPower = useMemo(() => {
+    if (!heroBaseStats) return 0;
+    const base = calculateStatsAtBoon(heroBaseStats, manualBoonLevel).spiritPower;
+    return base + itemStatTotals.spiritPowerFlat + (base * itemStatTotals.spiritPowerPercent) / 100;
+  }, [heroBaseStats, manualBoonLevel, itemStatTotals]);
 
   function handleLevelChange(slot: SignatureSlot, level: AbilityLevel) {
     setAbilityLevels((prev) => ({ ...prev, [slot]: level }));
@@ -674,7 +709,11 @@ export default function BuildClient({
 
             {/* Hero base stats */}
             {heroBaseStats ? (
-              <HeroStatsPanel stats={heroBaseStats} boonLevel={manualBoonLevel} />
+              <HeroStatsPanel
+                stats={heroBaseStats}
+                boonLevel={manualBoonLevel}
+                itemTotals={itemStatTotals}
+              />
             ) : null}
 
             <AbilityLevelingPanel
@@ -684,11 +723,7 @@ export default function BuildClient({
               availableAbilityPoints={availableAbilityPoints}
               unlockedAbilitySlots={unlockedAbilitySlots}
               planSouls={boonSouls}
-              spiritPower={
-                heroBaseStats
-                  ? calculateStatsAtBoon(heroBaseStats, manualBoonLevel).spiritPower
-                  : 0
-              }
+              spiritPower={totalSpiritPower}
               pointsSpent={pointsSpent}
               pointCostForNextLevel={pointCostForNextLevel}
             />
@@ -739,6 +774,7 @@ export default function BuildClient({
               allItems={allItems}
               heroAbilities={heroAbilities}
               abilityLevels={abilityLevels}
+              itemStatTotals={itemStatTotals}
             />
           </div>
         </div>
