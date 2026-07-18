@@ -210,6 +210,9 @@ function SortableItem({
 
   const meta = CATEGORY_META[item.category];
   const accentColor = consumed ? "#6b7280" : meta.solid;
+  const edgeBorder = isOptional
+    ? "1px dashed rgba(255,255,255,0.25)"
+    : "1px solid rgba(255,255,255,0.10)";
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -225,9 +228,9 @@ function SortableItem({
         display: "flex",
         alignItems: "center",
         gap: 6,
-        border: isOptional
-          ? "1px dashed rgba(255,255,255,0.25)"
-          : "1px solid rgba(255,255,255,0.10)",
+        borderTop: edgeBorder,
+        borderRight: edgeBorder,
+        borderBottom: edgeBorder,
         borderLeft: `4px solid ${accentColor}`,
         borderRadius: 12,
         padding: "0 10px",
@@ -407,6 +410,9 @@ function DraggableFixedItem({
 
   const meta = CATEGORY_META[item.category];
   const accentColor = consumed ? "#6b7280" : meta.solid;
+  const edgeBorder = isOptional
+    ? "1px dashed rgba(255,255,255,0.25)"
+    : "1px solid rgba(255,255,255,0.10)";
 
   return (
     <li
@@ -418,9 +424,9 @@ function DraggableFixedItem({
         display: "flex",
         alignItems: "center",
         gap: 6,
-        border: isOptional
-          ? "1px dashed rgba(255,255,255,0.25)"
-          : "1px solid rgba(255,255,255,0.10)",
+        borderTop: edgeBorder,
+        borderRight: edgeBorder,
+        borderBottom: edgeBorder,
         borderLeft: `4px solid ${accentColor}`,
         borderRadius: 12,
         padding: "0 10px",
@@ -594,7 +600,9 @@ function FilterViewItem({
         display: "flex",
         alignItems: "center",
         gap: 8,
-        border: "1px solid rgba(255,255,255,0.08)",
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+        borderRight: "1px solid rgba(255,255,255,0.08)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
         borderLeft: `4px solid ${accentColor}`,
         borderRadius: 12,
         padding: "0 10px",
@@ -1585,7 +1593,9 @@ export function CategoryManager({
               display: "flex",
               alignItems: "center",
               gap: 10,
-              border: "1px solid rgba(255,255,255,0.20)",
+              borderTop: "1px solid rgba(255,255,255,0.20)",
+              borderRight: "1px solid rgba(255,255,255,0.20)",
+              borderBottom: "1px solid rgba(255,255,255,0.20)",
               borderLeft: `4px solid ${accentFor(activeItem)}`,
               borderRadius: 12,
               padding: "0 10px",
