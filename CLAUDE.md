@@ -6,15 +6,43 @@ Tailwind CSS, deployed on Vercel.
 
 ---
 
+## Product Philosophy (read this first)
+
+**Primary audience split:**
+
+- **New players** — overwhelmed by item count, don't know hero strengths,
+  need guidance and progressive disclosure
+- **Veterans** — want full control, scoring transparency, share links,
+  deep stat math
+
+**Core UX principles:**
+
+- New players should never see the full complexity at once — use
+  progressive disclosure (simplified view → advanced toggle)
+- The AI coach is a **proactive guide**, not a reactive evaluator —
+  it surfaces warnings and suggestions _as you build_, not only when asked
+- Every panel should answer "why does this matter?" not just "what is this?"
+- Difficulty labels, archetype tags, and plain-English tooltips are
+  first-class features, not nice-to-haves
+
+**What success looks like:**
+A new player can pick a hero, get a working starter build, and understand
+what each item does for them — without reading a wiki.
+A veteran can tune every parameter and share a fully-annotated build URL.
+
+---
+
 ## Architecture Rules (NON-NEGOTIABLE)
 
 - TypeScript strict mode: zero `any`, zero suppressed errors
 - No business logic in page files — components and lib only
-- All build state flows through the herold route (Build-05 contract)
+- All build state flows through the BuildClient route (Build-05 contract)
 - Deterministic-first: NO AI logic in scoring, calculations,
   or data pipeline — ever
-- AI layer changes and scoring changes must be in separate PRs
+- AI layer changes and scoring changes must be in **separate PRs**
 - All scoring functions are pure — same inputs always same output
+- AI coach lives in its own module: `lib/coach/` (not yet created —
+  planned for M6) — never bleeds into scoring or build state
 
 ---
 
@@ -29,12 +57,13 @@ npm run mini
 
 Kill dev server before finishing any session.
 Never use `git add .` — stage files explicitly.
+Paste `mini.ts` fixture output in every PR body before merge.
 
 ---
 
 ## Production API — Verified Function Signatures
 
-These were verified by mini.ts. Do not guess — use these exactly.
+Verified by mini.ts. Do not guess — use these exactly.
 
 ```typescript
 // Items
@@ -73,16 +102,13 @@ GET / v2 / items / by - hero - id / { id }; // hero abilities
 ### Item field names (commonly confused)
 
 ```typescript
-// Images — use shop fields NOT image fields:
 item.shop_image_webp; // ✓ correct shop icon
 item.shop_image; // ✓ fallback
 item.image_webp; // ✗ wrong — generic mod art
 
-// Upgrade chain:
 item.component_items; // string[] of classnames this builds FROM
 item.upgradesInto; // string[] derived post-normalization
 
-// Category:
 item.item_slot_type; // "weapon" | "spirit" | "vitality" in API
 item.category; // "gun" | "spirit" | "vitality" normalized
 ```
@@ -90,27 +116,20 @@ item.category; // "gun" | "spirit" | "vitality" normalized
 ### Spirit scaling coefficient location
 
 ```typescript
-// Two patterns in the API — check BOTH:
+// Two patterns — check BOTH:
 scaleFn?.class_name === "scale_function_tech_damage" || scaleType === "ETechPower";
 ```
 
 ### Stat key mappings
 
 ```typescript
-// Spirit Power
 TechPower; // flat spirit power
 TechPowerPercent; // % spirit power bonus
-
-// Health
 BonusHealth; // flat health
 BonusHealthRegen; // health regen
 OutOfCombatHealthRegen;
-
-// Weapon
 WeaponPower; // weapon damage %
 BulletDamage; // flat bullet damage
-
-// Resist
 BulletArmorDamageReduction;
 TechArmorDamageReduction;
 ```
@@ -120,87 +139,128 @@ TechArmorDamageReduction;
 ## Game Mechanics (verified against deadlock.wiki)
 
 ```typescript
-// Item tiers
 VALID_TIERS = [1, 2, 3, 4]; // tier 5 = Street Brawl only
-
-// Ability upgrades
 ABILITY_UPGRADE_COSTS = [1, 2, 5]; // ability points per tier
 ABILITY_MAX_LEVEL = 3;
-
-// Economy
 SELL_REFUND_RATE = 0.5; // 50% of item cost
 MAX_ACTIVE_ITEMS = 12; // active build cap
 GAME_PLAN_CAP = null; // game plan is unlimited
-
-// Investment bonus
-SIGNIFICANT_THRESHOLD = 4800; // souls — big stat jump
+SIGNIFICANT_THRESHOLD = 4800; // souls — investment bonus
 MAX_INVESTMENT = 28800; // souls — bonus caps here
-
-// Boon thresholds (key values)
-ABILITY_UNLOCK_1 = 600; // souls
-ABILITY_UNLOCK_2 = 1200;
-ABILITY_UNLOCK_3 = 2100;
-ULTIMATE_UNLOCK = 3600; // boon level 7
-// getBoonThreshold(0) returns boonLevel: 1
-
-// Known spirit scaling coefficients (Graves)
-// Jar of Dead: 0.35
-// Grasping Hands: 1.6
-// Shoulder Charge: 1.4
-// Seismic Impact: 2.325
+ULTIMATE_UNLOCK = 3600; // souls (boon level 7)
 ```
+
+---
+
+## Component Patterns
+
+When scaffolding new panels or components, follow these conventions:
+
+- **Server components** fetch data; **Client components** own interaction state
+- New panels go in `app/build/components/` with PascalCase filenames
+- Props are always typed with an explicit interface above the component
+- `useMemo` for all derived state — never `useState` for computed values
+- Tailwind only — no inline styles, no CSS modules
+- Icon imports from `lucide-react` only
+- Loading states: **no shared skeleton pattern exists yet.** `ItemBrowser.tsx`
+  does not implement one despite earlier docs claiming it does — establishing
+  this pattern is tracked as Milestone C work (see roadmap)
+- Tooltips: **no shared `<Tooltip>` component exists yet.** Several build
+  components (`CategoryManager`, `BuildSummaryPanel`, `ActiveItemsGrid`,
+  `SuggestedItemsPanel`, `SoulTimeline`, `AbilityLevelingPanel`) currently use
+  raw `title` attributes as a stopgap — do not treat this as the sanctioned
+  pattern; building the real wrapper is Milestone C work
+- New player UX: the `simplified?: boolean` prop convention is **not yet
+  implemented on any panel.** Treat it as the target convention for new work,
+  not a description of current behavior, until Milestone C lands
+
+### New Player UX Checklist (for any new feature)
+
+Before marking a component complete, verify:
+
+- [ ] Does it work with zero prior game knowledge?
+- [ ] Is there a plain-English label or tooltip explaining the concept?
+- [ ] Does it hide complexity behind a toggle or progressive reveal?
+- [ ] Does the AI coach have a hook to surface guidance here?
+
+**Note:** this checklist is not currently enforced by any lint rule, fixture,
+or review step, and it has been skipped on every recently-added component.
+Enforcing it (Milestone C) is on the roadmap — until then, treat it as a
+manual discipline, not a guarantee.
 
 ---
 
 ## Key Files Reference
 
-src/lib/items.ts — Item, ItemAssignment,
-ItemPhase, BuildCategory types
-src/lib/deadlock.ts — re-exports, AbilityLevel type
-src/lib/buildCalculations.ts — all pure calc functions
-calculateStatTotals()
-calculateDamageSplit()
-calculateSoulTimeline()
-getSkillPathGrid()
-src/lib/buildSerializer.ts — BuildState type,
-serializeBuild()
-deserializeBuild()
-getItemAssignments()
-src/lib/buildUtils.ts — resolveAddItem()
-getConsumedComponents()
-getEffectiveAddCost()
-src/lib/itemStore.ts — getItems() with cache,
-deriveUpgradesInto()
-src/lib/itemNormalizer.ts — normalizeItem()
-src/lib/api/deadlockApi.ts — fetchAllItems()
-fetchHeroStats()
-fetchHeroAbilityItems()
-src/lib/boonSystem.ts — BOON_THRESHOLDS const
-getBoonThreshold()
-getAbilityPointsAtSouls()
-src/lib/heroStats.ts — HeroBaseStats type
-calculateStatsAtBoon()
-src/lib/heroStore.ts — getHeroStats() with cache
-src/lib/abilityCoefficients.ts — HeroAbility type
-calculateAbilityDamage()
-PROPERTY_LABELS map
-src/lib/scoring/scoreItems.ts — scoreItems() pure function
-src/lib/scoring/goalWeights.ts — GOAL_WEIGHTS_MAP const
-src/lib/scoring/antiSynergy.ts — detectAntiSynergies()
-src/lib/categoryBonuses.ts — CATEGORY_BONUS_TIERS const
-src/lib/boonSystem.ts — BOON_THRESHOLDS const
-src/app/build/[herold]/page.tsx — server component,
-fetches items + hero data
-src/app/build/BuildClient.tsx — single state source of truth,
-all route state lives here
-src/app/build/components/
-ItemBrowser.tsx — item shop grid
-CategoryManager.tsx — drag-and-drop categories
-ActiveItemsGrid.tsx — 12-slot active build
-BuildSummaryPanel.tsx — right panel stats
-AbilityLevelingPanel.tsx — ability cards + upgrades
-SoulTimeline.tsx — soul economy timeline
-SuggestedItemsPanel.tsx — AI-adjacent suggestions
+Actual tree root is `lib/` and `app/` (no `src/` prefix), except the fixture
+runner which lives at `src/scripts/mini.ts` — that's the one real exception.
+
+```
+lib/items.ts                  — Item, ItemAssignment, ItemPhase, BuildCategory types
+lib/deadlock.ts               — re-exports, AbilityLevel type
+lib/buildCalculations.ts      — calculateStatTotals(), calculateDamageSplit(),
+                                calculateSoulTimeline(), getSkillPathGrid()
+lib/buildSerializer.ts        — BuildState, serializeBuild(), deserializeBuild(),
+                                getItemAssignments()
+lib/buildUtils.ts             — resolveAddItem(), getConsumedComponents(),
+                                getEffectiveAddCost()
+lib/itemStore.ts              — getItems() with cache, deriveUpgradesInto()
+lib/itemNormalizer.ts         — normalizeItem()
+lib/api/deadlockApi.ts        — fetchAllItems(), fetchHeroStats(),
+                                fetchHeroAbilityItems()
+lib/boonSystem.ts             — BOON_THRESHOLDS, getBoonThreshold(),
+                                getAbilityPointsAtSouls()
+lib/heroStats.ts              — HeroBaseStats, calculateStatsAtBoon()
+lib/heroStore.ts              — getHeroStats() with cache
+lib/abilityCoefficients.ts    — HeroAbility, calculateAbilityDamage(),
+                                PROPERTY_LABELS
+lib/scoring/scoreItems.ts     — scoreItems() pure function
+lib/scoring/goalWeights.ts    — GOAL_WEIGHTS_MAP
+lib/scoring/antiSynergy.ts    — detectAntiSynergies()
+lib/categoryBonuses.ts        — CATEGORY_BONUS_TIERS
+lib/farming/campData.ts       — camp soul values, phase cards, minimap markers
+lib/engine/                   — staged-pipeline scoring surface (WIP, parallel to
+                                lib/scoring/, not yet wired into the app) — see
+                                scoring-engine-dev skill; fixtures run via `npm run mini`
+lib/coach/                    — AI coach module (M6) — not yet created, keep isolated
+app/build/[heroId]/page.tsx   — server component, fetches items + hero data
+app/build/BuildClient.tsx     — single state source of truth
+app/build/components/
+  ItemBrowser.tsx             — item shop grid
+  CategoryManager.tsx         — drag-and-drop categories
+  ActiveItemsGrid.tsx         — 12-slot active build
+  BuildSummaryPanel.tsx       — right panel stats
+  AbilityLevelingPanel.tsx    — ability cards + upgrades
+  SoulTimeline.tsx            — soul economy timeline
+  SuggestedItemsPanel.tsx     — AI-adjacent suggestions
+app/guide/farming/            — farming guide page + components (new_player/advanced tabs)
+```
+
+---
+
+## Skills & Agents
+
+Project skills live in `.claude/skills/`, sub-agents in `.claude/agents/`.
+
+**Skills** (invoke via `/skill-name` or auto-triggered by task context):
+
+| Skill                      | Use for                                                        |
+| -------------------------- | -------------------------------------------------------------- |
+| `deadlock-api-integration` | Fetching/normalizing API data, field-name bugs, spirit scaling |
+| `scoring-engine-dev`       | Writing/changing `lib/scoring/` or `lib/engine/` logic         |
+| `ship-check`               | Pre-commit/pre-PR gate: prettier → tsc → build → mini          |
+| `fixture-driven-dev`       | Writing/running `mini.ts` regression fixtures                  |
+| `coach-prompting`          | Designing/validating AI coach prompts (M6, `lib/coach/`)       |
+| `guide-page-skill`         | Building new `/guide/*` educational pages                      |
+| `wireframe-to-component`   | Turning a sketch/mockup into a component spec                  |
+
+**Sub-agents** (delegate via the Agent tool):
+
+| Agent             | Tools             | Use for                                                        |
+| ----------------- | ----------------- | -------------------------------------------------------------- |
+| `data-verifier`   | read-only + web   | Cross-check code against live API / wiki, report discrepancies |
+| `scoring-auditor` | read-only         | Audit a scoring/engine diff for architecture-rule compliance   |
+| `panel-builder`   | read + edit/write | Scaffold a new build/guide panel to convention                 |
 
 ---
 
@@ -208,55 +268,73 @@ SuggestedItemsPanel.tsx — AI-adjacent suggestions
 
 ```typescript
 // BuildClient owns all route state:
-buildItems: Item[]                    // all items in game plan
-assignmentMap: Map<string, {          // per-item flags
-  phase: 'early'|'mid'|'late'|null
+buildItems: Item[]
+assignmentMap: Map<string, {
+  phase: 'early' | 'mid' | 'late' | null
   active: boolean
   sellPriority: boolean
   optional: boolean
 }>
-categories: BuildCategory[]           // user-created categories
-abilityLevels: AbilityLevels          // ability upgrade levels
-manualBoonLevel: number               // 0-35
-selectedGoal: BuildGoal               // scoring goal
+categories: BuildCategory[]
+abilityLevels: AbilityLevels
+manualBoonLevel: number           // 0-35
+selectedGoal: BuildGoal
 
 // Derived (useMemo — never useState):
-activeCount         // active items count (cap at 12)
-itemStatTotals      // from calculateStatTotals()
-totalSpiritPower    // base + flat + percent
-consumedComponents  // from getConsumedComponents()
+activeCount           // active items count (cap at 12)
+itemStatTotals        // from calculateStatTotals()
+totalSpiritPower      // base + flat + percent
+consumedComponents    // from getConsumedComponents()
 ```
 
 ---
 
 ## Milestone History
 
-| Milestone | Status    | What it built                            |
-| --------- | --------- | ---------------------------------------- |
-| M1        | ✅ Closed | Hero Explorer MVP                        |
-| M2        | ✅ Closed | Build Planner UI                         |
-| M3        | ✅ Closed | URL persistence + share links            |
-| M4        | ✅ Closed | Real item data + scoring engine          |
-| M5a       | ✅ Closed | Game plan structure, phases, active grid |
-| M5b       | ✅ Closed | Hero stats, boon system, ability panel   |
-| M6        | 🔜 Next   | AI coach layer + skill path planner      |
+| Milestone | Status    | What it built                                                                                                                                                                         |
+| --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                                                     |
+| M2        | ✅ Closed | Build Planner UI                                                                                                                                                                      |
+| M3        | ✅ Closed | URL persistence + share links                                                                                                                                                         |
+| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                                                       |
+| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                                                              |
+| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                                                                |
+| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                                                                 |
+| A–E       | 🔜 Next   | Prioritized roadmap: ship-integrity fixes, state/component health, new-player UX foundations, guide content expansion, then M6 AI coach — see `.claude/plans/` for the full breakdown |
+| M6        | ⏸ Queued  | AI coach layer + skill path planner (sequenced after Milestone C so it has UX surfaces to attach to)                                                                                  |
+
+---
+
+## M6 Design Decisions (locked before coding)
+
+- AI coach is **proactive** — surfaces warnings as items are added,
+  not only when the user asks
+- Coach module lives in `src/lib/coach/` — zero imports from scoring
+- Coach prompt design must be prototyped and validated in Claude.ai
+  Artifacts before implementation begins
+- Per-ability DPS impact when items added
+- Tracklock-style skill path planner grid
+- Starter build templates (Beginner / Aggressive / Safe) with
+  coach annotations explaining each item choice
 
 ---
 
 ## Common Bugs to Check
 
-1. **Image field**: always `shop_image_webp` not `image_webp`
-2. **Item identifier**: `item.id` not `item.classname`
-3. **Category value**: `"gun"` not `"weapon"`
-4. **Spirit scaling**: check BOTH `class_name` and `scaleType`
-5. **Prettier**: run on ALL files before committing or CI fails
-6. **Dev server lock**: `rm -rf .next` to clear Turbopack lock
-7. **gh CLI labels**: `--field "labels[]=value"` syntax
-8. **Hydration**: never read localStorage during SSR
-9. **Slot cap**: 12 applies to ACTIVE items, not game plan
-10. **Sell refund**: 50% not 80%
-11. **Ability costs**: 1/2/5 points not 1/3/5
-12. **Tier 5 items**: exclude from standard build planner
+1. Image field: always `shop_image_webp` not `image_webp`
+2. Item identifier: `item.id` not `item.classname`
+3. Category value: `"gun"` not `"weapon"`
+4. Spirit scaling: check BOTH `class_name` and `scaleType`
+5. Prettier: run on ALL files before committing or CI fails
+6. Dev server lock: `rm -rf .next` to clear Turbopack lock
+7. gh CLI labels: `--field "labels[]=value"` syntax
+8. Hydration: never read localStorage during SSR
+9. Slot cap: 12 applies to ACTIVE items, not game plan
+10. Sell refund: 50% not 80%
+11. Ability costs: 1/2/5 points not 1/3/5
+12. Tier 5 items: exclude from standard build planner
+13. Boon level 0: `getBoonThreshold(0)` returns boonLevel 1
+14. Consumed components: tracked after upgrade, size === 1
 
 ---
 
@@ -268,14 +346,6 @@ GitHub Actions runs on every push:
 2. Typecheck (tsc --noEmit)
 3. Lint (ESLint)
 4. Build (next build)
+5. Fixture (mini.ts — 50 regression cases)
 
-All four must pass. Run locally before pushing.
-
----
-
-## M6 Preview (next milestone)
-
-- AI coach narrative layer (separate from scoring)
-- Tracklock-style skill path planner grid
-- Per-ability DPS impact when items added
-- Plan-08 ability unlock timeline interactivity
+All five must pass. Run locally before pushing.

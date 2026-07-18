@@ -157,3 +157,7 @@ const verboseOutput: EngineOutput = recommendItems(testCases[0].input, candidate
   intentWeightStage,
 ]);
 console.log(JSON.stringify(verboseOutput, null, 2));
+
+if (failed > 0) {
+  process.exit(1);
+}
