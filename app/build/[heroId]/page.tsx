@@ -17,25 +17,26 @@ export default async function BuildHeroPage({
 }) {
   const { heroId } = await params;
   const { build } = await searchParams;
-
-  // Keep hero set consistent with /build (visible/selectable only)
-  const heroes = await fetchVisibleHeroes();
-
-  // If someone navigates to a non-visible heroId, bounce them back
-  const isVisible = heroes.some((h) => String(h.id) === String(heroId));
-  if (!isVisible) {
-    redirect("/build");
-  }
-
   const heroIdNum = Number(heroId);
 
-  const [upgrades, allItems, heroData, rawAbilities, heroBaseStats] = await Promise.all([
+  // Keep hero set consistent with /build (visible/selectable only). Fetched
+  // alongside everything else — the common case is a valid heroId, so we
+  // avoid an extra round-trip there and only pay for wasted work on the rare
+  // invalid-heroId redirect path.
+  const [heroes, upgrades, allItems, heroData, rawAbilities, heroBaseStats] = await Promise.all([
+    fetchVisibleHeroes(),
     fetchUpgradeItems().then(normalizeUpgradeItems),
     getItems(),
     fetchHeroById(heroId),
     fetchHeroAbilityItems(heroIdNum),
     getHeroStats(heroIdNum),
   ]);
+
+  // If someone navigates to a non-visible heroId, bounce them back
+  const isVisible = heroes.some((h) => String(h.id) === String(heroId));
+  if (!isVisible) {
+    redirect("/build");
+  }
 
   const heroAbilities = mapHeroAbilities(rawAbilities, heroData.items);
 

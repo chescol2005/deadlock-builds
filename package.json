@@ -9,7 +9,7 @@
     "lint": "eslint",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "mini": "npx tsx src/scripts/mini.ts"
+    "mini": "npx tsx src/scripts/mini.ts && npx tsx lib/engine/__fixtures__/mini.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

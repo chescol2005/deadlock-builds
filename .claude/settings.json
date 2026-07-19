@@ -42,7 +42,8 @@
       "Bash(echo \"exit: $?\")",
       "Bash(gh pr create --title 'feat\\(Plan-05+08\\): Soul Economy Timeline & Ability Unlock Timeline' --body ' *)",
       "Bash(gh api *)",
-      "Read(//mnt/c/Users/lococ/deadlock-builds/src/**)"
+      "Read(//mnt/c/Users/lococ/deadlock-builds/src/**)",
+      "Bash(gh pr create --title 'feat\\(layout\\): 4-column build planner grid with full-width stretch and column dividers' --body ' *)"
     ]
   }
 }
