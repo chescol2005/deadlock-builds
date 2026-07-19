@@ -132,11 +132,34 @@ async function run() {
     "Top DPS item is gun category",
     `Got: ${dpsResults[0].item.category}`,
   );
-  assert(dpsResults[0].score > dpsResults[1].score, "Results are sorted descending by score");
+  assert(
+    dpsResults.every((r, i) => i === 0 || r.score <= dpsResults[i - 1].score),
+    "Results are sorted descending by score (ties allowed)",
+  );
   assert(
     typeof dpsResults[0].reason === "string" && dpsResults[0].reason.length > 0,
     "Reason string populated",
   );
+
+  // Tie-breaking: equal-score items must resolve by cost ascending, then id ascending
+  const tiedGroups = new Map<number, typeof dpsResults>();
+  for (const r of dpsResults) {
+    const group = tiedGroups.get(r.score) ?? [];
+    group.push(r);
+    tiedGroups.set(r.score, group);
+  }
+  const exampleTie = [...tiedGroups.values()].find((g) => g.length > 1);
+  assert(!!exampleTie, "At least one score tie exists in DPS results (exercises tie-break path)");
+  if (exampleTie) {
+    const sortedByRule = [...exampleTie].sort(
+      (a, b) => a.item.cost - b.item.cost || a.item.id.localeCompare(b.item.id),
+    );
+    assert(
+      exampleTie.every((r, i) => r.item.id === sortedByRule[i].item.id),
+      "Tied scores resolve by cost ascending, then id ascending",
+      `Tied group: ${exampleTie.map((r) => `${r.item.id}(${r.item.cost})`).join(", ")}`,
+    );
+  }
 
   const tankResults = scoreItems(items, "tank", []);
   assert(
@@ -174,6 +197,26 @@ async function run() {
     assert(
       boundlessTotals.bonusHealthFlat === 75,
       `Boundless Spirit bonus health: ${boundlessTotals.bonusHealthFlat}`,
+    );
+  }
+
+  // BaseAttackDamagePercent feeds weaponDamageFlat/gun totals and the "burst" tag
+  // (replaces the dead "BulletDamage" key — Valve renamed it upstream)
+  const hollowPoint = items.find((i) => i.id === "upgrade_hollow_point_rounds");
+  if (hollowPoint) {
+    const hollowPointTotals = calculateStatTotals([hollowPoint]);
+    assert(
+      hollowPointTotals.weaponDamageFlat === 35,
+      `Hollow Point Rounds weaponDamageFlat via BaseAttackDamagePercent: ${hollowPointTotals.weaponDamageFlat}`,
+    );
+    assert(
+      hollowPointTotals.gun === 35,
+      `Hollow Point Rounds gun total via BaseAttackDamagePercent: ${hollowPointTotals.gun}`,
+    );
+    assert(
+      hollowPoint.tags.includes("burst"),
+      `Hollow Point Rounds tagged "burst" via BaseAttackDamagePercent`,
+      `Got tags: ${hollowPoint.tags.join(", ")}`,
     );
   }
 

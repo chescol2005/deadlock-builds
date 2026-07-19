@@ -53,7 +53,7 @@ export type StatTotals = {
 const SPIRIT_POWER_KEYS = ["TechPower"];
 const SPIRIT_POWER_PERCENT_KEYS = ["TechPowerPercent"];
 const HEALTH_BONUS_KEYS = ["BonusHealth"];
-const WEAPON_DAMAGE_KEYS = ["WeaponPower", "BulletDamage"];
+const WEAPON_DAMAGE_KEYS = ["WeaponPower", "BaseAttackDamagePercent"];
 const HEALTH_REGEN_KEYS = ["BonusHealthRegen", "OutOfCombatHealthRegen"];
 
 export function calculateDamageSplit(items: BuildableItem[]): DamageSplit {

@@ -94,8 +94,9 @@ TechPowerPercent              // % spirit power
 BonusHealth / max_health      // health (raw hero stat key is snake_case)
 BonusHealthRegen, OutOfCombatHealthRegen
 WeaponPower                   // weapon damage %
-BulletDamage                  // flat bullet damage
-BulletArmorDamageReduction, TechArmorDamageReduction
+BaseAttackDamagePercent       // weapon damage % (was BulletDamage — Valve renamed it upstream, old key no longer exists)
+BulletResist, TechResist            // % damage resist (not BulletArmorDamageReduction/TechArmorDamageReduction — those keys don't exist)
+StatusResistancePercent, DegenResistance, MeleeResistPercent
 BonusMoveSpeed / move_speed
 BonusAbilityCharges / AbilityCharges
 ```

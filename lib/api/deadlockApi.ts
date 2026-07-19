@@ -1,6 +1,6 @@
 import type { HeroBaseStats } from "@/lib/heroStats";
 
-const BASE_URL = "https://assets.deadlock-api.com";
+const BASE_URL = "https://api.deadlock-api.com/v1/assets";
 
 // ─── Hero stats ──────────────────────────────────────────────────────────────
 
@@ -24,7 +24,7 @@ function statVal(stats: HeroStartingStats | undefined, key: string): number {
 }
 
 export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
-  const res = await fetch(`${BASE_URL}/v2/heroes/${heroId}`, {
+  const res = await fetch(`${BASE_URL}/heroes/${heroId}`, {
     next: { revalidate: 3600 },
   });
 
@@ -97,7 +97,7 @@ export type HeroAbilityRaw = {
 
 export async function fetchHeroAbilityItems(heroId: number): Promise<HeroAbilityRaw[]> {
   try {
-    const res = await fetch(`${BASE_URL}/v2/items/by-hero-id/${heroId}`, {
+    const res = await fetch(`${BASE_URL}/items/by-hero-id/${heroId}`, {
       next: { revalidate: 3600 },
     });
     if (!res.ok) {
@@ -146,7 +146,7 @@ export type UpgradeV2Raw = {
 
 export async function fetchAllItems(): Promise<UpgradeV2Raw[]> {
   try {
-    const res = await fetch(`${BASE_URL}/v2/items`, { cache: "no-store" });
+    const res = await fetch(`${BASE_URL}/items`, { cache: "no-store" });
     if (!res.ok) {
       console.error(`[deadlockApi] fetchAllItems failed: ${res.status} ${res.statusText}`);
       return [];

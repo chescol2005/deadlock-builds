@@ -29,7 +29,7 @@ function deriveTags(raw: UpgradeV2Raw, parsedStats: Record<string, number>): Ite
   if (
     slot === "weapon" &&
     Object.keys(parsedStats).some(
-      (k) => k.includes("BulletDamage") || k.includes("Crit") || k.includes("Headshot"),
+      (k) => k.includes("BaseAttackDamagePercent") || k.includes("Crit") || k.includes("Headshot"),
     )
   ) {
     tags.add("burst");

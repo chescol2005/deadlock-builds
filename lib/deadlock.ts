@@ -23,7 +23,7 @@ export type DeadlockHeroListItem = {
 } & DeadlockHeroFlags;
 
 export async function fetchHeroes(): Promise<DeadlockHeroListItem[]> {
-  const res = await fetch("https://assets.deadlock-api.com/v2/heroes", {
+  const res = await fetch("https://api.deadlock-api.com/v1/assets/heroes", {
     // Cache for 1 hour on Vercel
     next: { revalidate: 3600 },
   });
@@ -61,7 +61,7 @@ export function slugifyHeroName(name: string) {
 
 export async function fetchHeroByName(name: string): Promise<DeadlockHeroDetail> {
   const res = await fetch(
-    `https://assets.deadlock-api.com/v2/heroes/by-name/${encodeURIComponent(name)}`,
+    `https://api.deadlock-api.com/v1/assets/heroes/by-name/${encodeURIComponent(name)}`,
     { next: { revalidate: 3600 } },
   );
 
@@ -74,7 +74,7 @@ export async function fetchHeroByName(name: string): Promise<DeadlockHeroDetail>
 
 export async function fetchHeroById(id: number | string): Promise<DeadlockHeroDetail> {
   const res = await fetch(
-    `https://assets.deadlock-api.com/v2/heroes/${encodeURIComponent(String(id))}`,
+    `https://api.deadlock-api.com/v1/assets/heroes/${encodeURIComponent(String(id))}`,
     { next: { revalidate: 3600 } },
   );
 
@@ -190,7 +190,7 @@ export type ItemLite = {
   updatedAt?: number;
 };
 
-const ASSETS_BASE = "https://assets.deadlock-api.com/v2";
+const ASSETS_BASE = "https://api.deadlock-api.com/v1/assets";
 
 export async function fetchItems(): Promise<DeadlockItemApi[]> {
   const res = await fetch(`${ASSETS_BASE}/items`, {

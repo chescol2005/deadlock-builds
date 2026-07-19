@@ -90,13 +90,16 @@ BuildState.heroId; // "heroId" not "herold"
 
 ## Data Source
 
-All game data: `https://assets.deadlock-api.com` (unauthenticated)
+All game data: `https://api.deadlock-api.com/v1/assets` (unauthenticated)
+
+`https://assets.deadlock-api.com/v2/...` still works but 301-redirects here —
+call the canonical host directly, don't rely on the redirect.
 
 ```typescript
-GET / v2 / items; // all items
-GET / v2 / items / by - slot - type / { slot }; // weapon | spirit | vitality
-GET / v2 / heroes / { id }; // hero stats + scaling
-GET / v2 / items / by - hero - id / { id }; // hero abilities
+GET / v1 / assets / items; // all items
+GET / v1 / assets / items / by - slot - type / { slot }; // weapon | spirit | vitality
+GET / v1 / assets / heroes / { id }; // hero stats + scaling
+GET / v1 / assets / items / by - hero - id / { id }; // hero abilities
 ```
 
 ### Item field names (commonly confused)
@@ -129,9 +132,12 @@ BonusHealth; // flat health
 BonusHealthRegen; // health regen
 OutOfCombatHealthRegen;
 WeaponPower; // weapon damage %
-BulletDamage; // flat bullet damage
-BulletArmorDamageReduction;
-TechArmorDamageReduction;
+BaseAttackDamagePercent; // weapon damage % (was BulletDamage — renamed upstream, key no longer exists)
+BulletResist; // % bullet damage resistance
+TechResist; // % spirit damage resistance
+StatusResistancePercent;
+DegenResistance;
+MeleeResistPercent;
 ```
 
 ---
