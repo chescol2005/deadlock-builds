@@ -404,6 +404,9 @@ consumedComponents    // from getConsumedComponents()
 | C         | ✅ Closed | New player UX foundations: shared Tooltip/AudienceTabs components, tooltip copy retrofit, simplified/advanced toggle, `/build` onboarding, hero difficulty/archetype tags, UX checklist fixture (`mini.ts` Fixture 9)                                                                                                                                                                                                                         |
 | D         | ✅ Closed | Guide content expansion: boons (`/guide/boons`), itemization (`/guide/itemization`), lane mechanics (`/guide/lanes`) pages; `Minimap`/`PhaseTimeline` generalized into `app/guide/components/` and reused across all 4 guide pages; `mini.ts` extended to `lib/farming` + new guide data (72 → 88 fixtures); data-verifier cadence documented (see "Data Verification Cadence" above — no durable scheduler exists for actual automation yet) |
 | M6        | ⏸ Queued  | AI coach layer + skill path planner (sequenced after Milestone C so it has UX surfaces to attach to)                                                                                                                                                                                                                                                                                                                                          |
+| E         | ⏸ Queued  | Hero-Aware Basket Scoring: `lib/engine/heroNeed.ts` derives a per-hero need vector (mechanical spirit/weapon lean from ability coefficients + cross-hero-normalized tankiness/mobility from base stats); `lib/engine/basketSelect.ts` greedily selects a basket of items across gun/spirit/vitality that jointly covers it, trading off category-bonus concentration against need-vector diversification. Fully deterministic, no external data dependency. Built inside `lib/engine/` (not `lib/scoring/`) specifically so Milestone F can plug in later — see "Milestone E Design Decisions" below |
+| F         | ⏸ Queued  | Empirical risk/covariance layer: ingest match-level data from `deadlock-api.com`'s `/v1/matches/{id}/metadata` (item builds + purchase timing + death events + win/loss — confirmed available, unauthenticated, via `data-verifier` spike) into a category×feature design matrix, produce a static regression coefficient table offline, wire it into Milestone E's `constructBasket()` marginal-value function as one more pluggable term. Depends on Milestone E's interfaces (not its completion) |
+| G         | ⏸ Queued  | Need-vector enrichment (stretch): parse `HeroAbility.upgrades[].statChanges` free text for real sustain/lifesteal signal; hand-author a `hero.tags`/`hero_type`/`gun_tag` → category mapping (same upkeep shape as `GOAL_WEIGHTS_MAP`/`ANTI_SYNERGY_RULES`). Purely additive to Milestone E's need vector, not a prerequisite for E or F |
 
 ---
 
@@ -418,6 +421,52 @@ consumedComponents    // from getConsumedComponents()
 - Tracklock-style skill path planner grid
 - Starter build templates (Beginner / Aggressive / Safe) with
   coach annotations explaining each item choice
+
+---
+
+## Milestone E Design Decisions (locked before coding)
+
+Portfolio-theory-inspired itemization scoring, scoped across two research
+passes + a `data-verifier` spike (full reasoning in session history — this
+section captures the decisions, not the exploration):
+
+- Lives in `lib/engine/` (the WIP staged-pipeline surface), not
+  `lib/scoring/` — `ItemCandidate.categoryValues` is already a continuous
+  per-`ScoreCategory` vector, which is the shared representation Milestone F
+  needs to later plug empirical coefficients into the same marginal-value
+  function without restructuring the algorithm
+- `damage` must be split into `gunDamage`/`spiritDamage` in
+  `ScoreCategory`/`ItemCandidate.categoryValues` — the single `damage`
+  dimension can't tell a spirit-leaning hero's needs from a gun-leaning
+  hero's, which defeats the point of a hero-need vector
+- Need-vector derivation is mechanical where the data supports it (spirit/
+  weapon lean from real parsed `spiritScaling`/`weaponScaling` coefficients
+  in `lib/abilityCoefficients.ts`; tankiness/mobility from cross-hero
+  z-scored `HeroBaseStats`) and explicitly stubbed neutral, not faked, where
+  it doesn't yet (sustain/utility — deferred to Milestone G)
+- Basket selection is greedy budgeted-maximum-coverage: marginal value per
+  candidate = need-vector coverage gain (diminishing per category) +
+  category-bonus threshold gain (reusing `lib/categoryBonuses.ts`'s
+  `isApproachingSignificantBonus`/`getCurrentBonusTier`, the same logic
+  `scoreItems.ts` already applies) — this is what makes the algorithm
+  naturally trade off concentrating souls in one category (game-native bonus
+  ladder) against diversifying to cover a multi-category hero need, instead
+  of hand-waving a "risk" number
+- The marginal-value function must be composed as pluggable additive terms
+  (`baseMarginalValue + Σ adjustments`) from the start, specifically so
+  Milestone F's later regression output can add one more term without
+  touching the greedy loop, the need-vector deriver, or the UI
+- New UI surface (`HeroBasketSuggestion.tsx`) is additive/opt-in in
+  `BuildClient.tsx`, not a replacement for `SuggestedItemsPanel.tsx`'s
+  existing `scoreItems()` path — keeps this revertible and in its own PR,
+  consistent with the "AI layer changes and scoring changes must be in
+  separate PRs" rule (this isn't AI, but the same separation logic applies
+  to "new joint-selection scoring" vs. "existing independent-ranking
+  scoring")
+- Fixtures are synthetic/hermetic (matching `lib/engine/__fixtures__/mini.ts`'s
+  existing pattern) — no live API calls inside `mini.ts`. A one-time live
+  fetch against a real hero (e.g. Lady Geist, the motivating example) is a
+  manual sanity check during implementation, not an automated fixture
 
 ---
 
