@@ -1,8 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
 import type { Item, ItemAssignment } from "@/lib/items";
 import { getActiveItems } from "@/lib/buildCalculations";
 import { calculateDamageSplit, calculateTotalCost } from "@/lib/buildCalculations";
+import { SoulSplitBar } from "./SoulSplitBar";
 
 const COLORS = {
   spirit: { solid: "#7c3aed", label: "Spirit" },
@@ -27,9 +29,12 @@ export function ActiveItemsGrid({
   activeError: string | null;
   onToggleActive: (itemId: string) => void;
 }) {
-  const activeItems = getActiveItems(allItems, assignments);
-  const split = calculateDamageSplit(activeItems);
-  const totalCost = calculateTotalCost(activeItems);
+  const activeItems = useMemo(
+    () => getActiveItems(allItems, assignments),
+    [allItems, assignments],
+  );
+  const split = useMemo(() => calculateDamageSplit(activeItems), [activeItems]);
+  const totalCost = useMemo(() => calculateTotalCost(activeItems), [activeItems]);
   const count = activeItems.length;
 
   const slots: Array<Item | null> = [
@@ -179,34 +184,7 @@ export function ActiveItemsGrid({
       {/* Soul cost split bar */}
       {count > 0 ? (
         <>
-          <div
-            style={{
-              height: 6,
-              borderRadius: 4,
-              overflow: "hidden",
-              background: "rgba(255,255,255,0.08)",
-              display: "flex",
-            }}
-          >
-            {split.gun > 0 && (
-              <div
-                style={{ flex: split.gun, background: COLORS.gun.solid }}
-                title={`Gun: ${fmt(split.gun)}`}
-              />
-            )}
-            {split.vitality > 0 && (
-              <div
-                style={{ flex: split.vitality, background: COLORS.vitality.solid }}
-                title={`Vitality: ${fmt(split.vitality)}`}
-              />
-            )}
-            {split.spirit > 0 && (
-              <div
-                style={{ flex: split.spirit, background: COLORS.spirit.solid }}
-                title={`Spirit: ${fmt(split.spirit)}`}
-              />
-            )}
-          </div>
+          <SoulSplitBar split={split} height={6} borderRadius={4} />
           <div
             style={{
               display: "flex",

@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  fetchHeroById,
-  fetchHeroByName,
-  fetchUpgradeItems,
-  normalizeUpgradeItems,
-  fetchAbilityItems,
-  getHeroSignatureSlotsFromHeroItems,
-} from "../../../lib/deadlock";
+import { fetchHeroById, fetchHeroByName } from "@/lib/heroApi";
+import { getItems } from "@/lib/itemStore";
+import { getHeroStats } from "@/lib/heroStore";
+import { getHeroAnalytics } from "@/lib/analyticsStore";
+import { fetchHeroAbilityItems } from "@/lib/api/deadlockApi";
+import { mapHeroAbilities } from "@/lib/abilityCoefficients";
 import { ShopGrid } from "../components/ShopGrid";
+import { HeroDifficultyBadge, HeroArchetypeTags } from "@/app/components/HeroDifficultyBadge";
+import { HeroStatsSection } from "../components/HeroStatsSection";
+import { HeroAbilitiesSection } from "../components/HeroAbilitiesSection";
 
 export default async function HeroPage({ params }: { params: Promise<{ hero: string[] }> }) {
   const { hero } = await params;
@@ -26,16 +27,20 @@ export default async function HeroPage({ params }: { params: Promise<{ hero: str
 
   if (!isId && !hasSubroute) redirect(`/heroes/${heroData.id}`);
 
-  // Signature abilities: from /items/by-type/ability, linked by hero id (+ ability_type = signature)
-  const allAbilities = await fetchAbilityItems();
-  const signatureAbilities = getHeroSignatureSlotsFromHeroItems(
-    heroData.items,
-    allAbilities,
-    heroData.id,
-  );
+  // Abilities + shop items + base stats + analytics, via the same scoped
+  // per-hero pipeline /build/[heroId] uses (fetchHeroAbilityItems +
+  // mapHeroAbilities) rather than fetching every hero's abilities just to
+  // filter down. Shop items: the same canonical fetchAllItems() +
+  // normalizeItem() pipeline /build uses.
+  const [shopItems, rawAbilities, baseStats, heroAnalyticsMap] = await Promise.all([
+    getItems(),
+    fetchHeroAbilityItems(heroData.id),
+    getHeroStats(heroData.id),
+    getHeroAnalytics(),
+  ]);
 
-  // Purchasable shop items: upgrades
-  const upgrades = normalizeUpgradeItems(await fetchUpgradeItems());
+  const heroAbilities = mapHeroAbilities(rawAbilities, heroData.items);
+  const analytics = heroAnalyticsMap.get(heroData.id);
 
   return (
     <main style={{ padding: 32 }}>
@@ -48,8 +53,18 @@ export default async function HeroPage({ params }: { params: Promise<{ hero: str
         }}
       >
         <div>
-          <h1 style={{ margin: 0 }}>{heroData.name}</h1>
-          <div style={{ opacity: 0.75, marginTop: 6 }}>{heroData.class_name}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <h1 style={{ margin: 0 }}>{heroData.name}</h1>
+            <HeroDifficultyBadge complexity={heroData.complexity} />
+          </div>
+          <div style={{ opacity: 0.75, marginTop: 6 }}>
+            {heroData.class_name}
+            {heroData.hero_type ? ` · ${heroData.hero_type}` : null}
+            {analytics ? ` · ${(analytics.winRate * 100).toFixed(1)}% win rate` : null}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <HeroArchetypeTags tags={heroData.tags} />
+          </div>
         </div>
 
         <Link href={`/build/${heroData.id}`} style={{ opacity: 0.9 }}>
@@ -57,50 +72,11 @@ export default async function HeroPage({ params }: { params: Promise<{ hero: str
         </Link>
       </div>
 
-      <section style={{ marginTop: 20 }}>
-        <h2 style={{ marginBottom: 12 }}>Signature Abilities</h2>
+      {baseStats ? <HeroStatsSection stats={baseStats} /> : null}
 
-        {signatureAbilities.length === 0 ? (
-          <div style={{ opacity: 0.8 }}>No signature abilities found.</div>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
-            {signatureAbilities.map((a) => (
-              <li
-                key={a.id}
-                style={{
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: 12,
-                  padding: 12,
-                  display: "flex",
-                  gap: 12,
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  {a.icon ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={a.icon}
-                      alt={a.name}
-                      width={40}
-                      height={40}
-                      style={{ borderRadius: 10 }}
-                    />
-                  ) : null}
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{a.name}</div>
-                    <div style={{ opacity: 0.7, fontSize: 12 }}>{a.className}</div>
-                  </div>
-                </div>
+      <HeroAbilitiesSection abilities={heroAbilities} />
 
-                <div style={{ opacity: 0.65, fontSize: 12 }}>Hero ability</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      <ShopGrid heroId={heroData.id} items={upgrades} />
+      <ShopGrid heroId={heroData.id} items={shopItems} />
     </main>
   );
 }

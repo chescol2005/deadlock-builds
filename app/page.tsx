@@ -16,6 +16,12 @@ export default function Home() {
           Browse Heroes
         </Link>
         <Link
+          href="/items"
+          className="rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-2.5 font-medium text-white transition-colors hover:border-amber-500 hover:text-amber-400"
+        >
+          Browse Items
+        </Link>
+        <Link
           href="/build"
           className="rounded-lg border border-amber-500 bg-amber-500/10 px-5 py-2.5 font-medium text-amber-400 transition-colors hover:bg-amber-500/20"
         >

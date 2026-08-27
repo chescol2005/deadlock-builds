@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { DeadlockHeroListItem, ShopItem, ShopCategory, SignatureSlot, AbilityLevel, AbilityLevels } from "@/lib/deadlock";
 import { serializeBuild } from "@/lib/buildSerializer";
@@ -11,9 +12,22 @@ import { AbilityLevelingPanel } from "@/app/build/components/AbilityLevelingPane
 import { BuildSummaryPanel } from "@/app/build/components/BuildSummaryPanel";
 import { SuggestedItemsPanel } from "@/app/build/components/SuggestedItemsPanel";
 import { CategoryManager } from "@/app/build/components/CategoryManager";
-import type { Item, BuildCategory, ItemAssignment, ItemDestination, ItemPhase } from "@/lib/items";
+import type {
+  AssignmentData,
+  BuildCategory,
+  Item,
+  ItemAssignment,
+  ItemDestination,
+} from "@/lib/items";
 import type { BuildGoal } from "@/lib/scoring/goalWeights";
-import { getConsumedComponents, resolveAddItem } from "@/lib/buildUtils";
+import {
+  canActivateItem,
+  cleanAssignmentMap,
+  cleanCategories,
+  getConsumedComponents,
+  MAX_ACTIVE_ITEMS,
+  resolveAddItem,
+} from "@/lib/buildUtils";
 import { arrayMove } from "@dnd-kit/sortable";
 import type { HeroBaseStats } from "@/lib/heroStats";
 import { calculateStatsAtBoon } from "@/lib/heroStats";
@@ -24,8 +38,18 @@ import {
   getAbilityPointsAtSouls,
   getAbilityUnlocksAtSouls,
 } from "@/lib/boonSystem";
-import { calculateStatTotals } from "@/lib/buildCalculations";
+import { calculateStatTotals, combineStatTotal } from "@/lib/buildCalculations";
 import type { StatTotals } from "@/lib/buildCalculations";
+import { InfoTooltip } from "@/app/components/Tooltip";
+import { HeroDifficultyBadge } from "@/app/components/HeroDifficultyBadge";
+import { AudienceTabs } from "@/app/components/AudienceTabs";
+import { BuildEmptyState } from "@/app/build/components/BuildEmptyState";
+import { HeroStatsPanel } from "@/app/build/components/HeroStatsPanel";
+
+const VIEW_MODE_TABS = [
+  { value: "simplified", label: "Simplified" },
+  { value: "advanced", label: "Advanced" },
+] as const;
 
 const GOALS: { value: BuildGoal; label: string }[] = [
   { value: "burst", label: "Burst" },
@@ -35,141 +59,12 @@ const GOALS: { value: BuildGoal; label: string }[] = [
   { value: "mobility", label: "Mobility" },
 ];
 
-type AssignmentData = {
-  phase: ItemPhase | null;
-  active: boolean;
-  sellPriority: boolean;
-  optional: boolean;
-};
-
 const DEFAULT_ASSIGNMENT: AssignmentData = {
   phase: null,
   active: false,
   sellPriority: false,
   optional: false,
 };
-
-function cleanCategories(categories: BuildCategory[], buildItems: Item[]): BuildCategory[] {
-  const buildClassnames = new Set(buildItems.map((i) => i.id));
-  return categories.map((cat) => ({
-    ...cat,
-    itemIds: cat.itemIds.filter((id) => buildClassnames.has(id)),
-  }));
-}
-
-
-function StatRow({ label, value, perBoon }: { label: string; value: number; perBoon?: number }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "baseline",
-        gap: 8,
-        padding: "3px 0",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
-      }}
-    >
-      <span style={{ fontSize: 12, opacity: 0.7 }}>{label}</span>
-      <span style={{ fontSize: 12, fontWeight: 600 }}>
-        {Math.round(value * 10) / 10}
-        {perBoon != null && perBoon > 0 ? (
-          <span style={{ fontSize: 11, opacity: 0.45, marginLeft: 4 }}>
-            +{Math.round(perBoon * 100) / 100}/boon
-          </span>
-        ) : null}
-      </span>
-    </div>
-  );
-}
-
-function HeroStatsPanel({
-  stats,
-  boonLevel,
-  itemTotals,
-}: {
-  stats: HeroBaseStats;
-  boonLevel: number;
-  itemTotals?: StatTotals;
-}) {
-  const scaled = calculateStatsAtBoon(stats, boonLevel);
-
-  const totalSpiritPower =
-    scaled.spiritPower +
-    (itemTotals?.spiritPowerFlat ?? 0) +
-    (scaled.spiritPower * (itemTotals?.spiritPowerPercent ?? 0)) / 100;
-
-  const totalMaxHealth = scaled.maxHealth + (itemTotals?.bonusHealthFlat ?? 0);
-  const totalHealthRegen = stats.healthRegen + (itemTotals?.healthRegen ?? 0);
-
-  return (
-    <section style={{ marginTop: 12 }}>
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          opacity: 0.5,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
-          marginBottom: 6,
-        }}
-      >
-        Weapon Stats
-      </div>
-      <StatRow
-        label="Bullet Damage"
-        value={scaled.bulletDamage}
-        perBoon={stats.bulletDamagePerBoon}
-      />
-      <StatRow label="Light Melee" value={scaled.lightMeleeDamage} perBoon={stats.lightMeleePerBoon} />
-      <StatRow label="Heavy Melee" value={scaled.heavyMeleeDamage} perBoon={stats.heavyMeleePerBoon} />
-
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          opacity: 0.5,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
-          marginTop: 10,
-          marginBottom: 6,
-        }}
-      >
-        Vitality Stats
-      </div>
-      <StatRow label="Max Health" value={totalMaxHealth} perBoon={stats.maxHealthPerBoon} />
-      {itemTotals && itemTotals.bonusHealthFlat > 0 ? (
-        <div style={{ fontSize: 11, opacity: 0.45, padding: "1px 0 3px", textAlign: "right" }}>
-          {Math.round(scaled.maxHealth)} base + {itemTotals.bonusHealthFlat} items
-        </div>
-      ) : null}
-      <StatRow label="Health Regen" value={totalHealthRegen} />
-      <StatRow label="Move Speed" value={stats.moveSpeed} />
-
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          opacity: 0.5,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
-          marginTop: 10,
-          marginBottom: 6,
-        }}
-      >
-        Spirit Stats
-      </div>
-      <StatRow label="Spirit Power" value={totalSpiritPower} perBoon={stats.spiritPowerPerBoon} />
-      {itemTotals && (itemTotals.spiritPowerFlat > 0 || itemTotals.spiritPowerPercent > 0) ? (
-        <div style={{ fontSize: 11, opacity: 0.45, padding: "1px 0 3px", textAlign: "right" }}>
-          {Math.round(scaled.spiritPower)} base
-          {itemTotals.spiritPowerFlat > 0 ? ` + ${itemTotals.spiritPowerFlat} items` : ""}
-          {itemTotals.spiritPowerPercent > 0 ? ` + ${itemTotals.spiritPowerPercent}%` : ""}
-        </div>
-      ) : null}
-    </section>
-  );
-}
 
 export default function BuildClient({
   heroes,
@@ -192,6 +87,10 @@ export default function BuildClient({
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
   const [activeTab, setActiveTab] = useState<ShopCategory>("weapon");
   const [selectedGoal, setSelectedGoal] = useState<BuildGoal>("burst");
+  // New players should never see the full complexity at once — default to
+  // the simplified view; veterans opt into Advanced for full control.
+  const [viewMode, setViewMode] = useState<"simplified" | "advanced">("simplified");
+  const simplified = viewMode === "simplified";
 
   const [buildItems, setBuildItems] = useState<Item[]>(() => {
     if (!initialState) return [];
@@ -207,7 +106,7 @@ export default function BuildClient({
   );
 
   const [manualBoonLevel, setManualBoonLevel] = useState<number>(
-    initialState?.boonLevel ?? 0,
+    initialState?.heroLevel ?? 0,
   );
 
   const [categories, setCategories] = useState<BuildCategory[]>(
@@ -239,6 +138,14 @@ export default function BuildClient({
     [categories, buildItems],
   );
 
+  // Derived, not hand-synced: filters out stale entries for items no longer in
+  // buildItems (e.g. left behind when resolveAddItem silently drops a consumed
+  // component) so callers never have to remember to prune assignmentMap themselves.
+  const cleanedAssignmentMap = useMemo(
+    () => cleanAssignmentMap(assignmentMap, buildItems),
+    [assignmentMap, buildItems],
+  );
+
   const selectedIds = useMemo(() => new Set(buildItems.map((it) => it.id)), [buildItems]);
 
   const selectedHero = useMemo(
@@ -247,14 +154,14 @@ export default function BuildClient({
   );
 
   const activeCount = useMemo(
-    () => Array.from(assignmentMap.values()).filter((a) => a.active).length,
-    [assignmentMap],
+    () => Array.from(cleanedAssignmentMap.values()).filter((a) => a.active).length,
+    [cleanedAssignmentMap],
   );
 
   const itemAssignments = useMemo<ItemAssignment[]>(
     () =>
       buildItems.map((it) => {
-        const a = assignmentMap.get(it.id) ?? DEFAULT_ASSIGNMENT;
+        const a = cleanedAssignmentMap.get(it.id) ?? DEFAULT_ASSIGNMENT;
         return {
           itemId: it.id,
           phase: a.phase,
@@ -263,7 +170,7 @@ export default function BuildClient({
           optional: a.optional,
         };
       }),
-    [buildItems, assignmentMap],
+    [buildItems, cleanedAssignmentMap],
   );
 
   const boonSouls = useMemo(
@@ -288,7 +195,13 @@ export default function BuildClient({
   const totalSpiritPower = useMemo(() => {
     if (!heroBaseStats) return 0;
     const base = calculateStatsAtBoon(heroBaseStats, manualBoonLevel).spiritPower;
-    return base + itemStatTotals.spiritPowerFlat + (base * itemStatTotals.spiritPowerPercent) / 100;
+    return combineStatTotal(base, itemStatTotals.spiritPowerFlat, itemStatTotals.spiritPowerPercent);
+  }, [heroBaseStats, manualBoonLevel, itemStatTotals]);
+
+  const totalWeaponDamage = useMemo(() => {
+    if (!heroBaseStats) return 0;
+    const base = calculateStatsAtBoon(heroBaseStats, manualBoonLevel).bulletDamage;
+    return combineStatTotal(base, itemStatTotals.weaponDamageFlat, itemStatTotals.weaponDamagePercent);
   }, [heroBaseStats, manualBoonLevel, itemStatTotals]);
 
   function handleLevelChange(slot: SignatureSlot, level: AbilityLevel) {
@@ -389,24 +302,44 @@ export default function BuildClient({
   }
 
   function handleToggleActive(itemId: string) {
-    const cur = assignmentMap.get(itemId) ?? DEFAULT_ASSIGNMENT;
-    if (cur.optional) return;
-
-    const isCurrentlyActive = cur.active;
-    if (!isCurrentlyActive) {
-      if (activeCount >= 12) {
-        setActiveError("Active build full — remove an active item first");
-        setTimeout(() => setActiveError(null), 3000);
-        return;
-      }
-    }
+    // The cap check must happen INSIDE the functional updater, computed from
+    // `prev` at update time — reading activeCount/cleanedAssignmentMap from the
+    // outer closure is a stale render-time snapshot, so two toggles dispatched
+    // before a re-render could both pass the same check and both commit,
+    // exceeding MAX_ACTIVE_ITEMS (a TOCTOU race). The updater itself only sets
+    // assignmentMap; the block reason is captured in this closure variable and
+    // surfaced via setActiveError afterward, once the atomic update is done.
+    let blockedReason: string | null = null;
 
     setAssignmentMap((prev) => {
+      const cur = prev.get(itemId) ?? DEFAULT_ASSIGNMENT;
+      if (cur.optional) return prev;
+
+      const isCurrentlyActive = cur.active;
+      if (!isCurrentlyActive) {
+        // Recompute active count from `prev` (this update's actual input), not
+        // the outer closure's activeCount, and restrict to items still present
+        // in buildItems to match cleanedAssignmentMap's semantics.
+        const buildIds = new Set(buildItems.map((it) => it.id));
+        const liveActiveCount = Array.from(prev.entries()).filter(
+          ([id, a]) => buildIds.has(id) && a.active,
+        ).length;
+        const result = canActivateItem(liveActiveCount, cur.optional);
+        if (!result.allowed) {
+          blockedReason = result.reason ?? "Active build full — remove an active item first";
+          return prev;
+        }
+      }
+
       const next = new Map(prev);
-      const a = next.get(itemId) ?? { ...DEFAULT_ASSIGNMENT };
-      next.set(itemId, { ...a, active: !isCurrentlyActive });
+      next.set(itemId, { ...cur, active: !isCurrentlyActive });
       return next;
     });
+
+    if (blockedReason) {
+      setActiveError(blockedReason);
+      setTimeout(() => setActiveError(null), 3000);
+    }
   }
 
   async function handleCopyShareLink() {
@@ -414,12 +347,12 @@ export default function BuildClient({
       heroId,
       itemIds: buildItems.map((it) => it.id),
       abilityLevels,
-      boonLevel: manualBoonLevel,
+      heroLevel: manualBoonLevel,
       categories: cleanedCategories,
-      phases: buildItems.map((it) => assignmentMap.get(it.id)?.phase ?? null),
-      active: buildItems.map((it) => assignmentMap.get(it.id)?.active ?? false),
-      sell: buildItems.map((it) => assignmentMap.get(it.id)?.sellPriority ?? false),
-      optional: buildItems.map((it) => assignmentMap.get(it.id)?.optional ?? false),
+      phases: buildItems.map((it) => cleanedAssignmentMap.get(it.id)?.phase ?? null),
+      active: buildItems.map((it) => cleanedAssignmentMap.get(it.id)?.active ?? false),
+      sell: buildItems.map((it) => cleanedAssignmentMap.get(it.id)?.sellPriority ?? false),
+      optional: buildItems.map((it) => cleanedAssignmentMap.get(it.id)?.optional ?? false),
     };
     const encoded = serializeBuild(state);
     const url = `${window.location.origin}${window.location.pathname}?build=${encoded}`;
@@ -464,6 +397,19 @@ export default function BuildClient({
           ))}
         </select>
 
+        <Link
+          href="/items"
+          style={{
+            padding: "8px 12px",
+            borderRadius: 8,
+            border: "1px solid rgba(255,255,255,0.2)",
+            color: "rgba(255,255,255,0.85)",
+            textDecoration: "none",
+          }}
+        >
+          Browse Items
+        </Link>
+
         {selectedHero ? (
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {selectedHero.images?.icon_image_small_webp || selectedHero.images?.icon_image_small ? (
@@ -481,7 +427,10 @@ export default function BuildClient({
             ) : null}
 
             <div>
-              <div style={{ fontWeight: 700, lineHeight: 1.1 }}>{selectedHero.name}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 700, lineHeight: 1.1 }}>{selectedHero.name}</span>
+                <HeroDifficultyBadge complexity={selectedHero.complexity} />
+              </div>
               <div style={{ opacity: 0.7, fontSize: 12 }}>{selectedHero.class_name}</div>
             </div>
           </div>
@@ -514,6 +463,13 @@ export default function BuildClient({
         ) : null}
 
         {heroId ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <AudienceTabs tabs={VIEW_MODE_TABS} value={viewMode} onChange={setViewMode} />
+            <InfoTooltip content="Simplified hides veteran-only detail (raw coefficients, soul-investment math, sell/optional flags) so you can focus on picking items. Switch to Advanced any time for full control." />
+          </div>
+        ) : null}
+
+        {heroId ? (
           <div
             style={{
               marginLeft: "auto",
@@ -524,7 +480,7 @@ export default function BuildClient({
             }}
           >
             <span style={{ fontSize: 12, opacity: 0.5 }}>
-              {activeCount}/12 active · {buildItems.length} items
+              {activeCount}/{MAX_ACTIVE_ITEMS} active · {buildItems.length} items
             </span>
             <button
               onClick={() => {
@@ -605,7 +561,7 @@ export default function BuildClient({
       </header>
 
       {!heroId ? (
-        <div style={{ marginTop: 24, opacity: 0.8 }}>Select a hero to start a build.</div>
+        <BuildEmptyState />
       ) : (
         <div
           style={{
@@ -634,6 +590,7 @@ export default function BuildClient({
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.7 }}>Boon Level</span>
+                <InfoTooltip content="Boon Level simulates how far into a match you are — it estimates the souls you've earned and unlocks ability points, ability slots, and stat scaling as it rises. Use it to preview your build at different points in a game." />
                 <button
                   onClick={() => setManualBoonLevel(Math.max(0, manualBoonLevel - 1))}
                   style={{
@@ -712,7 +669,7 @@ export default function BuildClient({
             {heroBaseStats ? (
               <HeroStatsPanel
                 stats={heroBaseStats}
-                boonLevel={manualBoonLevel}
+                heroLevel={manualBoonLevel}
                 itemTotals={itemStatTotals}
               />
             ) : null}
@@ -725,13 +682,29 @@ export default function BuildClient({
               unlockedAbilitySlots={unlockedAbilitySlots}
               planSouls={boonSouls}
               spiritPower={totalSpiritPower}
+              weaponDamage={totalWeaponDamage}
               pointsSpent={pointsSpent}
               pointCostForNextLevel={pointCostForNextLevel}
+              simplified={simplified}
             />
           </div>
 
           {/* Center panel */}
           <div style={{ marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+            {buildItems.length === 0 ? (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(250,204,21,0.3)",
+                  background: "rgba(250,204,21,0.06)",
+                  fontSize: 13,
+                }}
+              >
+                No items yet — browse the shop below and click an item to add it to your build.
+              </div>
+            ) : null}
             <CategoryManager
               categories={cleanedCategories}
               buildItems={buildItems}
@@ -744,6 +717,7 @@ export default function BuildClient({
               onToggleOptional={handleToggleOptional}
               onReorderBuildItems={handleReorderBuildItems}
               consumedComponents={consumedComponents}
+              simplified={simplified}
             />
 
             <ItemBrowser
@@ -768,6 +742,7 @@ export default function BuildClient({
               heroAbilities={heroAbilities}
               abilityLevels={abilityLevels}
               itemStatTotals={itemStatTotals}
+              simplified={simplified}
             />
           </div>
 
@@ -780,6 +755,7 @@ export default function BuildClient({
               onAdd={handleAddSuggestedItem}
               consumedComponents={consumedComponents}
               slotsFull={false}
+              simplified={simplified}
             />
           </div>
         </div>

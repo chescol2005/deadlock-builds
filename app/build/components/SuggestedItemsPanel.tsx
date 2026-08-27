@@ -5,6 +5,7 @@ import type { Item, ItemCategory } from "@/lib/items";
 import type { BuildGoal } from "@/lib/scoring/goalWeights";
 import { scoreItems } from "@/lib/scoring/scoreItems";
 import { getEffectiveAddCost } from "@/lib/buildUtils";
+import { Tooltip, InfoTooltip } from "@/app/components/Tooltip";
 
 const CATEGORY_COLORS: Record<ItemCategory, string> = {
   gun: "#ea580c",
@@ -19,6 +20,7 @@ const CATEGORY_SOFT: Record<ItemCategory, string> = {
 };
 
 const TOP_N = 6;
+const TOP_N_SIMPLIFIED = 3;
 
 export function SuggestedItemsPanel({
   allItems,
@@ -27,19 +29,25 @@ export function SuggestedItemsPanel({
   onAdd,
   consumedComponents = new Map(),
   slotsFull = false,
+  simplified = false,
 }: {
   allItems: Item[];
   currentBuild: Item[];
   selectedGoal: BuildGoal;
   onAdd: (item: Item) => void;
-  consumedComponents?: ReadonlyMap<string, string>;
+  consumedComponents?: ReadonlyMap<string, string[]>;
   slotsFull?: boolean;
+  simplified?: boolean;
 }) {
   const buildIds = useMemo(() => new Set(currentBuild.map((i) => i.id)), [currentBuild]);
 
   const topItems = useMemo(
-    () => scoreItems(allItems, selectedGoal, currentBuild).slice(0, TOP_N),
-    [allItems, selectedGoal, currentBuild],
+    () =>
+      scoreItems(allItems, selectedGoal, currentBuild).slice(
+        0,
+        simplified ? TOP_N_SIMPLIFIED : TOP_N,
+      ),
+    [allItems, selectedGoal, currentBuild, simplified],
   );
 
   // Always surface direct upgrades of build items and consumed items so the
@@ -81,25 +89,28 @@ export function SuggestedItemsPanel({
     const isInBuild = buildIds.has(item.id);
 
     if (isConsumed) {
-      const consumedBy = consumedComponents.get(item.id)!;
+      const consumedBy = (consumedComponents.get(item.id) ?? []).join(", ");
       return (
-        <button
-          disabled
-          title={`Consumed by ${consumedBy}`}
-          style={{
-            alignSelf: "flex-start",
-            padding: "4px 10px",
-            borderRadius: 6,
-            border: "1px solid rgba(255,255,255,0.12)",
-            background: "transparent",
-            color: "rgba(255,255,255,0.3)",
-            fontWeight: 600,
-            fontSize: 12,
-            cursor: "not-allowed",
-          }}
+        <Tooltip
+          content={`Already in your build as a component of ${consumedBy} — no need to buy it separately.`}
         >
-          Consumed
-        </button>
+          <button
+            disabled
+            style={{
+              alignSelf: "flex-start",
+              padding: "4px 10px",
+              borderRadius: 6,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "transparent",
+              color: "rgba(255,255,255,0.3)",
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: "not-allowed",
+            }}
+          >
+            Consumed
+          </button>
+        </Tooltip>
       );
     }
 
@@ -185,15 +196,24 @@ export function SuggestedItemsPanel({
     <section>
       <div
         style={{
-          fontSize: 11,
-          fontWeight: 700,
-          opacity: 0.6,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
           marginBottom: 10,
         }}
       >
-        Suggested Items
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            opacity: 0.6,
+            textTransform: "uppercase",
+            letterSpacing: 0.8,
+          }}
+        >
+          Suggested Items
+        </span>
+        <InfoTooltip content="Ranked by your selected goal (top of header) and what's already in your build. The italic line under each item explains why it scored the way it did." />
       </div>
 
       {allRows.length === 0 ? (
@@ -230,7 +250,7 @@ export function SuggestedItemsPanel({
                   }}
                 >
                   <div style={{ fontWeight: 700, fontSize: 13 }}>{item.name}</div>
-                  {score !== null ? (
+                  {score !== null && !simplified ? (
                     <span
                       style={{
                         fontSize: 11,

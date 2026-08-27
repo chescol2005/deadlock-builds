@@ -101,5 +101,14 @@ export function getSoulsToNextTier(soulsInCategory: number): number | null {
 }
 
 export function isApproachingSignificantBonus(soulsInCategory: number): boolean {
-  return soulsInCategory >= 3200 && soulsInCategory < 4800;
+  // Find the significant bonus tier and derive thresholds from it
+  const significantTierIndex = CATEGORY_BONUS_TIERS.findIndex((t) => t.isSignificant);
+  if (significantTierIndex <= 0) return false; // No prior tier to check
+
+  const significantTier = CATEGORY_BONUS_TIERS[significantTierIndex];
+  const priorTier = CATEGORY_BONUS_TIERS[significantTierIndex - 1];
+
+  return (
+    soulsInCategory >= priorTier.soulsThreshold && soulsInCategory < significantTier.soulsThreshold
+  );
 }

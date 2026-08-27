@@ -10,7 +10,8 @@ function parseStats(raw: UpgradeV2Raw): Record<string, number> {
     if (isNaN(val)) continue;
     if (String(entry.value) === entry.disable_value) continue;
     if (val === 0 && entry.disable_value === "0") continue;
-    if (val < 0) continue;
+    // Negative values are kept: they are legitimate debuff-style tradeoffs
+    // (an item that boosts one stat at the cost of another), not bad data.
     stats[key] = val;
   }
 
@@ -80,24 +81,32 @@ function mapCategory(slot: "weapon" | "vitality" | "spirit"): ItemCategory {
   return slot === "weapon" ? "gun" : slot;
 }
 
+// `??` only falls through on null/undefined, not "" — the API can return an
+// empty-string icon field alongside a valid fallback, so an explicit
+// non-empty-string check is required or the empty string silently wins.
+function firstNonEmpty(...vals: Array<string | null | undefined>): string | undefined {
+  return vals.find((v): v is string => typeof v === "string" && v.length > 0);
+}
+
 export function normalizeItem(raw: UpgradeV2Raw): Item {
   const parsedStats = parseStats(raw);
   const tags = deriveTags(raw, parsedStats);
 
   return {
     id: raw.class_name,
+    numericId: raw.id,
     name: raw.name,
     category: mapCategory(raw.item_slot_type),
     tier: raw.item_tier as ItemTier,
     cost: Number(raw.cost),
     tags: tags.length > 0 ? tags : ["utility"],
     stats: parsedStats,
-    icon:
-      raw.shop_image_webp ??
-      raw.shop_image ??
-      raw.shop_image_small_webp ??
-      raw.shop_image_small ??
-      undefined,
+    icon: firstNonEmpty(
+      raw.shop_image_webp,
+      raw.shop_image,
+      raw.shop_image_small_webp,
+      raw.shop_image_small,
+    ),
     componentItems: raw.component_items ?? [],
     upgradesInto: [],
   };

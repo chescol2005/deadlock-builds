@@ -5,7 +5,11 @@ export type BuildState = {
   heroId: string;
   itemIds: string[];
   abilityLevels: AbilityLevels;
-  boonLevel: number;
+  // 0-35 hero-level scale (matches lib/heroStats.ts MAX_BOON) — NOT the same
+  // concept as lib/boonSystem.ts's 1-36 souls-tier `boonLevel` field. Serialized
+  // under the legacy wire key "boonLevel" for share-link backward compatibility;
+  // see serializeBuild()/deserializeBuild() below.
+  heroLevel: number;
   categories: BuildCategory[];
   // Parallel arrays — index matches itemIds index
   phases: Array<ItemPhase | null>;
@@ -15,7 +19,20 @@ export type BuildState = {
 };
 
 export function serializeBuild(state: BuildState): string {
-  const json = JSON.stringify(state);
+  // Wire format keeps the legacy "boonLevel" key so old share links keep
+  // decoding correctly — only the in-memory field name changed to heroLevel.
+  const wire = {
+    heroId: state.heroId,
+    itemIds: state.itemIds,
+    abilityLevels: state.abilityLevels,
+    boonLevel: state.heroLevel,
+    categories: state.categories,
+    phases: state.phases,
+    active: state.active,
+    sell: state.sell,
+    optional: state.optional,
+  };
+  const json = JSON.stringify(wire);
   const b64 = btoa(json);
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
@@ -40,20 +57,53 @@ export function deserializeBuild(encoded: string): BuildState {
     throw new Error("Invalid build state: missing itemIds");
   }
 
-  const itemIds = (raw.itemIds as unknown[]).filter((id): id is string => typeof id === "string");
-  const len = itemIds.length;
+  // Pair each raw.itemIds[i] with its corresponding phases/active/sell/optional[i]
+  // BEFORE filtering out invalid ids — filtering itemIds first and then re-indexing
+  // the flag arrays by the post-filter length would misalign every entry after the
+  // first dropped id (e.g. ["a", null, "b"] filters to ["a","b"], but "b" was
+  // originally at index 2, not 1 — indexing flags by post-filter position would
+  // silently hand it index 1's flags instead).
+  const rawItemIds = raw.itemIds as unknown[];
+  const rawPhases = Array.isArray(raw.phases) ? (raw.phases as unknown[]) : [];
+  const rawActive = Array.isArray(raw.active) ? (raw.active as unknown[]) : [];
+  const rawSell = Array.isArray(raw.sell) ? (raw.sell as unknown[]) : [];
+  const rawOptional = Array.isArray(raw.optional) ? (raw.optional as unknown[]) : [];
+
+  const paired = rawItemIds
+    .map((id, i) => ({
+      id,
+      phase: rawPhases[i],
+      active: rawActive[i],
+      sell: rawSell[i],
+      optional: rawOptional[i],
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        id: string;
+        phase: unknown;
+        active: unknown;
+        sell: unknown;
+        optional: unknown;
+      } => typeof entry.id === "string",
+    );
+
+  const itemIds = paired.map((entry) => entry.id);
 
   return {
     heroId: raw.heroId,
     itemIds,
     abilityLevels: parseAbilityLevels(raw.abilityLevels),
-    boonLevel:
+    // Reads the legacy "boonLevel" wire key (see serializeBuild) into the
+    // renamed heroLevel field.
+    heroLevel:
       typeof raw.boonLevel === "number" ? Math.max(0, Math.min(35, Math.floor(raw.boonLevel))) : 0,
     categories: parseCategories(raw.categories),
-    phases: parsePhases(raw.phases, len),
-    active: parseBooleans(raw.active, len),
-    sell: parseBooleans(raw.sell, len),
-    optional: parseBooleans(raw.optional, len),
+    phases: paired.map((entry) => (isPhase(entry.phase) ? entry.phase : null)),
+    active: paired.map((entry) => entry.active === true),
+    sell: paired.map((entry) => entry.sell === true),
+    optional: paired.map((entry) => entry.optional === true),
   };
 }
 
@@ -69,19 +119,6 @@ export function getItemAssignments(state: BuildState): ItemAssignment[] {
 
 function isPhase(v: unknown): v is ItemPhase {
   return v === "early" || v === "mid" || v === "late";
-}
-
-function parsePhases(raw: unknown, len: number): Array<ItemPhase | null> {
-  if (!Array.isArray(raw)) return new Array<ItemPhase | null>(len).fill(null);
-  return Array.from({ length: len }, (_, i) => {
-    const v = (raw as unknown[])[i];
-    return isPhase(v) ? v : null;
-  });
-}
-
-function parseBooleans(raw: unknown, len: number): boolean[] {
-  if (!Array.isArray(raw)) return new Array<boolean>(len).fill(false);
-  return Array.from({ length: len }, (_, i) => (raw as unknown[])[i] === true);
 }
 
 function parseAbilityLevels(raw: unknown): AbilityLevels {

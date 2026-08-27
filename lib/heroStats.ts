@@ -22,8 +22,8 @@ export type HeroBaseStats = {
 
 const MAX_BOON = 35;
 
-export function calculateStatsAtBoon(base: HeroBaseStats, boonLevel: number): HeroBaseStats {
-  const b = Math.min(Math.max(0, boonLevel), MAX_BOON);
+export function calculateStatsAtBoon(base: HeroBaseStats, heroLevel: number): HeroBaseStats {
+  const b = Math.min(Math.max(0, heroLevel), MAX_BOON);
   return {
     ...base,
     bulletDamage: base.bulletDamage + base.bulletDamagePerBoon * b,

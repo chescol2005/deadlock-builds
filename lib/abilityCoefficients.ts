@@ -1,6 +1,7 @@
 import type { HeroAbilityRaw } from "@/lib/api/deadlockApi";
 import type { SignatureSlot } from "@/lib/deadlock";
 import type { AbilityLevel } from "@/lib/deadlock";
+import { STAT_PROPERTY_LABELS } from "@/lib/statLabels";
 
 export type AbilityUpgradeTier = {
   pointCost: 1 | 2 | 5;
@@ -29,34 +30,18 @@ export type HeroAbility = {
   upgrades: [AbilityUpgradeTier, AbilityUpgradeTier, AbilityUpgradeTier];
 };
 
-const TIER_POINT_COSTS = [1, 2, 5] as const;
+export const TIER_POINT_COSTS = [1, 2, 5] as const;
 
-const PROPERTY_LABELS: Record<string, string> = {
-  AbilityCooldown: "Cooldown",
-  AbilityDuration: "Duration",
-  AbilityCastRange: "Cast Range",
-  AbilityCharges: "Charges",
-  AbilityCooldownBetweenCharge: "Charge Cooldown",
-  BonusHealthRegen: "Health Regen",
-  BonusMaxHealth: "Max Health",
-  TechPower: "Spirit Power",
-  WeaponPower: "Weapon Damage",
-  BulletLifesteal: "Bullet Lifesteal",
-  TechLifesteal: "Spirit Lifesteal",
-  MoveSpeed: "Move Speed",
-  BonusClipSize: "Clip Size",
-  FireRate: "Fire Rate",
-  BulletDamage: "Bullet Damage",
-  StatusResistancePercent: "Status Resistance",
-  BaseAttackDamagePercent: "Weapon Damage",
-  SlowDuration: "Slow Duration",
-  StunDuration: "Stun Duration",
-  BonusArmor: "Bullet Resist",
-  TechArmor: "Spirit Resist",
-};
+// Ability level is capped at 3 tiers (1/2/5 point costs above) — see CLAUDE.md
+// ABILITY_MAX_LEVEL. Reused here to guard the fixed-length `upgrades` tuple
+// indexing in calculateAbilityDamage below.
+export const ABILITY_MAX_LEVEL: AbilityLevel = 3;
 
 function formatPropertyUpgrade(name: string, bonus: string | number): string {
-  const label = PROPERTY_LABELS[name] ?? name;
+  // Labels moved to lib/statLabels.ts (a superset of the ability-only map that
+  // used to live here, widened to cover item stat keys too). Behaviour here is
+  // unchanged: unrecognized keys still fall back to the raw key.
+  const label = STAT_PROPERTY_LABELS[name] ?? name;
   const value = typeof bonus === "number" ? bonus : parseFloat(bonus);
   const sign = value >= 0 ? "+" : "";
 
@@ -229,8 +214,11 @@ export function calculateAbilityDamage(
     damage += weaponDamage * ability.weaponScaling;
   }
 
-  // Apply upgrade bonuses for purchased tiers (abilityLevel = number of tiers bought)
-  for (let tier = 0; tier < abilityLevel; tier++) {
+  // Apply upgrade bonuses for purchased tiers (abilityLevel = number of tiers bought).
+  // Clamp defensively — `upgrades` is a fixed 3-element tuple, and an out-of-range
+  // level (> ABILITY_MAX_LEVEL) would otherwise index past it and throw.
+  const clampedLevel = Math.min(Math.max(abilityLevel, 0), ABILITY_MAX_LEVEL);
+  for (let tier = 0; tier < clampedLevel; tier++) {
     const upgrade = ability.upgrades[tier as 0 | 1 | 2];
     for (const change of upgrade.statChanges) {
       // Only apply numeric damage bonuses keyed as "Damage"

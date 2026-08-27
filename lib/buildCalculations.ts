@@ -8,6 +8,14 @@ import type { AbilityLevels, AbilityLevel, SignatureSlot } from "./deadlock";
 export const SELL_REFUND_RATE = 0.5;
 export const getSellRefund = (cost: number): number => Math.floor(cost * SELL_REFUND_RATE);
 
+// Shared stat-combination formula: a base value plus flat item bonuses, then
+// scaled by a percent bonus. Used for spirit power, weapon damage, and any
+// other stat that combines flat + percent item contributions on top of a
+// hero base value (pass percent 0 for flat-only stats like max health).
+export function combineStatTotal(base: number, flat: number, percent: number): number {
+  return (base + flat) * (1 + percent / 100);
+}
+
 export function getActiveItems(items: Item[], assignments: ItemAssignment[]): Item[] {
   const activeIds = new Set(assignments.filter((a) => a.active).map((a) => a.itemId));
   return items.filter((it) => activeIds.has(it.id));
@@ -47,13 +55,15 @@ export type StatTotals = {
   spiritPowerPercent: number;
   bonusHealthFlat: number;
   weaponDamageFlat: number;
+  weaponDamagePercent: number;
   healthRegen: number;
 };
 
 const SPIRIT_POWER_KEYS = ["TechPower"];
 const SPIRIT_POWER_PERCENT_KEYS = ["TechPowerPercent"];
 const HEALTH_BONUS_KEYS = ["BonusHealth"];
-const WEAPON_DAMAGE_KEYS = ["WeaponPower", "BaseAttackDamagePercent"];
+const WEAPON_DAMAGE_KEYS = ["WeaponPower"];
+const WEAPON_DAMAGE_PERCENT_KEYS = ["BaseAttackDamagePercent"];
 const HEALTH_REGEN_KEYS = ["BonusHealthRegen", "OutOfCombatHealthRegen"];
 
 export function calculateDamageSplit(items: BuildableItem[]): DamageSplit {
@@ -93,6 +103,7 @@ export function calculateStatTotals(items: Item[], assignments?: ItemAssignment[
     spiritPowerPercent: 0,
     bonusHealthFlat: 0,
     weaponDamageFlat: 0,
+    weaponDamagePercent: 0,
     healthRegen: 0,
   };
 
@@ -112,6 +123,10 @@ export function calculateStatTotals(items: Item[], assignments?: ItemAssignment[
       }
       if (WEAPON_DAMAGE_KEYS.includes(key)) {
         totals.weaponDamageFlat += value;
+        totals.gun += value;
+      }
+      if (WEAPON_DAMAGE_PERCENT_KEYS.includes(key)) {
+        totals.weaponDamagePercent += value;
         totals.gun += value;
       }
       if (HEALTH_REGEN_KEYS.includes(key)) {

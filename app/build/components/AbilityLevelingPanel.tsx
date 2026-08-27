@@ -5,6 +5,7 @@ import type { SignatureSlot, AbilityLevel, AbilityLevels } from "@/lib/deadlock"
 import type { HeroAbility } from "@/lib/abilityCoefficients";
 import { calculateAbilityDamage } from "@/lib/abilityCoefficients";
 import { ABILITY_SLOT_UNLOCK_SOULS } from "@/lib/boonSystem";
+import { Tooltip, InfoTooltip } from "@/app/components/Tooltip";
 
 const SIGNATURE_SLOTS: SignatureSlot[] = [
   "signature1",
@@ -72,8 +73,10 @@ function AbilityCard({
   pointsSpent,
   planSouls,
   spiritPower,
+  weaponDamage,
   onLevelChange,
   pointCostForNextLevel,
+  simplified = false,
 }: {
   slot: SignatureSlot;
   ability: HeroAbility | undefined;
@@ -82,8 +85,10 @@ function AbilityCard({
   pointsSpent: number;
   planSouls: number;
   spiritPower: number;
+  weaponDamage: number;
   onLevelChange: (slot: SignatureSlot, level: AbilityLevel) => void;
   pointCostForNextLevel: (current: AbilityLevel) => number;
+  simplified?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -103,7 +108,7 @@ function AbilityCard({
   const projectedDamages =
     ability && ability.baseDamage != null
       ? ([0, 1, 2, 3] as AbilityLevel[]).map((lvl) =>
-          calculateAbilityDamage(ability, lvl, spiritPower, 0),
+          calculateAbilityDamage(ability, lvl, spiritPower, weaponDamage),
         )
       : null;
 
@@ -187,12 +192,13 @@ function AbilityCard({
           onClick={(e) => e.stopPropagation()}
         >
           {isSlotLocked ? (
-            <span
-              title={`Unlocks at ${fmt(unlockSouls)} souls`}
-              style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}
+            <Tooltip
+              content={`This ability slot unlocks once your plan reaches ${fmt(unlockSouls)} souls of investment (boon level).`}
             >
-              🔒 {fmt(unlockSouls)}
-            </span>
+              <span style={{ fontSize: 11, opacity: 0.5, whiteSpace: "nowrap" }}>
+                🔒 {fmt(unlockSouls)}
+              </span>
+            </Tooltip>
           ) : (
             <>
               <button
@@ -219,30 +225,35 @@ function AbilityCard({
                 {level}/{MAX_LEVEL}
               </span>
 
-              <button
-                onClick={() => onLevelChange(slot, (level + 1) as AbilityLevel)}
-                disabled={!canIncrement}
-                title={
-                  !canIncrement && level < MAX_LEVEL
-                    ? `Need ${nextCost} point${nextCost !== 1 ? "s" : ""} (have ${remainingPoints})`
-                    : undefined
+              <Tooltip
+                content={
+                  level >= MAX_LEVEL
+                    ? "Already at max level (3)."
+                    : !canIncrement
+                      ? `Need ${nextCost} ability point${nextCost !== 1 ? "s" : ""} — you have ${remainingPoints} unspent.`
+                      : `Spend ${nextCost} ability point${nextCost !== 1 ? "s" : ""} to level this ability up.`
                 }
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 5,
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "transparent",
-                  color: "inherit",
-                  cursor: canIncrement ? "pointer" : "not-allowed",
-                  opacity: canIncrement ? 1 : 0.35,
-                  fontWeight: 700,
-                  fontSize: 14,
-                  lineHeight: 1,
-                }}
               >
-                +
-              </button>
+                <button
+                  onClick={() => onLevelChange(slot, (level + 1) as AbilityLevel)}
+                  disabled={!canIncrement}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 5,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "transparent",
+                    color: "inherit",
+                    cursor: canIncrement ? "pointer" : "not-allowed",
+                    opacity: canIncrement ? 1 : 0.35,
+                    fontWeight: 700,
+                    fontSize: 14,
+                    lineHeight: 1,
+                  }}
+                >
+                  +
+                </button>
+              </Tooltip>
             </>
           )}
         </div>
@@ -273,46 +284,48 @@ function AbilityCard({
             </div>
           ) : null}
 
-          {/* Stat grid */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "4px 12px",
-              fontSize: 11,
-            }}
-          >
-            {ability.baseDamage != null ? (
-              <div>
-                <span style={{ opacity: 0.5 }}>Base Damage: </span>
-                <strong>{ability.baseDamage}</strong>
-              </div>
-            ) : null}
-            {ability.spiritScaling != null ? (
-              <div>
-                <span style={{ opacity: 0.5 }}>Spirit Scaling: </span>
-                <strong>☆×{ability.spiritScaling}</strong>
-              </div>
-            ) : null}
-            {ability.cooldown != null ? (
-              <div>
-                <span style={{ opacity: 0.5 }}>Cooldown: </span>
-                <strong>{ability.cooldown}s</strong>
-              </div>
-            ) : null}
-            {ability.duration != null ? (
-              <div>
-                <span style={{ opacity: 0.5 }}>Duration: </span>
-                <strong>{ability.duration}s</strong>
-              </div>
-            ) : null}
-            {ability.castRange != null ? (
-              <div>
-                <span style={{ opacity: 0.5 }}>Cast Range: </span>
-                <strong>{ability.castRange}m</strong>
-              </div>
-            ) : null}
-          </div>
+          {/* Stat grid — raw coefficients are a veteran concern */}
+          {!simplified ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "4px 12px",
+                fontSize: 11,
+              }}
+            >
+              {ability.baseDamage != null ? (
+                <div>
+                  <span style={{ opacity: 0.5 }}>Base Damage: </span>
+                  <strong>{ability.baseDamage}</strong>
+                </div>
+              ) : null}
+              {ability.spiritScaling != null ? (
+                <div>
+                  <span style={{ opacity: 0.5 }}>Spirit Scaling: </span>
+                  <strong>☆×{ability.spiritScaling}</strong>
+                </div>
+              ) : null}
+              {ability.cooldown != null ? (
+                <div>
+                  <span style={{ opacity: 0.5 }}>Cooldown: </span>
+                  <strong>{ability.cooldown}s</strong>
+                </div>
+              ) : null}
+              {ability.duration != null ? (
+                <div>
+                  <span style={{ opacity: 0.5 }}>Duration: </span>
+                  <strong>{ability.duration}s</strong>
+                </div>
+              ) : null}
+              {ability.castRange != null ? (
+                <div>
+                  <span style={{ opacity: 0.5 }}>Cast Range: </span>
+                  <strong>{ability.castRange}m</strong>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {/* Upgrade path */}
           <div>
@@ -365,8 +378,8 @@ function AbilityCard({
             </div>
           </div>
 
-          {/* Projected damage */}
-          {projectedDamages ? (
+          {/* Projected damage — advanced planning tool, not a new-player concern */}
+          {projectedDamages && !simplified ? (
             <div>
               <div
                 style={{
@@ -404,8 +417,10 @@ export function AbilityLevelingPanel({
   unlockedAbilitySlots,
   planSouls,
   spiritPower,
+  weaponDamage,
   pointsSpent,
   pointCostForNextLevel,
+  simplified = false,
 }: {
   abilities: HeroAbility[];
   abilityLevels: AbilityLevels;
@@ -414,8 +429,10 @@ export function AbilityLevelingPanel({
   unlockedAbilitySlots: number;
   planSouls: number;
   spiritPower: number;
+  weaponDamage: number;
   pointsSpent: number;
   pointCostForNextLevel: (current: AbilityLevel) => number;
+  simplified?: boolean;
 }) {
   const abilityBySlot = new Map<SignatureSlot, HeroAbility>(
     abilities.map((a) => [a.slot, a]),
@@ -431,7 +448,10 @@ export function AbilityLevelingPanel({
           marginBottom: 8,
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Abilities</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Abilities</h2>
+          <InfoTooltip content="Ability points come from souls earned in-game. Higher-tier upgrades (level 2, 3) cost more points, and each slot unlocks at a soul threshold — raise Boon Level above to preview later-game options." />
+        </div>
         <span style={{ fontSize: 11, opacity: 0.5 }}>
           {pointsSpent}/{availableAbilityPoints} pts used
           {" · "}
@@ -461,8 +481,10 @@ export function AbilityLevelingPanel({
               pointsSpent={pointsSpent}
               planSouls={planSouls}
               spiritPower={spiritPower}
+              weaponDamage={weaponDamage}
               onLevelChange={onLevelChange}
               pointCostForNextLevel={pointCostForNextLevel}
+              simplified={simplified}
             />
           );
         })}

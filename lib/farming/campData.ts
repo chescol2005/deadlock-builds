@@ -1,3 +1,5 @@
+import type { PhaseCard } from "@/app/guide/components/PhaseTimeline";
+
 export interface CampDef {
   id: string;
   name: string;
@@ -164,13 +166,6 @@ export const MARKER_COLORS: Record<string, string> = {
   sinners_sacrifice: "#a855f7",
   crate: "#52525b",
 };
-
-export interface PhaseCard {
-  phase: string;
-  timeRange: string;
-  tip: string;
-  available: string[];
-}
 
 export const PHASE_CARDS: PhaseCard[] = [
   {

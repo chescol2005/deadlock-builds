@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Item, ItemAssignment } from "@/lib/items";
 import type { CategoryBonus } from "@/lib/categoryBonuses";
 import { isApproachingSignificantBonus } from "@/lib/categoryBonuses";
@@ -16,6 +16,8 @@ import type { HeroAbility } from "@/lib/abilityCoefficients";
 import type { AbilityLevels } from "@/lib/deadlock";
 import { ActiveItemsGrid } from "./ActiveItemsGrid";
 import { SoulTimeline } from "./SoulTimeline";
+import { SoulSplitBar } from "./SoulSplitBar";
+import { InfoTooltip } from "@/app/components/Tooltip";
 
 const COLORS = {
   spirit: { solid: "#7c3aed", label: "Spirit" },
@@ -115,6 +117,7 @@ export function BuildSummaryPanel({
   heroAbilities,
   abilityLevels,
   itemStatTotals,
+  simplified = false,
 }: {
   selectedItems: Item[];
   suggestedBuildItems?: Item[];
@@ -126,21 +129,28 @@ export function BuildSummaryPanel({
   heroAbilities?: HeroAbility[];
   abilityLevels?: AbilityLevels;
   itemStatTotals?: StatTotals;
+  simplified?: boolean;
 }) {
   const [mode, setMode] = useState<"active" | "plan">("plan");
 
-  const allBuildItems = [...selectedItems, ...suggestedBuildItems];
+  const allBuildItems = useMemo(
+    () => [...selectedItems, ...suggestedBuildItems],
+    [selectedItems, suggestedBuildItems],
+  );
 
-  const displayItems =
-    mode === "active"
-      ? getActiveItems(allBuildItems, assignments)
-      : getPlanItems(allBuildItems, assignments);
+  const displayItems = useMemo(
+    () =>
+      mode === "active"
+        ? getActiveItems(allBuildItems, assignments)
+        : getPlanItems(allBuildItems, assignments),
+    [mode, allBuildItems, assignments],
+  );
 
-  const split = calculateDamageSplit(displayItems);
-  const totalCost = calculateTotalCost(displayItems);
+  const split = useMemo(() => calculateDamageSplit(displayItems), [displayItems]);
+  const totalCost = useMemo(() => calculateTotalCost(displayItems), [displayItems]);
   const hasItems = displayItems.length > 0;
 
-  const antiSynergies = detectAntiSynergies(allBuildItems);
+  const antiSynergies = useMemo(() => detectAntiSynergies(allBuildItems), [allBuildItems]);
 
   const bonusRows: {
     key: CategoryKey;
@@ -212,49 +222,39 @@ export function BuildSummaryPanel({
       <section>
         <div
           style={{
-            fontSize: 11,
-            fontWeight: 700,
-            opacity: 0.6,
-            textTransform: "uppercase",
-            letterSpacing: 0.8,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
             marginBottom: 10,
           }}
         >
-          Soul Cost Split
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              opacity: 0.6,
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+            }}
+          >
+            Soul Cost Split
+          </span>
+          <InfoTooltip content="How your souls are divided across Gun (weapon damage), Vitality (survivability), and Spirit (ability power). A lopsided bar usually means a lopsided build — check it matches your goal." />
         </div>
 
-        <div
-          style={{
-            height: 20,
-            borderRadius: 6,
-            overflow: "hidden",
-            background: "rgba(255,255,255,0.08)",
-            display: "flex",
-          }}
-        >
-          {hasItems && split.total > 0 ? (
-            <>
-              {split.gun > 0 && (
-                <div
-                  style={{ flex: split.gun, background: COLORS.gun.solid }}
-                  title={`Gun: ${fmt(split.gun)}`}
-                />
-              )}
-              {split.vitality > 0 && (
-                <div
-                  style={{ flex: split.vitality, background: COLORS.vitality.solid }}
-                  title={`Vitality: ${fmt(split.vitality)}`}
-                />
-              )}
-              {split.spirit > 0 && (
-                <div
-                  style={{ flex: split.spirit, background: COLORS.spirit.solid }}
-                  title={`Spirit: ${fmt(split.spirit)}`}
-                />
-              )}
-            </>
-          ) : null}
-        </div>
+        {hasItems && split.total > 0 ? (
+          <SoulSplitBar split={split} height={20} borderRadius={6} />
+        ) : (
+          <div
+            style={{
+              height: 20,
+              borderRadius: 6,
+              overflow: "hidden",
+              background: "rgba(255,255,255,0.08)",
+              display: "flex",
+            }}
+          />
+        )}
 
         {!hasItems ? (
           <div style={{ marginTop: 8, opacity: 0.45, fontSize: 12 }}>No items selected</div>
@@ -267,48 +267,52 @@ export function BuildSummaryPanel({
         )}
       </section>
 
-      {/* Section 2: Category Investment Bonuses */}
-      <section>
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            opacity: 0.6,
-            textTransform: "uppercase",
-            letterSpacing: 0.8,
-            marginBottom: 10,
-          }}
-        >
-          Investment Bonuses
-        </div>
+      {/* Section 2: Category Investment Bonuses — veteran economy detail */}
+      {!simplified ? (
+        <section>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              opacity: 0.6,
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+              marginBottom: 10,
+            }}
+          >
+            Investment Bonuses
+          </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {bonusRows.map(({ key, souls, bonus, toNextTier }) => {
-            const meta = BONUS_META[key];
-            return (
-              <BonusRow
-                key={key}
-                label={meta.label}
-                souls={souls}
-                bonus={bonus}
-                toNextTier={toNextTier}
-                color={meta.color}
-                getBonusValue={meta.getBonusValue}
-              />
-            );
-          })}
-        </div>
-      </section>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {bonusRows.map(({ key, souls, bonus, toNextTier }) => {
+              const meta = BONUS_META[key];
+              return (
+                <BonusRow
+                  key={key}
+                  label={meta.label}
+                  souls={souls}
+                  bonus={bonus}
+                  toNextTier={toNextTier}
+                  color={meta.color}
+                  getBonusValue={meta.getBonusValue}
+                />
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
-      {/* Section 3: Soul Economy Timeline */}
-      <SoulTimeline
-        buildItems={selectedItems}
-        assignments={assignments}
-        manualBoonLevel={manualBoonLevel}
-        allItems={allItems}
-        heroAbilities={heroAbilities}
-        abilityLevels={abilityLevels}
-      />
+      {/* Section 3: Soul Economy Timeline — advanced planning tool */}
+      {!simplified ? (
+        <SoulTimeline
+          buildItems={selectedItems}
+          assignments={assignments}
+          manualBoonLevel={manualBoonLevel}
+          allItems={allItems}
+          heroAbilities={heroAbilities}
+          abilityLevels={abilityLevels}
+        />
+      ) : null}
 
       {/* Section 4: Anti-synergy warnings */}
       {antiSynergies.length > 0 && (
@@ -350,10 +354,12 @@ export function BuildSummaryPanel({
         </section>
       )}
 
-      {/* Section 5: Stat Contributions */}
-      {itemStatTotals &&
+      {/* Section 5: Stat Contributions — raw stat deltas, veteran detail */}
+      {!simplified &&
+      itemStatTotals &&
       (itemStatTotals.spiritPowerFlat > 0 ||
         itemStatTotals.weaponDamageFlat > 0 ||
+        itemStatTotals.weaponDamagePercent > 0 ||
         itemStatTotals.bonusHealthFlat > 0) ? (
         <section>
           <div
@@ -380,11 +386,14 @@ export function BuildSummaryPanel({
                 </span>
               </div>
             ) : null}
-            {itemStatTotals.weaponDamageFlat > 0 ? (
+            {itemStatTotals.weaponDamageFlat > 0 || itemStatTotals.weaponDamagePercent > 0 ? (
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                 <span style={{ opacity: 0.7 }}>Weapon Damage</span>
                 <span style={{ fontWeight: 600, color: COLORS.gun.solid }}>
                   +{itemStatTotals.weaponDamageFlat}
+                  {itemStatTotals.weaponDamagePercent > 0
+                    ? ` (+${itemStatTotals.weaponDamagePercent}%)`
+                    : ""}
                 </span>
               </div>
             ) : null}
