@@ -10,6 +10,8 @@ export type ItemAssignment = {
   optional: boolean;
 };
 
+export type AssignmentData = Omit<ItemAssignment, "itemId">;
+
 export type ItemDestination =
   | { type: "phase"; phase: ItemPhase }
   | { type: "category"; categoryId: string }
@@ -33,6 +35,9 @@ export type ItemStats = Record<string, number>;
 
 export type Item = {
   id: string;
+  /** Raw numeric API id (`UpgradeV2Raw.id`) — needed to join against
+   * match-analytics datasets that are keyed by numeric `item_id`. */
+  numericId: number;
   name: string;
   category: ItemCategory;
   tier: ItemTier;

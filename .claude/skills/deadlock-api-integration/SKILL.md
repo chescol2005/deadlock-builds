@@ -76,15 +76,23 @@ shop icon — that's generic mod art, not the shop tile.
 
 **Identifier:** normalized `item.id` comes from raw `class_name`. In app code
 always key on `item.id`. Never `item.classname` (doesn't exist) and never the
-numeric `raw.id`.
+numeric id. The raw numeric `id` is still preserved as `item.numericId` — it
+exists solely to join items against match-analytics datasets keyed by numeric
+`item_id`. Never use it as the app-side item key.
 
 ---
 
 ## Item stats — `properties` parsing
 
 `normalizeItem` → `parseStats` walks `raw.properties`. A property is skipped when:
-`value` is NaN, `value === disable_value`, `value === 0 && disable_value === "0"`,
-or `value < 0`. Result is a flat `Record<statKey, number>`.
+`value` is NaN, `value === disable_value`, or `value === 0 && disable_value === "0"`.
+Result is a flat `Record<statKey, number>`.
+
+**Negative values are kept, not skipped.** `parseStats` used to `continue` on
+`val < 0`, which silently dropped legitimate debuff-style tradeoffs (items that
+boost one stat at the cost of another). That skip was removed deliberately —
+do not reintroduce it. `mini.ts` has a synthetic fixture asserting a negative
+property survives normalization.
 
 Common stat keys (kept verbatim from the API):
 
@@ -94,8 +102,9 @@ TechPowerPercent              // % spirit power
 BonusHealth / max_health      // health (raw hero stat key is snake_case)
 BonusHealthRegen, OutOfCombatHealthRegen
 WeaponPower                   // weapon damage %
-BulletDamage                  // flat bullet damage
-BulletArmorDamageReduction, TechArmorDamageReduction
+BaseAttackDamagePercent       // weapon damage % (was BulletDamage — Valve renamed it upstream, old key no longer exists)
+BulletResist, TechResist            // % damage resist (not BulletArmorDamageReduction/TechArmorDamageReduction — those keys don't exist)
+StatusResistancePercent, DegenResistance, MeleeResistPercent
 BonusMoveSpeed / move_speed
 BonusAbilityCharges / AbilityCharges
 ```

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Item, ItemAssignment } from "@/lib/items";
 import type { SignatureSlot, AbilityLevels } from "@/lib/deadlock";
 import type { HeroAbility } from "@/lib/abilityCoefficients";
@@ -9,7 +9,7 @@ import {
   getSkillPathGrid,
   type SkillPathRow,
 } from "@/lib/buildCalculations";
-import { BOON_THRESHOLDS } from "@/lib/boonSystem";
+import { ABILITY_SLOT_UNLOCK_SOULS, BOON_THRESHOLDS } from "@/lib/boonSystem";
 
 export interface SoulTimelineProps {
   buildItems: Item[];
@@ -28,14 +28,23 @@ type UnlockMarker = {
   defaultLabel: string;
 };
 
-const UNLOCK_MARKERS: UnlockMarker[] = [
-  { souls: 600, unlockNumber: 1, slot: "signature1", isUltimate: false, defaultLabel: "Ab 1" },
-  { souls: 1200, unlockNumber: 2, slot: "signature2", isUltimate: false, defaultLabel: "Ab 2" },
-  { souls: 2100, unlockNumber: 3, slot: "signature3", isUltimate: false, defaultLabel: "Ab 3" },
-  { souls: 3600, unlockNumber: 4, slot: "signature4", isUltimate: true, defaultLabel: "Ultimate" },
+const UNLOCK_MARKER_META: Omit<UnlockMarker, "souls">[] = [
+  { unlockNumber: 1, slot: "signature1", isUltimate: false, defaultLabel: "Ab 1" },
+  { unlockNumber: 2, slot: "signature2", isUltimate: false, defaultLabel: "Ab 2" },
+  { unlockNumber: 3, slot: "signature3", isUltimate: false, defaultLabel: "Ab 3" },
+  { unlockNumber: 4, slot: "signature4", isUltimate: true, defaultLabel: "Ultimate" },
 ];
 
-const ABILITY_POINT_SOULS = [900, 1500, 2800, 4400] as const;
+const UNLOCK_MARKERS: UnlockMarker[] = UNLOCK_MARKER_META.map((meta, i) => ({
+  ...meta,
+  souls: ABILITY_SLOT_UNLOCK_SOULS[i],
+}));
+
+const ABILITY_POINT_SOULS: number[] = ABILITY_SLOT_UNLOCK_SOULS.map((unlockSouls) => {
+  const unlockIndex = BOON_THRESHOLDS.findIndex((t) => t.souls === unlockSouls);
+  const nextPointRow = BOON_THRESHOLDS.slice(unlockIndex + 1).find((t) => !t.abilityUnlock);
+  return nextPointRow?.souls ?? unlockSouls;
+});
 const INVESTMENT_SOULS = 4800;
 
 const PHASES = [
@@ -227,7 +236,10 @@ export function SoulTimeline({
   const [collapsed, setCollapsed] = useState(false);
   const [hoveredSouls, setHoveredSouls] = useState<number | null>(null);
 
-  const timeline = calculateSoulTimeline(buildItems, assignments);
+  const timeline = useMemo(
+    () => calculateSoulTimeline(buildItems, assignments),
+    [buildItems, assignments],
+  );
   const { early, mid, late, grandTotal, sellRecovery } = timeline;
 
   const hasPhaseItems = early.items.length > 0 || mid.items.length > 0 || late.items.length > 0;
@@ -244,10 +256,13 @@ export function SoulTimeline({
     grandTotal > 0 ? ABILITY_POINT_SOULS.filter((s) => s <= grandTotal) : [];
   const showInvestmentMarker = grandTotal > 0 && INVESTMENT_SOULS <= grandTotal;
 
-  const skillRows =
-    heroAbilities && heroAbilities.length > 0
-      ? getSkillPathGrid(timeline, heroAbilities, abilityLevels ?? {})
-      : [];
+  const skillRows = useMemo(
+    () =>
+      heroAbilities && heroAbilities.length > 0
+        ? getSkillPathGrid(timeline, heroAbilities, abilityLevels ?? {})
+        : [],
+    [timeline, heroAbilities, abilityLevels],
+  );
 
   function abilityForSlot(slot: SignatureSlot): HeroAbility | undefined {
     return heroAbilities?.find((a) => a.slot === slot);

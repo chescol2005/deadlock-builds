@@ -90,13 +90,16 @@ BuildState.heroId; // "heroId" not "herold"
 
 ## Data Source
 
-All game data: `https://assets.deadlock-api.com` (unauthenticated)
+All game data: `https://api.deadlock-api.com/v1/assets` (unauthenticated)
+
+`https://assets.deadlock-api.com/v2/...` still works but 301-redirects here —
+call the canonical host directly, don't rely on the redirect.
 
 ```typescript
-GET / v2 / items; // all items
-GET / v2 / items / by - slot - type / { slot }; // weapon | spirit | vitality
-GET / v2 / heroes / { id }; // hero stats + scaling
-GET / v2 / items / by - hero - id / { id }; // hero abilities
+GET / v1 / assets / items; // all items
+GET / v1 / assets / items / by - slot - type / { slot }; // weapon | spirit | vitality
+GET / v1 / assets / heroes / { id }; // hero stats + scaling
+GET / v1 / assets / items / by - hero - id / { id }; // hero abilities
 ```
 
 ### Item field names (commonly confused)
@@ -111,6 +114,19 @@ item.upgradesInto; // string[] derived post-normalization
 
 item.item_slot_type; // "weapon" | "spirit" | "vitality" in API
 item.category; // "gun" | "spirit" | "vitality" normalized
+```
+
+### Hero difficulty / archetype fields (Milestone C)
+
+`DeadlockHeroDetail` (single-hero fetch) already returns these — they were
+being fetched and silently discarded until Milestone C wired them into
+`DeadlockHeroListItem` (via `fetchVisibleHeroes`'s merge) and surfaced them
+with `HeroDifficultyBadge`/`HeroArchetypeTags`:
+
+```typescript
+hero.complexity; // number, 1-3 — Valve's official difficulty rating
+hero.tags; // string[] — flavor/archetype tags, e.g. ["Arsonist", "Explosive"]
+hero.hero_type; // string, e.g. "marksman" — not yet surfaced in UI
 ```
 
 ### Spirit scaling coefficient location
@@ -129,9 +145,12 @@ BonusHealth; // flat health
 BonusHealthRegen; // health regen
 OutOfCombatHealthRegen;
 WeaponPower; // weapon damage %
-BulletDamage; // flat bullet damage
-BulletArmorDamageReduction;
-TechArmorDamageReduction;
+BaseAttackDamagePercent; // weapon damage % (was BulletDamage — renamed upstream, key no longer exists)
+BulletResist; // % bullet damage resistance
+TechResist; // % spirit damage resistance
+StatusResistancePercent;
+DegenResistance;
+MeleeResistPercent;
 ```
 
 ---
@@ -147,7 +166,7 @@ MAX_ACTIVE_ITEMS = 12; // active build cap
 GAME_PLAN_CAP = null; // game plan is unlimited
 SIGNIFICANT_THRESHOLD = 4800; // souls — investment bonus
 MAX_INVESTMENT = 28800; // souls — bonus caps here
-ULTIMATE_UNLOCK = 3600; // souls (boon level 7)
+ULTIMATE_UNLOCK = 3800; // souls (boon level 8)
 ```
 
 ---
@@ -161,18 +180,27 @@ When scaffolding new panels or components, follow these conventions:
 - Props are always typed with an explicit interface above the component
 - `useMemo` for all derived state — never `useState` for computed values
 - Tailwind only — no inline styles, no CSS modules
-- Icon imports from `lucide-react` only
+- Icon imports from `lucide-react` only (installed Milestone C — it was
+  documented here before it was ever added to `package.json`; if a future
+  convention doc references a package, verify it's actually installed)
 - Loading states: **no shared skeleton pattern exists yet.** `ItemBrowser.tsx`
-  does not implement one despite earlier docs claiming it does — establishing
-  this pattern is tracked as Milestone C work (see roadmap)
-- Tooltips: **no shared `<Tooltip>` component exists yet.** Several build
-  components (`CategoryManager`, `BuildSummaryPanel`, `ActiveItemsGrid`,
-  `SuggestedItemsPanel`, `SoulTimeline`, `AbilityLevelingPanel`) currently use
-  raw `title` attributes as a stopgap — do not treat this as the sanctioned
-  pattern; building the real wrapper is Milestone C work
-- New player UX: the `simplified?: boolean` prop convention is **not yet
-  implemented on any panel.** Treat it as the target convention for new work,
-  not a description of current behavior, until Milestone C lands
+  does not implement one — this is still unbuilt (was never part of
+  Milestone C's scope; pick it up as a standalone fix if needed)
+- Tooltips: use the shared `<Tooltip>` / `<InfoTooltip>` components from
+  `app/components/Tooltip.tsx` (built Milestone C). This is the sanctioned
+  pattern — do not add new raw `title=` attributes for anything that needs
+  explaining. A few purely mechanical/chrome titles (drag handles, rename
+  affordances, flex-bar segment labels that duplicate a visible legend) were
+  deliberately left as native `title` since wrapping them broke CSS `flex`
+  layout or added no explanatory value — see `FlagButtons.tsx` /
+  `AbilityLevelingPanel.tsx` for the retrofitted pattern to copy
+- New player UX: the `simplified?: boolean` prop convention is **implemented**
+  on `CategoryManager`, `AbilityLevelingPanel`, `BuildSummaryPanel`, and
+  `SuggestedItemsPanel` (Milestone C), driven by a single `viewMode` state in
+  `BuildClient.tsx` (default `"simplified"`). New panels should follow the
+  same convention: accept `simplified?: boolean`, default `false`, and hide
+  veteran-only detail (raw coefficients, soul-investment math, sell/optional
+  flags) rather than duplicating the whole component
 
 ### New Player UX Checklist (for any new feature)
 
@@ -183,10 +211,11 @@ Before marking a component complete, verify:
 - [ ] Does it hide complexity behind a toggle or progressive reveal?
 - [ ] Does the AI coach have a hook to surface guidance here?
 
-**Note:** this checklist is not currently enforced by any lint rule, fixture,
-or review step, and it has been skipped on every recently-added component.
-Enforcing it (Milestone C) is on the roadmap — until then, treat it as a
-manual discipline, not a guarantee.
+**Note:** `mini.ts` Fixture 9 mechanically enforces two of these four —
+that a panel declares `simplified?: boolean` and that it imports the shared
+Tooltip component rather than reintroducing raw `title=`. It cannot judge
+copy quality or AI-coach hooks (M6 doesn't exist yet) — those two remain
+manual review, not a fixture guarantee.
 
 ---
 
@@ -203,7 +232,9 @@ lib/buildCalculations.ts      — calculateStatTotals(), calculateDamageSplit(),
 lib/buildSerializer.ts        — BuildState, serializeBuild(), deserializeBuild(),
                                 getItemAssignments()
 lib/buildUtils.ts             — resolveAddItem(), getConsumedComponents(),
-                                getEffectiveAddCost()
+                                getEffectiveAddCost(), cleanCategories(),
+                                cleanAssignmentMap(), canActivateItem(),
+                                MAX_ACTIVE_ITEMS
 lib/itemStore.ts              — getItems() with cache, deriveUpgradesInto()
 lib/itemNormalizer.ts         — normalizeItem()
 lib/api/deadlockApi.ts        — fetchAllItems(), fetchHeroStats(),
@@ -219,22 +250,61 @@ lib/scoring/goalWeights.ts    — GOAL_WEIGHTS_MAP
 lib/scoring/antiSynergy.ts    — detectAntiSynergies()
 lib/categoryBonuses.ts        — CATEGORY_BONUS_TIERS
 lib/farming/campData.ts       — camp soul values, phase cards, minimap markers
+lib/lanes/laneData.ts         — lane structure HP/soul values (Milestone D3),
+                                trooper wave cadence, minimap markers
+lib/boons/boonsGuideData.ts   — boons guide copy, derived from boonSystem.ts
+                                (Milestone D1) — not a second source of truth
+lib/itemization/itemizationGuideData.ts — itemization guide copy, derived from
+                                buildUtils.ts/buildCalculations.ts (Milestone D2)
 lib/engine/                   — staged-pipeline scoring surface (WIP, parallel to
                                 lib/scoring/, not yet wired into the app) — see
                                 scoring-engine-dev skill; fixtures run via `npm run mini`
 lib/coach/                    — AI coach module (M6) — not yet created, keep isolated
+app/components/                — cross-route shared UI (Milestone C):
+  Tooltip.tsx                 — Tooltip, InfoTooltip — sanctioned title= replacement
+  AudienceTabs.tsx             — reusable two(+)-audience tab switcher
+  HeroDifficultyBadge.tsx      — HeroDifficultyBadge, HeroArchetypeTags
 app/build/[heroId]/page.tsx   — server component, fetches items + hero data
-app/build/BuildClient.tsx     — single state source of truth
+app/build/BuildClient.tsx     — single state source of truth; owns viewMode
+                                ("simplified" | "advanced") via AudienceTabs
 app/build/components/
   ItemBrowser.tsx             — item shop grid
-  CategoryManager.tsx         — drag-and-drop categories
+  BuildEmptyState.tsx          — /build onboarding copy (no hero selected yet)
+  CategoryManager/            — drag-and-drop categories (decomposed Milestone B3):
+                                index.tsx (orchestration + DnD handlers),
+                                SortableCategory.tsx, Sections.tsx, ItemRow.tsx,
+                                FlagButtons.tsx, DroppableZone.tsx, constants.ts,
+                                helpers.ts
   ActiveItemsGrid.tsx         — 12-slot active build
   BuildSummaryPanel.tsx       — right panel stats
   AbilityLevelingPanel.tsx    — ability cards + upgrades
   SoulTimeline.tsx            — soul economy timeline
   SuggestedItemsPanel.tsx     — AI-adjacent suggestions
-app/guide/farming/            — farming guide page + components (new_player/advanced tabs)
+app/guide/components/          — cross-guide shared UI (Milestone D4):
+  Minimap.tsx                  — generic marker-overlay minimap; callers supply
+                                markers + renderMarker/renderTooltip/legend
+  PhaseTimeline.tsx             — generic new-player phase-card list; callers
+                                supply PhaseCard[] + pill color map
+app/guide/farming/            — farming guide page + components; tabs use
+                                the shared <AudienceTabs> (Milestone C); its
+                                MinimapOverlay/PhaseTimeline are now thin
+                                wrappers over app/guide/components/ (Milestone D4)
+app/guide/lanes/               — lane mechanics guide (Milestone D3): Guardian/
+                                Walker/Patron HP+souls, trooper wave cadence,
+                                minimap. No "lane equilibrium" section — the
+                                data-verifier agent found no deadlock.wiki
+                                support for that mechanic, so it was cut
+                                rather than published unverified
+app/guide/boons/               — boons guide (Milestone D1): ability-unlock
+                                milestones + full BOON_THRESHOLDS table
+app/guide/itemization/         — itemization guide (Milestone D2): categories/
+                                tiers/components/selling + CATEGORY_BONUS_TIERS
+                                investment-bonus table
 ```
+
+`/guide/*` pages are not yet linked from any nav or the homepage — reachable
+only by direct URL. Pre-existing gap (farming had the same issue before this
+milestone), not fixed here since it wasn't in Milestone D's scope.
 
 ---
 
@@ -261,6 +331,35 @@ Project skills live in `.claude/skills/`, sub-agents in `.claude/agents/`.
 | `data-verifier`   | read-only + web   | Cross-check code against live API / wiki, report discrepancies |
 | `scoring-auditor` | read-only         | Audit a scoring/engine diff for architecture-rule compliance   |
 | `panel-builder`   | read + edit/write | Scaffold a new build/guide panel to convention                 |
+
+---
+
+## Data Verification Cadence (Milestone D6)
+
+Game constants drift silently — Valve patches boon thresholds, structure HP,
+and ability coefficients without this repo noticing. There is no durable
+automated scheduler available to Claude Code sessions (the `CronCreate` tool
+exists, but its jobs are session-scoped and auto-expire within 7 days — it
+cannot carry a standing project safeguard across sessions). Until this repo
+has real CI-level automation for it, treat the cadence below as a manual
+checklist enforced by convention, not by a bot:
+
+- **Before starting any milestone that touches** `lib/boonSystem.ts`,
+  `lib/abilityCoefficients.ts`, `lib/categoryBonuses.ts`, or any
+  `lib/[topic]/[topic]Data.ts` guide-data module — run the `data-verifier`
+  agent against the relevant file(s) first, not after.
+- **At minimum once a month of active development**, run `data-verifier`
+  against `lib/boonSystem.ts` and `lib/abilityCoefficients.ts` even if no
+  PR touches them — Valve patches land independent of this repo's own
+  work cadence.
+- When `data-verifier` confirms a value changed, cite the source
+  (deadlock.wiki page + date, or the exact API endpoint) directly in the
+  code comment next to the changed constant — see `lib/boonSystem.ts`'s
+  `BOON_THRESHOLDS` for the pattern to copy.
+- If a future session sets up real recurring automation for this (e.g. a
+  scheduled GitHub Actions job that runs a verification script and opens an
+  issue on drift), update this section to point at it and remove the
+  "manual checklist" framing above.
 
 ---
 
@@ -291,17 +390,20 @@ consumedComponents    // from getConsumedComponents()
 
 ## Milestone History
 
-| Milestone | Status    | What it built                                                                                                                                                                         |
-| --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                                                     |
-| M2        | ✅ Closed | Build Planner UI                                                                                                                                                                      |
-| M3        | ✅ Closed | URL persistence + share links                                                                                                                                                         |
-| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                                                       |
-| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                                                              |
-| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                                                                |
-| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                                                                 |
-| A–E       | 🔜 Next   | Prioritized roadmap: ship-integrity fixes, state/component health, new-player UX foundations, guide content expansion, then M6 AI coach — see `.claude/plans/` for the full breakdown |
-| M6        | ⏸ Queued  | AI coach layer + skill path planner (sequenced after Milestone C so it has UX surfaces to attach to)                                                                                  |
+| Milestone | Status    | What it built                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| M2        | ✅ Closed | Build Planner UI                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| M3        | ✅ Closed | URL persistence + share links                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                                                                                                                                                                                                                                                                                                               |
+| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                                                                                                                                                                                                                                                                                                                      |
+| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                                                                                                                                                                                                                                                                                                                        |
+| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                                                                                                                                                                                                                                                                                                                         |
+| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, dead `lib/engine/` reconciliation, self-test IIFE removal, doc sync, homepage/metadata fix, fetch-waterfall parallelization                                                                                                                                                                                                                                                                            |
+| B         | ✅ Closed | State/component health: `assignmentMap` derived via `useMemo`, business logic extracted to `lib/buildUtils.ts`, `CategoryManager` decomposed into 8 files, slot-cap/cleanup fixtures                                                                                                                                                                                                                                                          |
+| C         | ✅ Closed | New player UX foundations: shared Tooltip/AudienceTabs components, tooltip copy retrofit, simplified/advanced toggle, `/build` onboarding, hero difficulty/archetype tags, UX checklist fixture (`mini.ts` Fixture 9)                                                                                                                                                                                                                         |
+| D         | ✅ Closed | Guide content expansion: boons (`/guide/boons`), itemization (`/guide/itemization`), lane mechanics (`/guide/lanes`) pages; `Minimap`/`PhaseTimeline` generalized into `app/guide/components/` and reused across all 4 guide pages; `mini.ts` extended to `lib/farming` + new guide data (72 → 88 fixtures); data-verifier cadence documented (see "Data Verification Cadence" above — no durable scheduler exists for actual automation yet) |
+| M6        | ⏸ Queued  | AI coach layer + skill path planner (sequenced after Milestone C so it has UX surfaces to attach to)                                                                                                                                                                                                                                                                                                                                          |
 
 ---
 
@@ -346,6 +448,6 @@ GitHub Actions runs on every push:
 2. Typecheck (tsc --noEmit)
 3. Lint (ESLint)
 4. Build (next build)
-5. Fixture (mini.ts — 50 regression cases)
+5. Fixture (mini.ts — regression cases; check current count via `npm run mini` rather than trusting a hardcoded number here)
 
 All five must pass. Run locally before pushing.

@@ -3,17 +3,16 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { AddToBuildButton } from "./AddToBuildButton";
-import type { ShopItem, ShopTier } from "@/lib/deadlock";
+import { tierCost } from "@/lib/deadlock";
+import type { Item, ItemCategory, ItemTier } from "@/lib/items";
 
-type TabKey = "weapon" | "vitality" | "spirit";
-
-const TIERS: ShopTier[] = [1, 2, 3, 4];
+const TIERS: ItemTier[] = [1, 2, 3, 4];
 
 const TAB_META: Record<
-  TabKey,
+  ItemCategory,
   { label: string; accent: string; accentSoft: string; border: string }
 > = {
-  weapon: {
+  gun: {
     label: "Gun",
     accent: "rgba(255, 165, 0, 0.95)",
     accentSoft: "rgba(255, 165, 0, 0.15)",
@@ -33,23 +32,16 @@ const TAB_META: Record<
   },
 };
 
-function tierCost(t: ShopTier) {
-  if (t === 1) return 800;
-  if (t === 2) return 1600;
-  if (t === 3) return 3200;
-  return 6400;
-}
-
 export function ShopGrid({
   heroId,
   items,
   showBuildLink = true,
 }: {
   heroId: string | number;
-  items: ShopItem[];
+  items: Item[];
   showBuildLink?: boolean;
 }) {
-  const [tab, setTab] = useState<TabKey>("weapon");
+  const [tab, setTab] = useState<ItemCategory>("gun");
   const [q, setQ] = useState("");
 
   const meta = TAB_META[tab];
@@ -57,7 +49,6 @@ export function ShopGrid({
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
     return items
-      .filter((i) => i.shopable)
       .filter((i) => i.category === tab)
       .filter((i) => (query ? i.name.toLowerCase().includes(query) : true))
       .filter((i) => i.tier === 1 || i.tier === 2 || i.tier === 3 || i.tier === 4)
@@ -65,7 +56,7 @@ export function ShopGrid({
   }, [items, tab, q]);
 
   const byTier = useMemo(() => {
-    const m = new Map<ShopTier, ShopItem[]>();
+    const m = new Map<ItemTier, Item[]>();
     for (const t of TIERS) m.set(t, []);
 
     for (const it of filtered) {
@@ -104,7 +95,7 @@ export function ShopGrid({
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 8 }}>
-          {(Object.keys(TAB_META) as TabKey[]).map((k) => {
+          {(Object.keys(TAB_META) as ItemCategory[]).map((k) => {
             const t = TAB_META[k];
             const active = tab === k;
 
@@ -206,21 +197,9 @@ export function ShopGrid({
                         <div>
                           <div style={{ fontWeight: 750, lineHeight: 1.15 }}>{it.name}</div>
                           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                            {it.isActive ? (
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  padding: "2px 6px",
-                                  borderRadius: 999,
-                                  border: `1px solid ${meta.border}`,
-                                  color: meta.accent,
-                                  background: meta.accentSoft,
-                                }}
-                              >
-                                ACTIVE
-                              </span>
-                            ) : null}
-                            <span style={{ fontSize: 11, opacity: 0.75 }}>${it.cost}</span>
+                            <span style={{ fontSize: 11, opacity: 0.75 }}>
+                              ${it.cost.toLocaleString("en-US")}
+                            </span>
                           </div>
                         </div>
                       </div>

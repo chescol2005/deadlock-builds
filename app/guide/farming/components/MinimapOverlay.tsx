@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Minimap, type MinimapMarker } from "@/app/guide/components/Minimap";
 import { MINIMAP_URL, CAMP_MARKERS, MARKER_COLORS, CAMPS, soulsAt } from "@/lib/farming/campData";
 
 // Base radius in SVG units (viewBox 0-100). Keep small — 50 markers on screen.
@@ -77,83 +77,60 @@ const LEGEND_ENTRIES = [
   { campId: "sinners_sacrifice", label: "Sinner's Sacrifice" },
 ] as const;
 
-export function MinimapOverlay() {
-  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
+interface CampMinimapMarker extends MinimapMarker {
+  campId: string;
+}
 
-  return (
-    <div className="mt-8">
-      <h3 className="mb-3 font-semibold text-white">Camp Locations</h3>
-      <div className="relative max-w-md" style={{ aspectRatio: "1 / 1" }}>
-        <img
-          src={MINIMAP_URL}
-          alt="Deadlock minimap"
-          className="h-full w-full rounded-lg object-cover"
-        />
-        <svg
-          className="absolute inset-0 h-full w-full"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-        >
-          {CAMP_MARKERS.map((marker, i) => (
-            <g
-              key={i}
-              style={{ cursor: "pointer" }}
-              onMouseEnter={() => setHoveredMarkerId(String(i))}
-              onMouseLeave={() => setHoveredMarkerId(null)}
-            >
-              {/* transparent hit area — larger than the visual so hover is easy */}
-              <circle cx={marker.left} cy={marker.top} r={3} fill="transparent" />
-              <MarkerShape
-                campId={marker.campId}
-                cx={marker.left}
-                cy={marker.top}
-                color={MARKER_COLORS[marker.campId] ?? "#71717a"}
-              />
-            </g>
-          ))}
+const MARKERS: CampMinimapMarker[] = CAMP_MARKERS.map((marker, i) => ({
+  id: `${marker.campId}-${i}`,
+  left: marker.left,
+  top: marker.top,
+  campId: marker.campId,
+}));
+
+const LEGEND = (
+  <>
+    {LEGEND_ENTRIES.map(({ campId, label }) => (
+      <div key={campId} className="flex items-center gap-1.5">
+        {/* viewBox sized to fit the tallest shape (hard camp with 2 lines) */}
+        <svg width="11" height="13" viewBox="-2.5 -2.5 5 8">
+          <MarkerShape campId={campId} cx={0} cy={0} color={MARKER_COLORS[campId] ?? "#71717a"} />
         </svg>
-
-        {hoveredMarkerId !== null &&
-          (() => {
-            const marker = CAMP_MARKERS[Number(hoveredMarkerId)];
-            const camp = CAMPS.find((c) => c.id === marker.campId);
-            if (!camp) return null;
-            const souls20 = soulsAt(camp, 20);
-            return (
-              <div
-                className="pointer-events-none absolute z-10 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs text-white"
-                style={{
-                  left: `${marker.left}%`,
-                  top: `${marker.top - 8}%`,
-                  transform: "translateX(-50%)",
-                }}
-              >
-                <span className="font-semibold">{camp.name}</span>
-                {souls20 !== null && (
-                  <span className="ml-1 text-amber-400">~{souls20} souls @20min</span>
-                )}
-              </div>
-            );
-          })()}
+        {label}
       </div>
+    ))}
+  </>
+);
 
-      {/* Legend — shows actual shapes, not just color dots */}
-      <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-400">
-        {LEGEND_ENTRIES.map(({ campId, label }) => (
-          <div key={campId} className="flex items-center gap-1.5">
-            {/* viewBox sized to fit the tallest shape (hard camp with 2 lines) */}
-            <svg width="11" height="13" viewBox="-2.5 -2.5 5 8">
-              <MarkerShape
-                campId={campId}
-                cx={0}
-                cy={0}
-                color={MARKER_COLORS[campId] ?? "#71717a"}
-              />
-            </svg>
-            {label}
-          </div>
-        ))}
-      </div>
-    </div>
+export function MinimapOverlay() {
+  return (
+    <Minimap
+      title="Camp Locations"
+      imageUrl={MINIMAP_URL}
+      imageAlt="Deadlock minimap"
+      markers={MARKERS}
+      legend={LEGEND}
+      renderMarker={(marker) => (
+        <MarkerShape
+          campId={marker.campId}
+          cx={marker.left}
+          cy={marker.top}
+          color={MARKER_COLORS[marker.campId] ?? "#71717a"}
+        />
+      )}
+      renderTooltip={(marker) => {
+        const camp = CAMPS.find((c) => c.id === marker.campId);
+        if (!camp) return null;
+        const souls20 = soulsAt(camp, 20);
+        return (
+          <>
+            <span className="font-semibold">{camp.name}</span>
+            {souls20 !== null && (
+              <span className="ml-1 text-amber-400">~{souls20} souls @20min</span>
+            )}
+          </>
+        );
+      }}
+    />
   );
 }

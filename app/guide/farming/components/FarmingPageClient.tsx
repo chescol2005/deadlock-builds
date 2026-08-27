@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AudienceTabs, GUIDE_AUDIENCE_TABS } from "@/app/components/AudienceTabs";
 import { PhaseTimeline } from "./PhaseTimeline";
 import { CampTable } from "./CampTable";
 import { MinimapOverlay } from "./MinimapOverlay";
@@ -10,27 +11,8 @@ export function FarmingPageClient() {
 
   return (
     <div>
-      <div className="mb-6 flex gap-2">
-        <button
-          onClick={() => setActiveTab("new_player")}
-          className={
-            activeTab === "new_player"
-              ? "rounded-lg bg-amber-500 px-4 py-2 font-semibold text-zinc-900"
-              : "rounded-lg bg-zinc-800 px-4 py-2 text-zinc-400 hover:text-white"
-          }
-        >
-          New Player
-        </button>
-        <button
-          onClick={() => setActiveTab("advanced")}
-          className={
-            activeTab === "advanced"
-              ? "rounded-lg bg-amber-500 px-4 py-2 font-semibold text-zinc-900"
-              : "rounded-lg bg-zinc-800 px-4 py-2 text-zinc-400 hover:text-white"
-          }
-        >
-          Advanced
-        </button>
+      <div className="mb-6">
+        <AudienceTabs tabs={GUIDE_AUDIENCE_TABS} value={activeTab} onChange={setActiveTab} />
       </div>
 
       {activeTab === "new_player" && (

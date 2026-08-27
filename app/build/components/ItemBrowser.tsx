@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
+import { tierCost } from "@/lib/deadlock";
 import type { ShopCategory, ShopItem, ShopTier } from "@/lib/deadlock";
 
 const TIERS: ShopTier[] = [1, 2, 3, 4];
@@ -36,13 +38,6 @@ const TAB_META: Record<ShopCategory, TabMeta> = {
     solid: "#7c3aed",
   },
 };
-
-function tierCost(t: ShopTier): number {
-  if (t === 1) return 800;
-  if (t === 2) return 1600;
-  if (t === 3) return 3200;
-  return 6400;
-}
 
 export function ItemBrowser({
   items,
@@ -163,7 +158,11 @@ export function ItemBrowser({
                           overflow: "hidden",
                         }}
                       >
-                        <div
+                        <Link
+                          href={`/items/${it.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`View ${it.name} details`}
                           style={{
                             display: "flex",
                             gap: 8,
@@ -171,6 +170,8 @@ export function ItemBrowser({
                             flex: 1,
                             minWidth: 0,
                             overflow: "hidden",
+                            color: "inherit",
+                            textDecoration: "none",
                           }}
                         >
                           {it.icon ? (
@@ -225,7 +226,7 @@ export function ItemBrowser({
                               ) : null}
                             </div>
                           </div>
-                        </div>
+                        </Link>
 
                         <button
                           onClick={() => onToggle(it)}

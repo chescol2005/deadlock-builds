@@ -70,11 +70,14 @@ OutOfCombatHealthRegen;
 
 // Weapon
 WeaponPower; // weapon damage %
-BulletDamage; // flat bullet damage
+BaseAttackDamagePercent; // weapon damage % (was BulletDamage — renamed upstream)
 
 // Resist
-BulletArmorDamageReduction;
-TechArmorDamageReduction;
+BulletResist; // % bullet damage resistance
+TechResist; // % spirit damage resistance
+StatusResistancePercent;
+DegenResistance;
+MeleeResistPercent;
 ```
 
 ---

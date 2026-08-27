@@ -89,6 +89,7 @@ if (process.env.NODE_ENV !== "production") {
   const fixture: Item[] = [
     {
       id: "fixture-burst",
+      numericId: 900001,
       name: "Burst Blade",
       category: "gun",
       tier: 3,
@@ -98,6 +99,7 @@ if (process.env.NODE_ENV !== "production") {
     },
     {
       id: "fixture-tank",
+      numericId: 900002,
       name: "Iron Wall",
       category: "vitality",
       tier: 3,
@@ -119,6 +121,7 @@ if (process.env.NODE_ENV !== "production") {
   const withExclusion = scoreItems(fixture, "burst", [
     {
       id: "fixture-burst",
+      numericId: 900001,
       name: "Burst Blade",
       category: "gun",
       tier: 3,
@@ -137,6 +140,7 @@ if (process.env.NODE_ENV !== "production") {
   const thresholdBuild: Item[] = [
     {
       id: "fixture-gun-spend",
+      numericId: 900003,
       name: "Gun Spend",
       category: "gun",
       tier: 3,

@@ -1,6 +1,6 @@
 import type { HeroBaseStats } from "@/lib/heroStats";
 
-const BASE_URL = "https://assets.deadlock-api.com";
+const BASE_URL = "https://api.deadlock-api.com/v1/assets";
 
 // ─── Hero stats ──────────────────────────────────────────────────────────────
 
@@ -17,14 +17,53 @@ type HeroV2Raw = {
   id: number;
   starting_stats?: HeroStartingStats;
   standard_level_up_upgrades?: HeroLevelUpgrades;
+  items?: { weapon_primary?: string };
+};
+
+// Minimal shape of the weapon *item* response — bullet/reload/ammo stats do
+// NOT live on the hero's `starting_stats`, they live on the item referenced by
+// `hero.items.weapon_primary`. Deliberately not `UpgradeV2Raw`: different shape.
+type WeaponItemRaw = {
+  weapon_info?: {
+    bullet_damage?: number;
+    bullets_per_second?: number;
+    reload_duration?: number;
+    clip_size?: number;
+  };
 };
 
 function statVal(stats: HeroStartingStats | undefined, key: string): number {
   return stats?.[key]?.value ?? 0;
 }
 
+/**
+ * Fetches the hero's primary weapon item to read its `weapon_info` block.
+ * Fails open (returns undefined) — this is enrichment data, so a missing
+ * `weapon_primary`, a failed request, or an absent `weapon_info` must not
+ * break the hero stats fetch.
+ */
+async function fetchWeaponInfo(
+  className: string | undefined,
+): Promise<WeaponItemRaw["weapon_info"] | undefined> {
+  if (!className) return undefined;
+  try {
+    const res = await fetch(`${BASE_URL}/items/${className}`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) {
+      console.error(`[deadlockApi] fetchWeaponInfo ${className}: ${res.status}`);
+      return undefined;
+    }
+    const weapon = (await res.json()) as WeaponItemRaw;
+    return weapon.weapon_info;
+  } catch (err) {
+    console.error("[deadlockApi] fetchWeaponInfo error:", err);
+    return undefined;
+  }
+}
+
 export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
-  const res = await fetch(`${BASE_URL}/v2/heroes/${heroId}`, {
+  const res = await fetch(`${BASE_URL}/heroes/${heroId}`, {
     next: { revalidate: 3600 },
   });
 
@@ -38,13 +77,16 @@ export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
 
   const meleePBoon = lu.MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL ?? 0;
 
+  // Weapon stats live on a separate item object, not on starting_stats.
+  const weaponInfo = await fetchWeaponInfo(d.items?.weapon_primary);
+
   return {
     heroId: d.id,
-    bulletDamage: 0,
+    bulletDamage: weaponInfo?.bullet_damage ?? 0,
     bulletDamagePerBoon: lu.MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL ?? 0,
-    bulletsPerSecond: 0,
-    reloadTime: 0,
-    ammo: 0,
+    bulletsPerSecond: weaponInfo?.bullets_per_second ?? 0,
+    reloadTime: weaponInfo?.reload_duration ?? 0,
+    ammo: weaponInfo?.clip_size ?? 0,
     lightMeleeDamage: statVal(ss, "light_melee_damage"),
     lightMeleePerBoon: meleePBoon,
     heavyMeleeDamage: statVal(ss, "heavy_melee_damage"),
@@ -53,7 +95,11 @@ export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
     maxHealthPerBoon: lu.MODIFIER_VALUE_BASE_HEALTH_FROM_LEVEL ?? 0,
     healthRegen: statVal(ss, "base_health_regen"),
     moveSpeed: statVal(ss, "max_move_speed"),
-    spiritPower: statVal(ss, "weapon_power"),
+    // No raw base-spirit-power key exists in starting_stats: spirit power is
+    // purely investment-driven via items/boons (see spiritPowerPerBoon below).
+    // This previously read "weapon_power", whose display_stat_name is
+    // "EWeaponPower" — a different, always-0 stat that was mislabeled here.
+    spiritPower: 0,
     spiritPowerPerBoon: lu.MODIFIER_VALUE_TECH_POWER ?? 0,
   };
 }
@@ -97,7 +143,7 @@ export type HeroAbilityRaw = {
 
 export async function fetchHeroAbilityItems(heroId: number): Promise<HeroAbilityRaw[]> {
   try {
-    const res = await fetch(`${BASE_URL}/v2/items/by-hero-id/${heroId}`, {
+    const res = await fetch(`${BASE_URL}/items/by-hero-id/${heroId}`, {
       next: { revalidate: 3600 },
     });
     if (!res.ok) {
@@ -146,7 +192,7 @@ export type UpgradeV2Raw = {
 
 export async function fetchAllItems(): Promise<UpgradeV2Raw[]> {
   try {
-    const res = await fetch(`${BASE_URL}/v2/items`, { cache: "no-store" });
+    const res = await fetch(`${BASE_URL}/items`, { cache: "no-store" });
     if (!res.ok) {
       console.error(`[deadlockApi] fetchAllItems failed: ${res.status} ${res.statusText}`);
       return [];
