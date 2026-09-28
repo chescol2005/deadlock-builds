@@ -25,6 +25,12 @@ export type HeroStatsRowRaw = {
   losses: number;
   matches: number;
   matches_per_bucket?: number;
+  // Shot counts are real columns on this endpoint (verified live — the row also
+  // carries total_kills/deaths/assists/net_worth/player_damage and ~10 more
+  // aggregate totals still covered by the index signature below). These two are
+  // typed explicitly because gun-accuracy derivation depends on them.
+  total_shots_hit?: number;
+  total_shots_missed?: number;
   [k: string]: unknown; // many more aggregate combat totals exist; not load-bearing for this app
 };
 
@@ -70,6 +76,63 @@ export async function fetchHeroStatsRows(): Promise<HeroStatsRowRaw[]> {
     return (await res.json()) as HeroStatsRowRaw[];
   } catch (err) {
     console.error("[analyticsApi] fetchHeroStatsRows error:", err);
+    return [];
+  }
+}
+
+/**
+ * `/v1/analytics/hero-stats` partitioned by average player badge (rank).
+ *
+ * Returns one row per hero PER rank bucket (~38 heroes x 67 buckets). The
+ * bucket value is Deadlock's badge encoding, `tier * 10 + subrank` — e.g. 63 is
+ * tier 6 subrank 3 — with bucket 0 meaning unranked/unknown. Tier names come
+ * from `/v1/assets/ranks` (see fetchRankTiers), never hardcoded.
+ *
+ * Used to derive per-hero shot accuracy at a player's own rank. Fails open like
+ * its siblings: accuracy is an enrichment, and a dead endpoint must degrade to
+ * "no accuracy signal", never break the planner.
+ */
+export async function fetchHeroStatsByBadgeRows(): Promise<HeroStatsRowRaw[]> {
+  try {
+    const res = await fetch(`${ANALYTICS_BASE}/hero-stats?bucket=avg_badge`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) {
+      console.error(
+        `[analyticsApi] fetchHeroStatsByBadgeRows failed: ${res.status} ${res.statusText}`,
+      );
+      return [];
+    }
+    return (await res.json()) as HeroStatsRowRaw[];
+  } catch (err) {
+    console.error("[analyticsApi] fetchHeroStatsByBadgeRows error:", err);
+    return [];
+  }
+}
+
+export type RankTierRaw = {
+  tier: number;
+  name: string;
+};
+
+/**
+ * `/v1/assets/ranks` — authoritative rank tier names (0 Obscurus … 11 Eternus).
+ *
+ * Fetched rather than hardcoded: the tier names are easy to misremember and
+ * Valve renames them between patches.
+ */
+export async function fetchRankTiers(): Promise<RankTierRaw[]> {
+  try {
+    const res = await fetch("https://api.deadlock-api.com/v1/assets/ranks", {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) {
+      console.error(`[analyticsApi] fetchRankTiers failed: ${res.status} ${res.statusText}`);
+      return [];
+    }
+    return (await res.json()) as RankTierRaw[];
+  } catch (err) {
+    console.error("[analyticsApi] fetchRankTiers error:", err);
     return [];
   }
 }

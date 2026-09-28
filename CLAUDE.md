@@ -258,7 +258,28 @@ lib/itemization/itemizationGuideData.ts — itemization guide copy, derived from
                                 buildUtils.ts/buildCalculations.ts (Milestone D2)
 lib/engine/                   — staged-pipeline scoring surface (WIP, parallel to
                                 lib/scoring/, not yet wired into the app) — see
-                                scoring-engine-dev skill; fixtures run via `npm run mini`
+                                scoring-engine-dev skill. Its fixtures live in
+                                `lib/engine/__fixtures__/mini.ts`, a SEPARATE harness from
+                                `src/scripts/mini.ts`; `npm run mini` chains both
+  types.ts                    — SCORE_CATEGORIES (gunDamage/spiritDamage/tankiness/
+                                sustain/mobility/utility/economy), ItemCandidate,
+                                HeroNeedVector, BasketResult, MarginalTermFn
+  heroNeed.ts                 — deriveHeroNeedVector() (Milestone E). spiritDamage
+                                from ability coefficients; gunDamage from the hero's
+                                own gun DPS (damage x fire rate) vs roster — two
+                                INDEPENDENT signals, not one split budget
+  itemAdapter.ts              — toItemCandidate(), toItemCandidates() — Item bridge
+  basketSelect.ts             — constructBasket(), makeBasketContext(),
+                                coverageTerm/categoryBonusTerm/analyticsTerm.
+                                Add a Milestone F covariance term as one more
+                                MarginalTermFn — no change to the greedy loop
+lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cached,
+                                fail-open match-analytics (win rate, matches) from
+                                /v1/analytics/*; ItemAnalytics.itemId joins to
+                                Item.numericId, NOT Item.id. Already wired into
+                                /items display pages; unused by scoring until Milestone E.
+                                Also getHeroAccuracy()/resolveAccuracyAtRank() (shot
+                                accuracy per hero per rank tier) and getRankTiers()
 lib/coach/                    — AI coach module (M6) — not yet created, keep isolated
 app/components/                — cross-route shared UI (Milestone C):
   Tooltip.tsx                 — Tooltip, InfoTooltip — sanctioned title= replacement
@@ -279,7 +300,12 @@ app/build/components/
   BuildSummaryPanel.tsx       — right panel stats
   AbilityLevelingPanel.tsx    — ability cards + upgrades
   SoulTimeline.tsx            — soul economy timeline
-  SuggestedItemsPanel.tsx     — AI-adjacent suggestions
+  SuggestedItemsPanel.tsx     — AI-adjacent suggestions (independent per-item
+                                ranking via scoreItems())
+  HeroBasketSuggestion.tsx     — hero-need basket (Milestone E): a SET of items
+                                chosen together. Presentational only — receives a
+                                BasketResult via props, computes nothing. Sits
+                                alongside SuggestedItemsPanel, does not replace it
 app/guide/components/          — cross-guide shared UI (Milestone D4):
   Minimap.tsx                  — generic marker-overlay minimap; callers supply
                                 markers + renderMarker/renderTooltip/legend
@@ -390,23 +416,23 @@ consumedComponents    // from getConsumedComponents()
 
 ## Milestone History
 
-| Milestone | Status    | What it built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| M2        | ✅ Closed | Build Planner UI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| M3        | ✅ Closed | URL persistence + share links                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, dead `lib/engine/` reconciliation, self-test IIFE removal, doc sync, homepage/metadata fix, fetch-waterfall parallelization                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| B         | ✅ Closed | State/component health: `assignmentMap` derived via `useMemo`, business logic extracted to `lib/buildUtils.ts`, `CategoryManager` decomposed into 8 files, slot-cap/cleanup fixtures                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| C         | ✅ Closed | New player UX foundations: shared Tooltip/AudienceTabs components, tooltip copy retrofit, simplified/advanced toggle, `/build` onboarding, hero difficulty/archetype tags, UX checklist fixture (`mini.ts` Fixture 9)                                                                                                                                                                                                                                                                                                                                                                                |
-| D         | ✅ Closed | Guide content expansion: boons (`/guide/boons`), itemization (`/guide/itemization`), lane mechanics (`/guide/lanes`) pages; `Minimap`/`PhaseTimeline` generalized into `app/guide/components/` and reused across all 4 guide pages; `mini.ts` extended to `lib/farming` + new guide data (72 → 88 fixtures); data-verifier cadence documented (see "Data Verification Cadence" above — no durable scheduler exists for actual automation yet)                                                                                                                                                        |
-| M6        | ⏸ Queued  | AI coach layer + skill path planner (sequenced after Milestone C so it has UX surfaces to attach to)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| E         | ⏸ Queued  | Hero-Aware Basket Scoring: `lib/engine/heroNeed.ts` derives a per-hero need vector (mechanical spirit/weapon lean from ability coefficients + cross-hero-normalized tankiness/mobility from base stats); `lib/engine/basketSelect.ts` greedily selects a basket of items across gun/spirit/vitality that jointly covers it, trading off category-bonus concentration against need-vector diversification. Fully deterministic, no external data dependency. Built inside `lib/engine/` (not `lib/scoring/`) specifically so Milestone F can plug in later — see "Milestone E Design Decisions" below |
-| F         | ⏸ Queued  | Empirical risk/covariance layer: ingest match-level data from `deadlock-api.com`'s `/v1/matches/{id}/metadata` (item builds + purchase timing + death events + win/loss — confirmed available, unauthenticated, via `data-verifier` spike) into a category×feature design matrix, produce a static regression coefficient table offline, wire it into Milestone E's `constructBasket()` marginal-value function as one more pluggable term. Depends on Milestone E's interfaces (not its completion)                                                                                                 |
-| G         | ⏸ Queued  | Need-vector enrichment (stretch): parse `HeroAbility.upgrades[].statChanges` free text for real sustain/lifesteal signal; hand-author a `hero.tags`/`hero_type`/`gun_tag` → category mapping (same upkeep shape as `GOAL_WEIGHTS_MAP`/`ANTI_SYNERGY_RULES`). Purely additive to Milestone E's need vector, not a prerequisite for E or F                                                                                                                                                                                                                                                             |
+| Milestone | Status    | What it built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| M2        | ✅ Closed | Build Planner UI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| M3        | ✅ Closed | URL persistence + share links                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, dead `lib/engine/` reconciliation, self-test IIFE removal, doc sync, homepage/metadata fix, fetch-waterfall parallelization                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| B         | ✅ Closed | State/component health: `assignmentMap` derived via `useMemo`, business logic extracted to `lib/buildUtils.ts`, `CategoryManager` decomposed into 8 files, slot-cap/cleanup fixtures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| C         | ✅ Closed | New player UX foundations: shared Tooltip/AudienceTabs components, tooltip copy retrofit, simplified/advanced toggle, `/build` onboarding, hero difficulty/archetype tags, UX checklist fixture (`mini.ts` Fixture 9)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| D         | ✅ Closed | Guide content expansion: boons (`/guide/boons`), itemization (`/guide/itemization`), lane mechanics (`/guide/lanes`) pages; `Minimap`/`PhaseTimeline` generalized into `app/guide/components/` and reused across all 4 guide pages; `mini.ts` extended to `lib/farming` + new guide data (72 → 88 fixtures); data-verifier cadence documented (see "Data Verification Cadence" above — no durable scheduler exists for actual automation yet)                                                                                                                                                                                                                                                                                                                                                            |
+| M6        | ⏸ Queued  | AI coach layer + skill path planner (sequenced after Milestone C so it has UX surfaces to attach to)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| E         | ✅ Closed | Hero-Aware Basket Scoring: `lib/engine/heroNeed.ts` derives a per-hero need vector (mechanical spirit/weapon lean from real ability coefficients + cross-hero-normalized tankiness/mobility); `lib/engine/itemAdapter.ts` bridges `Item` → `ItemCandidate`; `lib/engine/basketSelect.ts` greedily selects a basket across gun/spirit/vitality that jointly covers it, trading category-bonus concentration against need-vector diversification, with a small empirical win-rate term from the existing `lib/analyticsStore.ts`. `damage` split into `gunDamage`/`spiritDamage`. New `HeroBasketSuggestion` panel wired additively into `BuildClient` (does NOT replace `SuggestedItemsPanel`). Engine fixtures 5 → 38. Validated against live Lady Geist data — see "Milestone E Design Decisions" below |
+| F         | ⏸ Queued  | Item-_combination_/covariance layer: single-item empirical win rate is already handled in Milestone E via the existing `lib/analyticsStore.ts` (`ItemAnalytics.winRate`) — F is specifically about pairwise/combination correlation, which needs per-match granularity. Ingest match-level data from `deadlock-api.com`'s `/v1/matches/{id}/metadata` (item builds + purchase timing + death events + win/loss — confirmed available, unauthenticated, via `data-verifier` spike) into a category×feature design matrix, produce a static regression coefficient table offline, wire it into Milestone E's `constructBasket()` marginal-value function as one more pluggable term. Depends on Milestone E's interfaces (not its completion)                                                              |
+| G         | ⏸ Queued  | Need-vector enrichment (stretch): parse `HeroAbility.upgrades[].statChanges` free text for real sustain/lifesteal signal; hand-author a `hero.tags`/`hero_type`/`gun_tag` → category mapping (same upkeep shape as `GOAL_WEIGHTS_MAP`/`ANTI_SYNERGY_RULES`). Purely additive to Milestone E's need vector, not a prerequisite for E or F                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ---
 
@@ -427,35 +453,84 @@ consumedComponents    // from getConsumedComponents()
 ## Milestone E Design Decisions (locked before coding)
 
 Portfolio-theory-inspired itemization scoring, scoped across two research
-passes + a `data-verifier` spike (full reasoning in session history — this
-section captures the decisions, not the exploration):
+passes, a `data-verifier` spike, and a direct read of the real `lib/engine/`
+
+- `lib/analyticsStore.ts` code (full reasoning in session history — this
+  section captures the decisions, not the exploration). The direct-code pass
+  corrected and shrank the original scope in two important ways, both folded
+  in below.
+
+**Correction 1 — empirical data is already integrated, not just "available."**
+`lib/analyticsStore.ts` (`getItemAnalytics()`/`getHeroAnalytics()`) and
+`lib/api/analyticsApi.ts` already fetch, cache, and fail-open against
+`/v1/analytics/item-stats` and `/v1/analytics/hero-stats` — real per-item
+`{ matches, wins, losses, winRate }`, joined via `Item.numericId` (which
+already exists on `Item` specifically for this join, per
+`lib/itemNormalizer.ts:97`). This is already wired into `/items` display
+pages (`app/items/page.tsx`, `app/items/[id]/page.tsx`) but **never
+consumed by scoring**. This means Milestone E can ship a real (small,
+explicitly bounded) empirical adjustment term on day one instead of
+deferring all empirical signal to Milestone F — see the marginal-value
+design below. Milestone F's scope narrows accordingly: it's specifically
+about per-match item-_combination_/covariance analysis from
+`/v1/matches/{id}/metadata` (genuine correlation between item choices),
+since single-item empirical win rate is no longer a gap.
+
+**Note on the fixture gate.** `npm run mini` chains BOTH harnesses —
+`package.json` defines it as `npx tsx src/scripts/mini.ts && npx tsx
+lib/engine/__fixtures__/mini.ts`. They are two separate runners with
+separate assertion counts and separate `process.exit(1)` paths, not one
+suite: `src/scripts/mini.ts` covers `lib/scoring/` + guide data, and
+`lib/engine/__fixtures__/mini.ts` covers `lib/engine/`. New Milestone E
+fixtures belong in the engine harness. Both must pass for the gate to pass;
+`&&` means an early failure in the first masks the second, so read the whole
+output, not just the exit code.
+
+**Architecture:**
 
 - Lives in `lib/engine/` (the WIP staged-pipeline surface), not
   `lib/scoring/` — `ItemCandidate.categoryValues` is already a continuous
-  per-`ScoreCategory` vector, which is the shared representation Milestone F
-  needs to later plug empirical coefficients into the same marginal-value
-  function without restructuring the algorithm
-- `damage` must be split into `gunDamage`/`spiritDamage` in
-  `ScoreCategory`/`ItemCandidate.categoryValues` — the single `damage`
-  dimension can't tell a spirit-leaning hero's needs from a gun-leaning
-  hero's, which defeats the point of a hero-need vector
-- Need-vector derivation is mechanical where the data supports it (spirit/
-  weapon lean from real parsed `spiritScaling`/`weaponScaling` coefficients
-  in `lib/abilityCoefficients.ts`; tankiness/mobility from cross-hero
-  z-scored `HeroBaseStats`) and explicitly stubbed neutral, not faked, where
-  it doesn't yet (sustain/utility — deferred to Milestone G)
-- Basket selection is greedy budgeted-maximum-coverage: marginal value per
-  candidate = need-vector coverage gain (diminishing per category) +
-  category-bonus threshold gain (reusing `lib/categoryBonuses.ts`'s
+  per-`ScoreCategory` vector, the shared representation Milestone F needs to
+  plug covariance coefficients into later without restructuring anything
+- No `Item` → `ItemCandidate` adapter exists yet — `lib/engine/` currently
+  only runs against synthetic fixture candidates. New:
+  `lib/engine/itemAdapter.ts::toItemCandidate(item: Item): ItemCandidate`,
+  and `ItemCandidate` needs a new `numericId: number` field (from
+  `Item.numericId`) specifically for the `ItemAnalytics` join
+- `damage` splits into `gunDamage`/`spiritDamage` in `SCORE_CATEGORIES`/
+  `ItemCandidate.categoryValues` — a single `damage` dimension can't tell a
+  spirit-leaning hero's needs from a gun-leaning hero's. Verified low-risk:
+  `baseCategoryStage`'s `INTENT_TO_CATEGORY` maps `burst` → both new
+  categories at full weight each (not split), which preserves every existing
+  `lib/engine/__fixtures__/mini.ts` assertion exactly, since a candidate's
+  combined damage contribution is invariant to how it's divided between the
+  two — TypeScript's `Record<ScoreCategory, number>` on `ItemCandidate` will
+  also compile-error every fixture object that isn't updated, so the
+  refactor is safe-by-construction under strict mode
+- Need-vector derivation (`lib/engine/heroNeed.ts::deriveHeroNeedVector()`)
+  outputs `Readonly<Record<ScoreCategory, number>>` directly — it does NOT
+  go through `EngineInput.intent`/`IntentKey`/`normalizeIntent()`, which
+  stays untouched to protect the existing player-preset-driven
+  `recommendItems()` path and its five passing fixtures. Mechanical where
+  the data supports it (gun/spirit lean from summed `spiritScaling`/
+  `weaponScaling` in `lib/abilityCoefficients.ts`; tankiness/mobility from
+  cross-hero z-scored `HeroBaseStats`); explicitly stubbed neutral, not
+  faked, where it doesn't yet (sustain/utility — deferred to Milestone G)
+- Basket selection (`lib/engine/basketSelect.ts::constructBasket()`) is
+  greedy budgeted-maximum-coverage: marginal value per candidate =
+  need-vector coverage gain (diminishing per category) + category-bonus
+  threshold gain (reusing `lib/categoryBonuses.ts`'s
   `isApproachingSignificantBonus`/`getCurrentBonusTier`, the same logic
-  `scoreItems.ts` already applies) — this is what makes the algorithm
-  naturally trade off concentrating souls in one category (game-native bonus
-  ladder) against diversifying to cover a multi-category hero need, instead
-  of hand-waving a "risk" number
-- The marginal-value function must be composed as pluggable additive terms
-  (`baseMarginalValue + Σ adjustments`) from the start, specifically so
-  Milestone F's later regression output can add one more term without
-  touching the greedy loop, the need-vector deriver, or the UI
+  `scoreItems.ts` already applies) + an optional, small, explicitly-bounded
+  empirical term from `ItemAnalytics.winRate` (via the join above) — this is
+  what makes the algorithm trade off concentrating souls in one category
+  (game-native bonus ladder) against diversifying for a multi-category hero
+  need, instead of hand-waving a "risk" number, while also folding in real
+  empirical data from day one
+- The marginal-value function is composed as pluggable additive terms
+  (`baseMarginalValue + Σ adjustments`) so Milestone F's later per-item-pair
+  covariance output can add one more term without touching the greedy loop,
+  the need-vector deriver, or the UI
 - New UI surface (`HeroBasketSuggestion.tsx`) is additive/opt-in in
   `BuildClient.tsx`, not a replacement for `SuggestedItemsPanel.tsx`'s
   existing `scoreItems()` path — keeps this revertible and in its own PR,
@@ -463,10 +538,260 @@ section captures the decisions, not the exploration):
   separate PRs" rule (this isn't AI, but the same separation logic applies
   to "new joint-selection scoring" vs. "existing independent-ranking
   scoring")
-- Fixtures are synthetic/hermetic (matching `lib/engine/__fixtures__/mini.ts`'s
-  existing pattern) — no live API calls inside `mini.ts`. A one-time live
-  fetch against a real hero (e.g. Lady Geist, the motivating example) is a
-  manual sanity check during implementation, not an automated fixture
+- Fixtures are synthetic/hermetic (matching the existing pattern) — no live
+  API calls inside the fixture run itself, including for the analytics term
+  (pass a synthetic `Map<number, ItemAnalytics>`, don't call
+  `getItemAnalytics()` from a fixture). A one-time live fetch against a real
+  hero (e.g. Lady Geist, the motivating example) is a manual sanity check
+  during implementation, not an automated fixture
+
+**Two decisions that emerged during implementation (both fixture-locked):**
+
+- **Relevance gate.** `categoryBonusTerm`/`analyticsTerm` return `null` unless
+  the candidate covers some un-met need. Without it the investment bonus alone
+  could make an item with zero relevance score positive, so the basket bought
+  filler purely because its price tipped a category over a tier line (and
+  `"no-positive-value"` became unreachable). The investment bonus is a reason
+  to prefer one _useful_ item over another, never to buy a useless one.
+- **Gun need is an INDEPENDENT signal, not a share of the damage budget.**
+  `spiritDamage` comes from ability scaling coefficients; `gunDamage` comes
+  from the hero's own gun DPS versus the roster. These are genuinely
+  independent in Deadlock — a hero's abilities can scale 100% off spirit
+  while their gun is still among the best in the game, and gun items scale
+  that gun regardless of what the abilities do. Splitting one budget between
+  two shares forces those facts to compete and wrongly reads a spirit hero as
+  having no gun need. Two rules fall out of the live data:
+  - **Measure gun strength as damage × fire rate, never damage alone.** Paige
+    has the roster's highest per-shot damage (35.0) at 1.67 shots/s; Calico
+    does 1.8 at 42.86 shots/s. Only the product is comparable.
+  - **Gun need is NOT compensating** (unlike tankiness/mobility): a strong gun
+    steers you toward gun items, because weapon items scale the gun you
+    already have. `MIN_GUN_FACTOR` floors it so the worst gun stays reachable
+    (zero would be dropped by the relevance gate — every hero has a gun).
+  - **Nominal gun DPS is discounted by observed shot accuracy**, optionally at
+    the player's own rank — see "Gun accuracy" below.
+
+### Gun accuracy (rank-aware)
+
+`/v1/analytics/hero-stats` carries `total_shots_hit`/`total_shots_missed`, and
+`?bucket=avg_badge` partitions every hero by rank (bucket = `tier * 10 +
+subrank`, bucket 0 = unranked; ~38 heroes × 67 buckets). `getHeroAccuracy()`
+in `lib/analyticsStore.ts` aggregates these into per-hero pooled + per-tier
+accuracy; `resolveAccuracyAtRank()` flattens it for one rank. Rank tier names
+come from `/v1/assets/ranks` (`getRankTiers()`) — **fetch them, never hardcode**:
+they are 0 Obscurus, 1 Initiate, 2 Seeker, 3 Acolyte, 4 Sentinel, 5 Mystic,
+6 Ritualist, 7 Emissary, 8 Oracle, 9 Phantom, 10 Ascendant, 11 Eternus, which
+are easy to misremember.
+
+Why it matters: nominal DPS assumes every shot lands, systematically
+over-rating spread weapons whose fire rate counts each pellet. Verified live —
+accuracy spans 38.7% (Vyper) to 62.4% (Silver), and the discount reorders gun
+need substantially: Vyper 1.72 → 1.33, Calico 1.32 → 1.13, while Lady Geist
+rises 1.07 → 1.30 because her shots actually connect.
+
+Two things to preserve when touching this:
+
+- **Discount the hero AND the roster with the same policy.** Gun strength is a
+  z-score against the roster; comparing a discounted hero to nominal peers is
+  meaningless.
+- **Missing accuracy ≠ zero accuracy.** Exactly one hero (Graves, verified) has
+  no shot data. `heroNeed.ts` falls back to the median of heroes that DO have
+  data — never 1.0, which would leave them undiscounted while every peer is
+  discounted, inflating them into looking like the roster's best gun.
+
+Emergent and correct, not coded in: Calico's gun need _falls_ at higher rank
+(1.16 Initiate → 1.10 Eternus) while Geist's rises (1.25 → 1.38), because
+Calico's accuracy improves only +4.2pp across ranks against Geist's +12.6pp —
+a spread weapon benefits less from better aim than a precision one.
+
+**Known limitation — accuracy is a proxy, and `weapon_info` is the real fix.**
+`GET /v1/assets/items/{weapon_class}` (class name is on
+`hero.items.weapon_primary`) returns a `weapon_info` block this repo does NOT
+consume yet, holding the ground truth the accuracy ratio only approximates:
+
+- `bullets` — pellets per shot. Calico is `bullets: 9`, which is _why_ she
+  reads 43.5%: it is a shotgun, not bad aim.
+- `damage_falloff_start_range` / `damage_falloff_end_range` /
+  `damage_falloff_end_scale` — range profile in source units (÷39.37 for
+  metres). Graves is 300/670 → 7.6m/17.0m.
+- `damage_per_second_with_reload` — Valve's own figure, accounting for reload
+  downtime that `bulletDamage × bulletsPerSecond` ignores entirely (Graves:
+  35.3 nominal vs 20.2 with reload, a 43% overstatement).
+
+Until that is wired in: range falloff is **not modelled at all** for any hero,
+and a hero with no shot data may simply have a weapon whose shots are not
+counted discretely — Graves is a beam that cannot miss, so her true accuracy is
+~1.0 offset by a hard 17m range limit, making the median fallback a rough wash
+rather than a correct value.
+
+### Defence: flat health and % resist are separate categories
+
+`tankiness` was split into `bonusHealth`/`resist` because they are not
+interchangeable per hero. Effective HP is `health / (1 - resist)`, so a
+percentage resist multiplies the pool a hero already owns: verified live, the
+same +20% resist buys the roster's beefiest hero +801 EHP but its squishiest
+only +401 — exactly 2x for identical spend. Resistance items really are weaker
+on low-health heroes.
+
+Defence resolves on two independent axes that compose:
+
+- **How much** (`deriveDefensiveNeed`, compensating): below-average health →
+  higher total defensive need.
+- **Which kind** (`deriveHealthShare`, EHP-driven): below-average health →
+  weighted toward flat health, both because it is worth more directly and
+  because it raises the pool that later resist multiplies. Above-average
+  health inverts.
+
+Health is measured at max boon, not base — the two disagree about who is
+squishy: Silver's base 830 is mid-roster, but at +28/boon she ends up 5th
+lowest at cap.
+
+Live result: Mina (1605 HP) 1.72 health / 0.96 resist; Graves (1885) 1.39 /
+1.00; Mo & Krill (3205) 0.30 / 0.72.
+
+**Barriers/shields are a THIRD defensive kind**, not a flavour of health.
+`CombatBarrier`, `VexBarrierCombatBarrier` and `GuardianWardCombatBarrier` map
+to the `shield` category. A barrier is a fixed absorb pool that does not scale
+with max health, so — like flat health, unlike % resist — it is worth
+proportionally more to a low-health hero, and it is cheaper per point of
+effective HP (Reactive Barrier 325 absorb / 1,600 souls ≈ 4.9 souls per EHP vs
+Fortitude 375 health / 3,200 ≈ 8.5). Offsetting that, barriers are
+cooldown-gated and temporary (45-60s cooldowns, 8-10s durations), so
+`SHIELD_SHARE_OF_FLAT` holds them to a minority of the flat-EHP budget rather
+than letting them displace permanent health outright.
+
+**These three keys were entirely unmapped before**, which scored every barrier
+item at zero for its barrier: Reactive Barrier's whole 325 absorb was invisible,
+leaving the item net-negative and effectively unbuyable. When adding an item
+archetype, check that its defining stat key is actually in
+`STAT_KEY_TO_SCORE` — an unmapped key fails silently.
+
+### Item scoring coverage audit (all 156 live items)
+
+A full audit found **26 items (17%) scoring exactly zero** — invisible to the
+basket, since a zero-coverage candidate is dropped by the relevance gate. All
+26 are now non-zero; the catalogue has **0 zero-scoring items** and exactly one
+negative (Weighted Shots, correctly, for its real `BonusMoveSpeed: -0.5`).
+Three distinct causes, each needing a different fix:
+
+1. **A duplicate key for a stat already mapped.** `SpiritPower` is a second
+   name for `TechPower`; verified live, the two NEVER co-occur (17 items use
+   one, 6 the other, none both). Only `TechPower` was mapped, so 6 items lost
+   all their spirit power.
+2. **Meaningful stats never mapped** — `BonusFireRate` (17 items, multiplies
+   weapon DPS directly), `BonusClipSizePercent`, `BonusMeleeDamagePercent`,
+   `Stamina`/`StaminaCooldownReduction`, `TechRange`/`RadiusMultiplier`,
+   `HeadShotBonusDamage`, `BonusAbilityDurationPercent`.
+3. **Value that is an active/proc effect, not a stat** — see
+   `lib/engine/effectEstimator.ts`.
+
+**`effectEstimator.ts` produces ESTIMATES, not measurements.** Items like Tesla
+Bullets carry no stat bonus at all; their worth is "15% chance to chain 33
+damage to 4 targets". The estimator turns such parameter clusters into
+expected-value contributions (`33 × 4 × 0.15 = 19.8`), then scales everything by
+`EFFECT_CONFIDENCE = 0.5` so an inferred value can never outrank a comparable
+measured stat. It deliberately does not model target count actually hit,
+positioning, or whether a slow converts into a kill. Every estimate carries a
+`basis` string so it is never an unexplained number.
+
+### Non-substitutable categories: shred and anti-heal
+
+`gunShred` / `spiritShred` / `antiHeal` exist for the same reason `resist` was
+split from `bonusHealth`: they are **requirements, not damage sources**. Past a
+certain enemy resist level, more damage items stop converting into damage dealt
+and only shred unlocks it; against a healing enemy, raw damage can fail to
+out-pace sustain at any amount. Separate coverage targets make the basket buy
+_some_ rather than stacking pure damage. `SHRED_SHARE_OF_DAMAGE` deliberately
+holds shred below the damage need it unlocks — the category guarantees
+coverage, it does not make shred a co-equal damage source.
+
+Shred is split by damage type because bullet shred does nothing for a
+spirit-scaling hero's abilities. Shred need is derived from the matching damage
+need; **anti-heal is a flat baseline**, because whether you need it depends on
+the ENEMY having healing — a real number needs `EngineInput.matchContext`.
+
+Two distinctions that are easy to get wrong:
+
+- **Resist reduction ≠ output reduction.** `MagicResistReduction` and
+  `TechArmorDamageReduction` make the target take more damage (shred).
+  `TechPowerReduction` and `TechDamageReduction` cut the target's own damage
+  output — that is defensive utility, and grouping it with shred credits it as
+  offence.
+- **The two anti-heal keys are always paired.** `HealAmpReceivePenaltyPercent`
+  and `HealAmpRegenPenaltyPercent` carry the same value on every live item
+  (both -35 on Toxic Bullets, both -70 on Spirit Burn). Take the larger, never
+  the sum, or one effect is counted twice.
+
+**AoE weapon effects earn economy**, not just damage: Ricochet's bounce and
+Split Shot's extra bullets hit several jungle creeps per shot, which is farming
+speed and therefore souls.
+
+**Some item value is CONTEXTUAL and cannot be scored per-item — do not try.**
+Three real cases (confirmed against play knowledge, not inferred from data),
+each scoring near the bottom of its tier and correctly so:
+
+- **Counter-picks.** Armor Piercing Rounds exists to answer Plated Armor; its
+  worth is a function of the ENEMY's build. `EngineInput.matchContext` is
+  declared and unused — that is the right home for enemy composition.
+- **Combo enablers.** Vortex Web pulls a group into one spot; its value is in
+  the follow-up (Ivy's ultimate + grasping vines + Alchemical Fire, Paradox
+  bomb setups, Doorman dragging several enemies through a door). Its slow and
+  dash-denial ARE scored; the grouping is interaction value. A positive-synergy
+  table mirroring `lib/scoring/antiSynergy.ts` is the shape that fits.
+- **Ability-dependent effects.** Echo Shard resets an imbued ability's
+  cooldown, so it is worth whatever that ability is worth. It gets a generic
+  floor; a real number needs the hero's ability list.
+
+All three are interaction value — the item-covariance layer scoped as Milestone
+F. **Do not close the gap by inflating per-item constants**: that trades a known
+underestimate for an unknown overestimate on every hero not running the combo.
+
+**A low score is not automatically a bug.** Spirit Shielding scoring 55.5 at
+T2 — above the T4 vitality median — was flagged as a suspected over-score, but
+it is correct: it is a genuinely strong item on low-health heroes, and the model
+already reflects that, ranking it 10th of 54 vitality items for the roster's
+squishiest hero versus 22nd for its tankiest. Check whether a flagged outlier
+is actually wrong before retuning toward it.
+
+**Enemy resist reduction is offensive value stored as a negative.**
+`BulletArmorReduction`, `MagicResistReduction`, `TechArmorDamageReduction` and
+`BulletResistReduction` lower the TARGET's stat. Mapping them in
+`STAT_KEY_TO_SCORE` would subtract from the buyer's score, exactly inverting
+their worth — which is why they are sign-corrected in the estimator instead.
+**Check the sign convention before mapping any new key.**
+
+**Watch the scale when mapping a percent stat.** `StaminaCooldownReduction`
+(12-18) was first weighted like a ones-scale flat stat, putting Stamina Mastery
+at mobility 93 against Sprint Boots' 8.25 — an 11x distortion. Calibrate a new
+key against an existing item in the same category before trusting it.
+
+**Sentinel values are not debuffs.** `AbilityCooldownBetweenCharge` is `-1` on
+156/156 live items, `ChannelMoveSpeed` is `-1` on 155/156, and `AbilityCharges`
+is `0` on 156/156 — they mean "not applicable". They were previously mapped and
+scored, charging a phantom −3 utility and −3 mobility to EVERY item and
+silently understating the real utility/mobility of any item that had some
+(Guardian Ward read 5.3 mobility instead of 8.3). They are now deliberately
+excluded, with a note in `itemAdapter.ts`. **Check a key's value distribution
+across all items before mapping it** — a constant value across the whole
+catalogue is a sentinel, not a stat.
+
+**`MIN_DEFENSIVE_NEED` exists for the same reason as `MIN_GUN_FACTOR`.** Before
+it, the roster's tankiest hero derived exactly 0.00/0.00 and would never have
+been offered a single vitality item — zero is unreachable downstream, not
+merely low. Being naturally durable lowers the priority, never to nil. **Any
+new per-hero signal added to this module needs the same floor — it is the
+recurring bug class here.**
+
+**Live validation (real API data).** Lady Geist's kit is 100% spirit-scaling
+(Essence Bomb 1.22, Malice 0.558, Life Drain 0.3225, zero weapon scaling) AND
+her gun gains +1.00 damage/boon, ranking 7th of 38 for DPS gained from boons
+— so she correctly derives a need for BOTH (spirit 2.00, gun 1.07). Gun
+quality spans 6.3× across the roster, and the derivation separates it
+cleanly: Drifter (best gun) 2.00, Geist 1.07, Infernus 0.71, Graves (worst)
+0.65 — note Infernus and Geist are both pure-spirit heroes, separated only by
+gun quality. Her `moveSpeed` 6.3 is below roster average so mobility reads
+high (1.60); `maxHealth` 880 is above average so tankiness reads low (0.15)
+under the compensating interpretation.
 
 ---
 
