@@ -6,6 +6,12 @@ export type HeroBaseStats = {
   bulletsPerSecond: number;
   reloadTime: number;
   ammo: number;
+  // Valve's own sustained DPS at base (boon 0), reload downtime included --
+  // NOT bulletDamage x bulletsPerSecond, which assumes the clip never empties.
+  // 0 means no weapon_info data was available (see fetchHeroStats); consumers
+  // must treat 0 as "unknown," never as a real zero-DPS weapon. Used by
+  // lib/engine/heroNeed.ts to discount nominal gun DPS by reload uptime.
+  dpsWithReload: number;
   lightMeleeDamage: number;
   lightMeleePerBoon: number;
   heavyMeleeDamage: number;
