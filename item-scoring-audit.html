@@ -1,0 +1,3668 @@
+<title>Deadlock Item Scoring Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+/>
+<style>
+  :root {
+    --bg: #f7f5fa;
+    --surface: #fff;
+    --raised: #fbfafc;
+    --line: #e4e0ea;
+    --line2: #efecf3;
+    --ink: #191622;
+    --mut: #6a6379;
+    --dim: #a49db1;
+    --gun: #c2410c;
+    --spirit: #6d28d9;
+    --vit: #15803d;
+    --econ: #0369a1;
+    --anti: #be123c;
+    --low: #b45309;
+    --high: #a21caf;
+    --ctx: #0f766e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #100e17;
+      --surface: #181524;
+      --raised: #1e1a2b;
+      --line: #2b2639;
+      --line2: #221e30;
+      --ink: #eae6f2;
+      --mut: #9d95b0;
+      --dim: #6b6480;
+      --gun: #fb923c;
+      --spirit: #a78bfa;
+      --vit: #4ade80;
+      --econ: #7dd3fc;
+      --anti: #fb7185;
+      --low: #fbbf24;
+      --high: #e879f9;
+      --ctx: #5eead4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #100e17;
+    --surface: #181524;
+    --raised: #1e1a2b;
+    --line: #2b2639;
+    --line2: #221e30;
+    --ink: #eae6f2;
+    --mut: #9d95b0;
+    --dim: #6b6480;
+    --gun: #fb923c;
+    --spirit: #a78bfa;
+    --vit: #4ade80;
+    --econ: #7dd3fc;
+    --anti: #fb7185;
+    --low: #fbbf24;
+    --high: #e879f9;
+    --ctx: #5eead4;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 40px 24px 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+  header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 22px;
+  }
+  h1 {
+    font-family: Oswald, "Arial Narrow", sans-serif;
+    font-weight: 600;
+    font-size: clamp(30px, 4.6vw, 44px);
+    letter-spacing: 0.012em;
+    margin: 0;
+    text-wrap: balance;
+    line-height: 1.08;
+  }
+  .sub {
+    color: var(--mut);
+    max-width: 66ch;
+    margin: 0;
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--mut);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 3px 8px;
+    background: var(--raised);
+  }
+  h2 {
+    font-family: Oswald, "Arial Narrow", sans-serif;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+    font-size: 12.5px;
+    color: var(--mut);
+    margin: 0 0 12px;
+  }
+  .panels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 18px 20px;
+  }
+  .mrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line2);
+  }
+  .mrow:last-child {
+    border-bottom: 0;
+  }
+  .mcat {
+    font-size: 13px;
+    color: var(--mut);
+    width: 58px;
+  }
+  .mcell {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 64px;
+  }
+  .mcell em {
+    font-style: normal;
+    color: var(--dim);
+    font-size: 11px;
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    display: inline-block;
+  }
+  .d-gun {
+    background: var(--gun);
+  }
+  .d-spirit {
+    background: var(--spirit);
+  }
+  .d-vitality {
+    background: var(--vit);
+  }
+  .card ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .card li {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--line2);
+    font-size: 13.5px;
+  }
+  .card li:last-child {
+    border-bottom: 0;
+  }
+  .ctxli {
+    flex-wrap: wrap;
+  }
+  .why {
+    flex-basis: 100%;
+    font-size: 12px;
+    color: var(--mut);
+    line-height: 1.45;
+    padding-bottom: 2px;
+  }
+  .nm {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mg,
+  .vv {
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 12.5px;
+  }
+  .mg {
+    color: var(--dim);
+  }
+  .vv {
+    color: var(--ink);
+    font-weight: 600;
+    min-width: 44px;
+    text-align: right;
+  }
+  .note {
+    font-size: 12.5px;
+    color: var(--mut);
+    margin: 10px 0 0;
+    line-height: 1.5;
+  }
+  .scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--surface);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 12.5px;
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--raised);
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--mut);
+    text-align: right;
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  thead th:first-child,
+  thead th:nth-child(2) {
+    text-align: left;
+  }
+  tbody th {
+    font-weight: 500;
+    text-align: left;
+    padding: 7px 8px;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--line2);
+  }
+  td {
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--line2);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .n {
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .cat {
+    text-align: left;
+    color: var(--mut);
+    font-size: 12px;
+  }
+  .cost {
+    color: var(--mut);
+  }
+  .z {
+    color: var(--dim);
+    opacity: 0.5;
+  }
+  .tot {
+    font-weight: 600;
+  }
+  .perk {
+    color: var(--mut);
+  }
+  .c-gunDamage,
+  .c-gunShred {
+    color: var(--gun);
+  }
+  .c-spiritDamage,
+  .c-spiritShred {
+    color: var(--spirit);
+  }
+  .c-antiHeal {
+    color: var(--anti);
+  }
+  .c-bonusHealth,
+  .c-resist,
+  .c-shield,
+  .c-sustain {
+    color: var(--vit);
+  }
+  .c-economy {
+    color: var(--econ);
+  }
+  tbody tr:hover td,
+  tbody tr:hover th {
+    background: var(--raised);
+  }
+  tr.low .perk {
+    color: var(--low);
+    font-weight: 600;
+  }
+  tr.high .perk {
+    color: var(--high);
+    font-weight: 600;
+  }
+  .ctxm {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ctx);
+    border: 1px solid var(--ctx);
+    border-radius: 2px;
+    padding: 1px 4px;
+    margin-left: 2px;
+    cursor: help;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 12.5px;
+    color: var(--mut);
+    align-items: center;
+  }
+  .legend b {
+    font-weight: 600;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+  }
+  .lo {
+    color: var(--low);
+  }
+  .hi {
+    color: var(--high);
+  }
+  .cx {
+    color: var(--ctx);
+  }
+  @media (max-width: 640px) {
+    .wrap {
+      padding: 28px 14px 56px;
+    }
+  }
+</style>
+<div class="wrap">
+  <header>
+    <h1>Deadlock Item Scoring Audit</h1>
+    <p class="sub">
+      Every shop item scored across the twelve engine categories, after the mapping and calibration
+      pass. Zero-scoring items are invisible to basket selection, so full coverage is the point of
+      this sweep.
+    </p>
+    <div class="tags">
+      <span class="tag">156 items</span><span class="tag">0 scoring zero</span
+      ><span class="tag">18 with shred</span><span class="tag">7 with anti-heal</span
+      ><span class="tag">p10 4.1 · p90 25.0 per 1k</span>
+    </div>
+  </header>
+  <section class="panels">
+    <div class="card">
+      <h2>Median total by tier</h2>
+      <div class="mrow">
+        <span class="dot d-gun"></span><span class="mcat">gun</span
+        ><span class="mcell"><em>T1</em>12.5</span><span class="mcell"><em>T2</em>19.6</span
+        ><span class="mcell"><em>T3</em>30.8</span><span class="mcell"><em>T4</em>41.0</span>
+      </div>
+      <div class="mrow">
+        <span class="dot d-spirit"></span><span class="mcat">spirit</span
+        ><span class="mcell"><em>T1</em>13.1</span><span class="mcell"><em>T2</em>22.0</span
+        ><span class="mcell"><em>T3</em>32.0</span><span class="mcell"><em>T4</em>58.0</span>
+      </div>
+      <div class="mrow">
+        <span class="dot d-vitality"></span><span class="mcat">vitality</span
+        ><span class="mcell"><em>T1</em>14.7</span><span class="mcell"><em>T2</em>28.0</span
+        ><span class="mcell"><em>T3</em>30.0</span><span class="mcell"><em>T4</em>60.0</span>
+      </div>
+      <p class="note">
+        The core sanity check: totals should rise with tier inside every category. They do,
+        monotonically, in all three.
+      </p>
+    </div>
+    <div class="card">
+      <h2>Scores low by design</h2>
+      <ul>
+        <li class="ctxli">
+          <span class="nm">Armor Piercing Rounds</span><span class="vv">8.0</span
+          ><span class="why"
+            >Counter-pick — answers Plated Armor; worth depends on the enemy build.</span
+          >
+        </li>
+        <li class="ctxli">
+          <span class="nm">Vortex Web</span><span class="vv">17.6</span
+          ><span class="why"
+            >Combo enabler — groups enemies for Ivy / Paradox / Doorman follow-ups.</span
+          >
+        </li>
+        <li class="ctxli">
+          <span class="nm">Echo Shard</span><span class="vv">25.0</span
+          ><span class="why"
+            >Ability-dependent — resets an imbued cooldown, so worth whatever that ability is
+            worth.</span
+          >
+        </li>
+      </ul>
+      <p class="note">
+        Interaction value the per-item scorer cannot see. Inflating their constants would overrate
+        them for every hero not running the combo.
+      </p>
+    </div>
+    <div class="card">
+      <h2>Highest value per 1k souls</h2>
+      <ul>
+        <li>
+          <span class="dot d-spirit"></span><span class="nm">Cold Front</span
+          ><span class="mg">1,600</span><span class="vv">35.3</span>
+        </li>
+        <li>
+          <span class="dot d-vitality"></span><span class="nm">Weapon Shielding</span
+          ><span class="mg">1,600</span><span class="vv">34.7</span>
+        </li>
+        <li>
+          <span class="dot d-vitality"></span><span class="nm">Spirit Shielding</span
+          ><span class="mg">1,600</span><span class="vv">34.7</span>
+        </li>
+        <li>
+          <span class="dot d-vitality"></span><span class="nm">Battle Vest</span
+          ><span class="mg">1,600</span><span class="vv">32.5</span>
+        </li>
+        <li>
+          <span class="dot d-gun"></span><span class="nm">Kinetic Dash</span
+          ><span class="mg">1,600</span><span class="vv">32.4</span>
+        </li>
+        <li>
+          <span class="dot d-gun"></span><span class="nm">Active Reload</span
+          ><span class="mg">1,600</span><span class="vv">28.9</span>
+        </li>
+        <li>
+          <span class="dot d-gun"></span><span class="nm">Monster Rounds</span
+          ><span class="mg">800</span><span class="vv">28.8</span>
+        </li>
+        <li>
+          <span class="dot d-spirit"></span><span class="nm">Spirit Strike</span
+          ><span class="mg">800</span><span class="vv">28.8</span>
+        </li>
+      </ul>
+      <p class="note">
+        Dense mid-tier items stacking several contributions. Spirit Shielding is correct here — it
+        ranks 10th of 54 vitality items for the squishiest hero, 22nd for the tankiest.
+      </p>
+    </div>
+  </section>
+  <section>
+    <h2>All items</h2>
+    <div class="legend">
+      <span>Sorted by category, then tier, then total.</span
+      ><span><b class="lo">amber</b> below 10th pct per 1k</span
+      ><span><b class="hi">magenta</b> above 90th</span
+      ><span><b class="cx">ctx</b> contextual value</span><span><b>·</b> no contribution</span>
+    </div>
+    <div class="scroll" style="margin-top: 12px">
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Cat</th>
+            <th>T</th>
+            <th>Cost</th>
+            <th>Gun</th>
+            <th>Spirit</th>
+            <th>G.Shred</th>
+            <th>S.Shred</th>
+            <th>AntiHeal</th>
+            <th>Health</th>
+            <th>Resist</th>
+            <th>Shield</th>
+            <th>Sustain</th>
+            <th>Mobil</th>
+            <th>Util</th>
+            <th>Econ</th>
+            <th>Total</th>
+            <th>/1k</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="high">
+            <th scope="row"><span class="dot d-gun"></span>Monster Rounds</th>
+            <td class="cat">gun</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">3.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-economy">20.0</td>
+            <td class="n tot">23.0</td>
+            <td class="n perk">28.8</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-gun"></span>Headshot Booster</th>
+            <td class="cat">gun</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n c-gunDamage">18.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">3.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">21.0</td>
+            <td class="n perk">26.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Close Quarters</th>
+            <td class="cat">gun</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n c-gunDamage">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">16.0</td>
+            <td class="n perk">20.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Extended Magazine</th>
+            <td class="cat">gun</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n c-gunDamage">12.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">12.5</td>
+            <td class="n perk">15.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Rapid Rounds</th>
+            <td class="cat">gun</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n c-gunDamage">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">9.0</td>
+            <td class="n perk">11.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>High-Velocity Rounds</th>
+            <td class="cat">gun</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n c-gunDamage">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">8.0</td>
+            <td class="n perk">10.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Restorative Shot</th>
+            <td class="cat">gun</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n c-gunDamage">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">6.0</td>
+            <td class="n perk">7.5</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-gun"></span>Kinetic Dash</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">43.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">8.8</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">51.8</td>
+            <td class="n perk">32.4</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-gun"></span>Active Reload</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">28.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">16.0</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">46.3</td>
+            <td class="n perk">28.9</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Fleetfoot</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">22.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">37.0</td>
+            <td class="n perk">23.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Titanic Magazine</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">29.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">29.0</td>
+            <td class="n perk">18.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Mystic Shot</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">27.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">27.0</td>
+            <td class="n perk">16.9</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Swift Striker</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">20.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">22.3</td>
+            <td class="n perk">13.9</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Intensifying Magazine</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">21.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">21.0</td>
+            <td class="n perk">13.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Stalker</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">7.1</td>
+            <td class="n c-gunShred">3.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">4.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">19.6</td>
+            <td class="n perk">12.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Long Range</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">16.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">18.3</td>
+            <td class="n perk">11.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Split Shot</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-economy">6.3</td>
+            <td class="n tot">16.3</td>
+            <td class="n perk">10.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Opening Rounds</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">8.0</td>
+            <td class="n c-spiritDamage">7.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">15.0</td>
+            <td class="n perk">9.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Spirit Shredder Bullets</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritShred">4.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">14.0</td>
+            <td class="n perk">8.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Recharging Rush</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">13.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">13.0</td>
+            <td class="n perk">8.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Weakening Headshot</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-gunShred">6.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">12.5</td>
+            <td class="n perk">7.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Melee Charge</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">4.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">10.0</td>
+            <td class="n perk">6.3</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-gun"></span>Slowing Bullets</th>
+            <td class="cat">gun</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">6.3</td>
+            <td class="n z">·</td>
+            <td class="n tot">6.3</td>
+            <td class="n perk">4.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Blood Tribute</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">35.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">25.2</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">9.5</td>
+            <td class="n c-mobility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">75.7</td>
+            <td class="n perk">23.7</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Hollow Point</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">35.0</td>
+            <td class="n z">·</td>
+            <td class="n c-gunShred">4.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">12.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">13.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">65.5</td>
+            <td class="n perk">20.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Cultist Sacrifice</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">6.0</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">12.6</td>
+            <td class="n c-economy">31.2</td>
+            <td class="n tot">64.8</td>
+            <td class="n perk">20.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Express Shot</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">58.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">58.0</td>
+            <td class="n perk">18.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Heroic Aura</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">26.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">17.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">11.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">54.3</td>
+            <td class="n perk">17.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Headhunter</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">35.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">5.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">45.3</td>
+            <td class="n perk">14.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Point Blank</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">20.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n c-resist">12.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">2.5</td>
+            <td class="n z">·</td>
+            <td class="n tot">42.0</td>
+            <td class="n perk">13.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Weighted Shots</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">30.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">8.8</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">-7.1</td>
+            <td class="n c-utility">6.3</td>
+            <td class="n z">·</td>
+            <td class="n tot">38.0</td>
+            <td class="n perk">11.9</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Sharpshooter</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">34.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">0.9</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">34.9</td>
+            <td class="n perk">10.9</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Escalating Resilience</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">23.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">30.8</td>
+            <td class="n perk">9.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Ballistic Enchantment</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">17.6</td>
+            <td class="n c-economy">2.0</td>
+            <td class="n tot">29.6</td>
+            <td class="n perk">9.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Berserker</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">17.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">25.5</td>
+            <td class="n perk">8.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Toxic Bullets</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">7.6</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-antiHeal">17.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">25.1</td>
+            <td class="n perk">7.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Spirit Rend</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritShred">7.5</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">25.0</td>
+            <td class="n perk">7.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Shadow Weave</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">15.0</td>
+            <td class="n c-mobility">4.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">19.5</td>
+            <td class="n perk">6.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Hunter's Aura</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-gunShred">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n c-utility">0.8</td>
+            <td class="n z">·</td>
+            <td class="n tot">18.0</td>
+            <td class="n perk">5.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Alchemical Fire</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">13.8</td>
+            <td class="n c-gunShred">3.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">17.3</td>
+            <td class="n perk">5.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Burst Fire</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">3.8</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">13.8</td>
+            <td class="n perk">4.3</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-gun"></span>Tesla Bullets</th>
+            <td class="cat">gun</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">9.9</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">9.9</td>
+            <td class="n perk">3.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Spiritual Overflow</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">30.0</td>
+            <td class="n c-spiritDamage">46.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">13.0</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">13.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">111.0</td>
+            <td class="n perk">17.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Capacitor</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">30.8</td>
+            <td class="n c-spiritDamage">50.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">11.3</td>
+            <td class="n z">·</td>
+            <td class="n tot">92.0</td>
+            <td class="n perk">14.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Glass Cannon</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">80.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">4.5</td>
+            <td class="n z">·</td>
+            <td class="n tot">84.5</td>
+            <td class="n perk">13.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Ricochet</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">50.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-economy">8.1</td>
+            <td class="n tot">58.6</td>
+            <td class="n perk">9.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Crippling Headshot</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-gunShred">8.0</td>
+            <td class="n c-spiritShred">8.0</td>
+            <td class="n c-antiHeal">17.5</td>
+            <td class="n c-bonusHealth">12.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">46.0</td>
+            <td class="n perk">7.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Frenzy</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">15.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">16.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">41.0</td>
+            <td class="n perk">6.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Silencer</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">12.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">15.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">27.0</td>
+            <td class="n perk">4.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-gun"></span>Crushing Fists</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">8.8</td>
+            <td class="n z">·</td>
+            <td class="n c-gunShred">2.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">12.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">3.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">26.3</td>
+            <td class="n perk">4.1</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-gun"></span>Lucky Shot</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">17.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">17.0</td>
+            <td class="n perk">2.7</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-gun"></span>Spellslinger</th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">7.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">5.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">12.0</td>
+            <td class="n perk">1.9</td>
+          </tr>
+          <tr class="ctx">
+            <th scope="row">
+              <span class="dot d-gun"></span>Armor Piercing Rounds<span
+                class="ctxm"
+                title="Counter-pick — answers Plated Armor; worth depends on the enemy build."
+                >ctx</span
+              >
+            </th>
+            <td class="cat">gun</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">8.0</td>
+            <td class="n perk">1.3</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-spirit"></span>Spirit Strike</th>
+            <td class="cat">spirit</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">20.0</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritShred">3.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">23.0</td>
+            <td class="n perk">28.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Mystic Burst</th>
+            <td class="cat">spirit</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">20.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">20.0</td>
+            <td class="n perk">25.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Mystic Expansion</th>
+            <td class="cat">spirit</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">16.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">16.0</td>
+            <td class="n perk">20.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Rusted Barrel</th>
+            <td class="cat">spirit</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-gunShred">4.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">1.5</td>
+            <td class="n c-utility">1.6</td>
+            <td class="n z">·</td>
+            <td class="n tot">13.1</td>
+            <td class="n perk">16.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Golden Goose Egg</th>
+            <td class="cat">spirit</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">3.0</td>
+            <td class="n c-mobility">3.0</td>
+            <td class="n c-utility">5.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">11.0</td>
+            <td class="n perk">13.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Extra Spirit</th>
+            <td class="cat">spirit</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">10.0</td>
+            <td class="n perk">12.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Extra Charge</th>
+            <td class="cat">spirit</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">2.8</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">3.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">5.8</td>
+            <td class="n perk">7.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Mystic Regeneration</th>
+            <td class="cat">spirit</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">5.0</td>
+            <td class="n perk">6.3</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-spirit"></span>Cold Front</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">47.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">3.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">56.5</td>
+            <td class="n perk">35.3</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-spirit"></span>Arcane Surge</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">20.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">8.8</td>
+            <td class="n c-utility">15.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">43.8</td>
+            <td class="n perk">27.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Improved Spirit</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">18.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">4.5</td>
+            <td class="n c-mobility">3.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">33.0</td>
+            <td class="n perk">20.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Quicksilver Reload</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">10.0</td>
+            <td class="n c-spiritDamage">22.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">32.0</td>
+            <td class="n perk">20.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Bullet Resist Shredder</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">9.0</td>
+            <td class="n z">·</td>
+            <td class="n c-gunShred">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">23.0</td>
+            <td class="n perk">14.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Duration Extender</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">22.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">22.0</td>
+            <td class="n perk">13.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Compress Cooldown</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">18.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">18.0</td>
+            <td class="n perk">11.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Spirit Sap</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritShred">4.5</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">15.5</td>
+            <td class="n perk">9.7</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Suppressor</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">1.4</td>
+            <td class="n z">·</td>
+            <td class="n tot">15.4</td>
+            <td class="n perk">9.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Mystic Vulnerability</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritShred">4.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">12.0</td>
+            <td class="n perk">7.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Mystic Slow</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n c-utility">2.1</td>
+            <td class="n z">·</td>
+            <td class="n tot">9.3</td>
+            <td class="n perk">5.8</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-spirit"></span>Slowing Hex</th>
+            <td class="cat">spirit</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">1.5</td>
+            <td class="n c-utility">5.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">6.5</td>
+            <td class="n perk">4.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Surge of Power</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">20.0</td>
+            <td class="n c-spiritDamage">28.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">5.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">53.3</td>
+            <td class="n perk">16.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Spirit Snatch</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">2.8</td>
+            <td class="n c-spiritDamage">25.0</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritShred">6.0</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">5.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">46.3</td>
+            <td class="n perk">14.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Silence Wave</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">37.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">42.5</td>
+            <td class="n perk">13.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Decay</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-antiHeal">25.0</td>
+            <td class="n c-bonusHealth">6.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">39.5</td>
+            <td class="n perk">12.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Superior Duration</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">28.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">36.0</td>
+            <td class="n perk">11.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Greater Expansion</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">24.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">34.0</td>
+            <td class="n perk">10.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Superior Cooldown</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">12.0</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">20.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">32.0</td>
+            <td class="n perk">10.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Tankbuster</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">20.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">25.0</td>
+            <td class="n perk">7.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Torment Pulse</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">10.0</td>
+            <td class="n c-resist">7.2</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">17.2</td>
+            <td class="n perk">5.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Disarming Hex</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-gunShred">6.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">16.3</td>
+            <td class="n perk">5.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Radiant Regeneration</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">5.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">14.3</td>
+            <td class="n perk">4.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Knockdown</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">13.5</td>
+            <td class="n perk">4.2</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-spirit"></span>Rapid Recharge</th>
+            <td class="cat">spirit</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">5.6</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">11.6</td>
+            <td class="n perk">3.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Arctic Blast</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">87.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">12.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">109.5</td>
+            <td class="n perk">17.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Lightning Scroll</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">75.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n c-utility">5.1</td>
+            <td class="n z">·</td>
+            <td class="n tot">87.3</td>
+            <td class="n perk">13.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Mystic Reverb</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">54.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">30.0</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">2.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">86.0</td>
+            <td class="n perk">13.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Spirit Burn</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">37.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-antiHeal">35.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">4.8</td>
+            <td class="n z">·</td>
+            <td class="n tot">76.8</td>
+            <td class="n perk">12.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Boundless Spirit</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">45.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">12.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">64.5</td>
+            <td class="n perk">10.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Mercurial Magnum</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">25.0</td>
+            <td class="n c-spiritDamage">37.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">62.0</td>
+            <td class="n perk">9.7</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Ethereal Shift</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">20.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">30.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">59.0</td>
+            <td class="n perk">9.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Scourge</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">10.0</td>
+            <td class="n c-resist">48.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">58.0</td>
+            <td class="n perk">9.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Magic Carpet</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">14.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">12.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">15.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">41.5</td>
+            <td class="n perk">6.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Transcendent Cooldown</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">12.0</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">25.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">37.0</td>
+            <td class="n perk">5.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-spirit"></span>Refresher</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">29.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">29.0</td>
+            <td class="n perk">4.5</td>
+          </tr>
+          <tr class="ctx">
+            <th scope="row">
+              <span class="dot d-spirit"></span>Echo Shard<span
+                class="ctxm"
+                title="Ability-dependent — resets an imbued cooldown, so worth whatever that ability is worth."
+                >ctx</span
+              >
+            </th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">15.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">25.0</td>
+            <td class="n perk">3.9</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-spirit"></span>Escalating Exposure</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">1.8</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritShred">4.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">17.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">22.8</td>
+            <td class="n perk">3.6</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-spirit"></span>Focus Lens</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">10.0</td>
+            <td class="n c-spiritDamage">1.5</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritShred">4.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">22.0</td>
+            <td class="n perk">3.4</td>
+          </tr>
+          <tr class="ctx">
+            <th scope="row">
+              <span class="dot d-spirit"></span>Vortex Web<span
+                class="ctxm"
+                title="Combo enabler — groups enemies for Ivy / Paradox / Doorman follow-ups."
+                >ctx</span
+              >
+            </th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n c-utility">15.4</td>
+            <td class="n z">·</td>
+            <td class="n tot">17.6</td>
+            <td class="n perk">2.8</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-spirit"></span>Cursed Relic</th>
+            <td class="cat">spirit</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">12.5</td>
+            <td class="n z">·</td>
+            <td class="n tot">12.5</td>
+            <td class="n perk">2.0</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-vitality"></span>Grit</th>
+            <td class="cat">vitality</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-shield">20.0</td>
+            <td class="n c-sustain">3.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">23.0</td>
+            <td class="n perk">28.8</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-vitality"></span>Extra Health</th>
+            <td class="cat">vitality</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">21.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">21.0</td>
+            <td class="n perk">26.3</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-vitality"></span>Healing Rite</th>
+            <td class="cat">vitality</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">15.0</td>
+            <td class="n c-mobility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">21.0</td>
+            <td class="n perk">26.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Rebuttal</th>
+            <td class="cat">vitality</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">7.5</td>
+            <td class="n c-resist">7.2</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">14.7</td>
+            <td class="n perk">18.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Sprint Boots</th>
+            <td class="cat">vitality</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">6.0</td>
+            <td class="n c-mobility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">12.0</td>
+            <td class="n perk">15.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Extra Regen</th>
+            <td class="cat">vitality</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">12.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">12.0</td>
+            <td class="n perk">15.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Melee Lifesteal</th>
+            <td class="cat">vitality</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n c-gunDamage">4.8</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">9.8</td>
+            <td class="n perk">12.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Extra Stamina</th>
+            <td class="cat">vitality</td>
+            <td class="n">1</td>
+            <td class="n cost">800</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">8.8</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">8.8</td>
+            <td class="n perk">11.0</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-vitality"></span>Weapon Shielding</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">18.0</td>
+            <td class="n c-shield">30.0</td>
+            <td class="n c-sustain">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">55.5</td>
+            <td class="n perk">34.7</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-vitality"></span>Spirit Shielding</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">18.0</td>
+            <td class="n c-shield">30.0</td>
+            <td class="n c-sustain">7.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">55.5</td>
+            <td class="n perk">34.7</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-vitality"></span>Battle Vest</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">25.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">18.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">52.0</td>
+            <td class="n perk">32.5</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-vitality"></span>Guardian Ward</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-shield">25.0</td>
+            <td class="n c-sustain">4.5</td>
+            <td class="n c-mobility">8.3</td>
+            <td class="n c-utility">6.4</td>
+            <td class="n z">·</td>
+            <td class="n tot">44.1</td>
+            <td class="n perk">27.6</td>
+          </tr>
+          <tr class="high">
+            <th scope="row"><span class="dot d-vitality"></span>Enchanter's Emblem</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">15.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">18.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">6.0</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">5.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">44.0</td>
+            <td class="n perk">27.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Reactive Barrier</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-shield">32.5</td>
+            <td class="n c-sustain">3.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">35.5</td>
+            <td class="n perk">22.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Bullet Lifesteal</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n c-gunDamage">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">13.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">28.0</td>
+            <td class="n perk">17.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Spirit Lifesteal</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">13.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">28.0</td>
+            <td class="n perk">17.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Trophy Collector</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">6.0</td>
+            <td class="n c-mobility">7.8</td>
+            <td class="n c-utility">2.4</td>
+            <td class="n c-economy">8.4</td>
+            <td class="n tot">24.6</td>
+            <td class="n perk">15.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Healbane</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">7.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-antiHeal">17.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">24.5</td>
+            <td class="n perk">15.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Enduring Speed</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">6.0</td>
+            <td class="n c-mobility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">22.0</td>
+            <td class="n perk">13.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Debuff Reducer</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">9.0</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">19.0</td>
+            <td class="n perk">11.9</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Restorative Locket</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">8.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">6.4</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">14.4</td>
+            <td class="n perk">9.0</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Healing Booster</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">12.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">12.0</td>
+            <td class="n perk">7.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Return Fire</th>
+            <td class="cat">vitality</td>
+            <td class="n">2</td>
+            <td class="n cost">1,600</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">10.0</td>
+            <td class="n perk">6.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Fury Trance</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">10.0</td>
+            <td class="n c-resist">40.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">14.0</td>
+            <td class="n c-mobility">3.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">73.0</td>
+            <td class="n perk">22.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Veil Walker</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">12.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">6.0</td>
+            <td class="n c-mobility">16.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">45.0</td>
+            <td class="n perk">14.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Fortitude</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">37.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">2.0</td>
+            <td class="n c-mobility">4.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">44.0</td>
+            <td class="n perk">13.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Spirit Resilience</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">30.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">39.0</td>
+            <td class="n perk">12.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Bullet Resilience</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">30.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">9.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">39.0</td>
+            <td class="n perk">12.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Counterspell</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">20.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">5.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">5.3</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">30.3</td>
+            <td class="n perk">9.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Warp Stone</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">30.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">30.0</td>
+            <td class="n perk">9.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Healing Nova</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">16.3</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">4.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">28.3</td>
+            <td class="n perk">8.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Rescue Beam</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">20.0</td>
+            <td class="n c-mobility">2.3</td>
+            <td class="n c-utility">4.8</td>
+            <td class="n z">·</td>
+            <td class="n tot">27.1</td>
+            <td class="n perk">8.5</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Lifestrike</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n c-gunDamage">6.4</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">12.5</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">7.5</td>
+            <td class="n z">·</td>
+            <td class="n tot">26.4</td>
+            <td class="n perk">8.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Majestic Leap</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-shield">20.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">5.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">25.0</td>
+            <td class="n perk">7.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Stamina Mastery</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">24.4</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">24.4</td>
+            <td class="n perk">7.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Dispel Magic</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-mobility">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">16.0</td>
+            <td class="n perk">5.0</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-vitality"></span>Metal Skin</th>
+            <td class="cat">vitality</td>
+            <td class="n">3</td>
+            <td class="n cost">3,200</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">12.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">1.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">13.0</td>
+            <td class="n perk">4.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Diviner's Kevlar</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">40.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-shield">100.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">15.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">155.0</td>
+            <td class="n perk">24.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Infuser</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">36.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">10.0</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">70.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">126.0</td>
+            <td class="n perk">19.7</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Leech</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">12.0</td>
+            <td class="n c-spiritDamage">12.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">18.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">50.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">92.0</td>
+            <td class="n perk">14.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Divine Barrier</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-shield">60.0</td>
+            <td class="n c-sustain">4.5</td>
+            <td class="n c-mobility">8.3</td>
+            <td class="n c-utility">8.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">80.8</td>
+            <td class="n perk">12.6</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Healing Tempo</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">35.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">30.0</td>
+            <td class="n c-mobility">3.8</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">78.8</td>
+            <td class="n perk">12.3</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Cheat Death</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-antiHeal">30.0</td>
+            <td class="n c-bonusHealth">20.0</td>
+            <td class="n c-resist">15.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">65.0</td>
+            <td class="n perk">10.2</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Juggernaut</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">30.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">24.0</td>
+            <td class="n c-mobility">7.5</td>
+            <td class="n c-utility">2.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">63.5</td>
+            <td class="n perk">9.9</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Plated Armor</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">13.0</td>
+            <td class="n c-resist">50.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">63.0</td>
+            <td class="n perk">9.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Inhibitor</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-antiHeal">20.0</td>
+            <td class="n c-bonusHealth">15.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">15.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">60.0</td>
+            <td class="n perk">9.4</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Indomitable</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">20.0</td>
+            <td class="n c-shield">32.5</td>
+            <td class="n c-sustain">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">58.5</td>
+            <td class="n perk">9.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Witchmail</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n c-spiritDamage">14.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">22.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">7.0</td>
+            <td class="n z">·</td>
+            <td class="n tot">43.0</td>
+            <td class="n perk">6.7</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Vampiric Burst</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">6.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">10.0</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n c-sustain">13.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">39.0</td>
+            <td class="n perk">6.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Colossus</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">27.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">11.8</td>
+            <td class="n z">·</td>
+            <td class="n tot">38.8</td>
+            <td class="n perk">6.1</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Spellbreaker</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">9.0</td>
+            <td class="n c-resist">28.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">37.0</td>
+            <td class="n perk">5.8</td>
+          </tr>
+          <tr class="">
+            <th scope="row"><span class="dot d-vitality"></span>Phantom Strike</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">15.0</td>
+            <td class="n c-spiritDamage">8.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-utility">7.5</td>
+            <td class="n z">·</td>
+            <td class="n tot">30.5</td>
+            <td class="n perk">4.8</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-vitality"></span>Siphon Bullets</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n c-gunDamage">15.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">25.0</td>
+            <td class="n perk">3.9</td>
+          </tr>
+          <tr class="low">
+            <th scope="row"><span class="dot d-vitality"></span>Unstoppable</th>
+            <td class="cat">vitality</td>
+            <td class="n">4</td>
+            <td class="n cost">6,400</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n c-bonusHealth">12.5</td>
+            <td class="n c-resist">10.0</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n z">·</td>
+            <td class="n tot">22.5</td>
+            <td class="n perk">3.5</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
