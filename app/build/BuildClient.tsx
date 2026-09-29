@@ -45,6 +45,13 @@ import { HeroDifficultyBadge } from "@/app/components/HeroDifficultyBadge";
 import { AudienceTabs } from "@/app/components/AudienceTabs";
 import { BuildEmptyState } from "@/app/build/components/BuildEmptyState";
 import { HeroStatsPanel } from "@/app/build/components/HeroStatsPanel";
+import { HeroBasketSuggestion } from "@/app/build/components/HeroBasketSuggestion";
+import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
+import { resolveAccuracyAtRank } from "@/lib/analyticsStore";
+import type { RankTierRaw } from "@/lib/api/analyticsApi";
+import { constructBasket, makeBasketContext } from "@/lib/engine/basketSelect";
+import { deriveHeroNeedVector } from "@/lib/engine/heroNeed";
+import { toItemCandidates } from "@/lib/engine/itemAdapter";
 
 const VIEW_MODE_TABS = [
   { value: "simplified", label: "Simplified" },
@@ -74,6 +81,10 @@ export default function BuildClient({
   heroBaseStats = null,
   initialState = null,
   allItems = [],
+  heroRoster = [],
+  itemAnalytics,
+  heroAccuracy,
+  rankTiers = [],
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
@@ -82,6 +93,19 @@ export default function BuildClient({
   heroBaseStats?: HeroBaseStats | null;
   initialState?: BuildState | null;
   allItems?: Item[];
+  /** Every visible hero's base stats — the cross-hero baseline the need vector
+   * normalizes against. Empty is safe: deriveHeroNeedVector degrades to a
+   * neutral tankiness/mobility need rather than failing. */
+  heroRoster?: HeroBaseStats[];
+  /** Real per-item win rates, keyed by Item.numericId. Optional by design —
+   * the analytics fetcher fails open, and the basket engine treats a missing
+   * map as "no empirical signal" rather than an error. */
+  itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
+  /** Observed shot accuracy per hero, overall and by rank tier. Optional —
+   * the analytics fetchers fail open, and gun need falls back to nominal DPS. */
+  heroAccuracy?: ReadonlyMap<number, HeroAccuracy>;
+  /** Rank tiers (0 Obscurus … 11 Eternus), fetched from /v1/assets/ranks. */
+  rankTiers?: RankTierRaw[];
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
@@ -91,6 +115,11 @@ export default function BuildClient({
   // the simplified view; veterans opt into Advanced for full control.
   const [viewMode, setViewMode] = useState<"simplified" | "advanced">("simplified");
   const simplified = viewMode === "simplified";
+
+  // The player's own rank, used only to pick which accuracy sample to discount
+  // gun DPS by. null = "don't know / all ranks", which uses each hero's pooled
+  // accuracy — so stating a rank can only refine the estimate, never break it.
+  const [selectedRankTier, setSelectedRankTier] = useState<number | null>(null);
 
   const [buildItems, setBuildItems] = useState<Item[]>(() => {
     if (!initialState) return [];
@@ -367,6 +396,57 @@ export default function BuildClient({
       setFailedUrl(url);
     }
   }
+
+  // Hero-need basket (Milestone E). Distinct from SuggestedItemsPanel, which
+  // ranks every candidate INDEPENDENTLY against a player-chosen goal preset:
+  // this derives what the hero's own kit needs and then picks a SET of items
+  // that jointly covers it across gun/spirit/vitality.
+  //
+  // The soul budget is whatever the current boon level affords minus what the
+  // build already commits, so the basket answers "what should I buy at this
+  // point in the game?" and grows as the boon slider moves. No invented
+  // budget: BOON_THRESHOLDS[0] is the real 600 starting souls.
+  const heroBasket = useMemo(() => {
+    if (!heroBaseStats || heroAbilities.length === 0 || allItems.length === 0) return null;
+
+    // Discount each hero's nominal gun DPS by how much of it actually lands at
+    // the player's own rank. Nominal DPS assumes perfect accuracy, which
+    // over-rates spread weapons that count every pellet.
+    const gunAccuracyByHeroId = heroAccuracy
+      ? resolveAccuracyAtRank(heroAccuracy, selectedRankTier)
+      : undefined;
+
+    const needVector = deriveHeroNeedVector({
+      abilities: heroAbilities,
+      baseStats: heroBaseStats,
+      roster: heroRoster,
+      gunAccuracyByHeroId,
+    });
+
+    const ownedIds = new Set(buildItems.map((i) => i.id));
+    const candidates = toItemCandidates(allItems.filter((i) => !ownedIds.has(i.id)));
+
+    const committed = buildItems.reduce((sum, i) => sum + i.cost, 0);
+
+    const ctx = makeBasketContext({
+      needVector,
+      soulBudget: Math.max(0, boonSouls - committed),
+      maxItems: Math.max(0, MAX_ACTIVE_ITEMS - buildItems.length),
+      itemAnalytics,
+    });
+
+    return constructBasket(candidates, ctx);
+  }, [
+    heroBaseStats,
+    heroAbilities,
+    heroRoster,
+    allItems,
+    buildItems,
+    boonSouls,
+    itemAnalytics,
+    heroAccuracy,
+    selectedRankTier,
+  ]);
 
   const ultimateUnlocked = manualBoonLevel >= 7;
 
@@ -757,6 +837,52 @@ export default function BuildClient({
               slotsFull={false}
               simplified={simplified}
             />
+
+            {/* Additive surface — deliberately alongside SuggestedItemsPanel,
+                not replacing it. The two answer different questions: "what is
+                the best next item for my goal?" vs. "what set of items covers
+                this hero's needs?" */}
+            {/* Tailwind-only per the Component Patterns rule. The inline styles
+                elsewhere in this file predate that convention — don't copy them
+                into new markup. */}
+            <div className="mt-4">
+              {rankTiers.length > 0 && heroAccuracy && heroAccuracy.size > 0 && (
+                <div className="mb-2.5">
+                  <label
+                    htmlFor="rank-tier"
+                    className="mb-1 flex items-center gap-1.5 text-xs text-zinc-300"
+                  >
+                    Your rank
+                    <InfoTooltip content="Higher-ranked players land a larger share of their shots, so gun items are worth more to them. Setting your rank re-scores how much this hero's gun is worth investing in, using real hit-rate data for players at that rank. Leave on 'All ranks' if you're not sure." />
+                  </label>
+                  <select
+                    id="rank-tier"
+                    value={selectedRankTier ?? ""}
+                    onChange={(e) =>
+                      setSelectedRankTier(e.target.value === "" ? null : Number(e.target.value))
+                    }
+                    className="w-full rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-zinc-200 focus:border-amber-500/60 focus:outline-none"
+                  >
+                    <option value="">All ranks (average)</option>
+                    {rankTiers
+                      .filter((t) => t.tier > 0)
+                      .map((t) => (
+                        <option key={t.tier} value={t.tier}>
+                          {t.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              <HeroBasketSuggestion
+                basket={heroBasket}
+                allItems={allItems}
+                onAdd={handleAddSuggestedItem}
+                slotsFull={false}
+                simplified={simplified}
+              />
+            </div>
           </div>
         </div>
       )}

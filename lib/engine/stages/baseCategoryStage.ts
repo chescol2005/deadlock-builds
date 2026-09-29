@@ -17,12 +17,27 @@ import { SCORE_CATEGORIES } from "../types";
 // Intent key → ScoreCategory mapping.
 // Not all intent keys map 1:1 to score categories; this makes the
 // relationship explicit rather than relying on string coincidence.
-const INTENT_TO_CATEGORY: Readonly<Record<string, ScoreCategory>> = {
-  burst: "damage",
-  sustain: "sustain", // now distinct
-  tank: "tankiness", // now distinct
-  mobility: "mobility",
-  utility: "utility",
+//
+// `burst` maps to BOTH damage categories at FULL weight each (not split
+// between them). The gunDamage/spiritDamage split exists so a hero need
+// vector can distinguish them (Milestone E) — it is not a signal that a
+// generic "burst" intent cares about one more than the other. Mapping both at
+// full weight makes a candidate's total damage contribution invariant to how
+// it divides damage between the two, which is what keeps the pre-split
+// fixtures valid.
+const INTENT_TO_CATEGORIES: Readonly<Record<string, ReadonlyArray<ScoreCategory>>> = {
+  // Shred serves the same goal as raw damage for a generic offensive intent,
+  // so it maps alongside it here; the split exists for the hero-need vector's
+  // coverage targets (see types.ts), not for this preset-driven path.
+  burst: ["gunDamage", "spiritDamage", "gunShred", "spiritShred"],
+  sustain: ["sustain"],
+  // Same reasoning as `burst` above: `tankiness` split into bonusHealth/resist
+  // so a hero need vector can weight them differently (EHP is multiplicative —
+  // see types.ts), but a generic "tank" intent wants both at full weight, which
+  // keeps a candidate's total defensive contribution invariant to the split.
+  tank: ["bonusHealth", "resist", "shield"],
+  mobility: ["mobility"],
+  utility: ["utility", "antiHeal"],
 } as const;
 
 export const baseCategoryStage: ScoringStage = {
@@ -40,7 +55,7 @@ export const baseCategoryStage: ScoringStage = {
       // Sum all intent weights that map to this category.
       let intentWeight = 0;
       for (const [intentKey, weight] of Object.entries(input.intent)) {
-        if (INTENT_TO_CATEGORY[intentKey] === cat) {
+        if (INTENT_TO_CATEGORIES[intentKey]?.includes(cat)) {
           intentWeight += weight;
         }
       }

@@ -646,6 +646,10 @@ async function run() {
     "app/build/components/AbilityLevelingPanel.tsx",
     "app/build/components/BuildSummaryPanel.tsx",
     "app/build/components/SuggestedItemsPanel.tsx",
+    // Milestone E. It already complied, but the list is hardcoded, so a new
+    // panel is unprotected until it is added here — add new panels to this
+    // list as they are built, or the checklist silently stops covering them.
+    "app/build/components/HeroBasketSuggestion.tsx",
   ];
 
   for (const relPath of SIMPLIFIED_PANELS) {
