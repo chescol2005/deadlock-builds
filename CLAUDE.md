@@ -694,9 +694,41 @@ build-up scaling off that same falloff range, and Ricochet's own damage falloff,
 which is measured from the main target to the ricocheted target rather than from
 the shooter.
 
-Live result: Graves derives the roster's **lowest** gun need (0.399 of 44),
-correctly — her 17m cutoff is by far the earliest on the roster, where a typical
-hero holds full damage to 18–20m and does not bottom out until ~55m.
+Live result: Graves derives the roster's **lowest** gun need (0.399 of 44). That
+is correct for gun items that SCALE her gun — her 17m cutoff is by far the
+earliest on the roster, where a typical hero holds full damage to 18–20m and
+does not bottom out until ~55m.
+
+**But "lowest gun need" is NOT the same as "no gun items", and the scalar hides
+a real distinction.** Graves has genuine gun builds (confirmed from play, not
+inferred from data): Heroic Aura + Mystic Shot ± Toxic Bullets as the normal
+route into gun investment, and a Ricochet + Toxic Bullets ± Tesla Bullets build.
+Verified against the live basket, those items rank 10th, 38th, 29th, 17th and
+45th of 54 gun items for her — Mystic Shot and Tesla Bullets clearly too low.
+
+Two hero×item interactions the per-item model structurally cannot see:
+
+- **Proc frequency is not hero-aware.** Tesla Bullets is `ProcChance 15` /
+  `ProcCooldown 0.2`; Toxic Bullets is `BuildUpPerShot 1.28`. Expected procs per
+  second scales with SHOTS per second and with hit reliability, and Graves fires
+  9.8/s and cannot miss — near the roster's best proc platform. The estimator
+  applies one flat expected value for every hero.
+- **Spirit-scaling procs are not spirit-aware.** Mystic Shot (`ProcChance 100`,
+  `ProcBonusMagicDamage 40`) converts spirit power into gun-triggered damage and
+  is priced as a flat `spiritDamage 27` with zero gunDamage. On a 100%-spirit
+  kit that is a systematic underestimate.
+
+So the right reading for a hero like this is "don't buy gun items that scale the
+gun; DO buy per-hit proc items." Both gaps are interaction value — Milestone F,
+scaled by a hero-specific proc multiplier (shots/s × accuracy, plus spirit power
+for spirit procs), which needs hero context in `toItemCandidate()` that it does
+not currently take. **Do NOT close this by inflating the per-item constants** —
+that trades a known underestimate on one hero for an unknown overestimate on
+every low-fire-rate hero.
+
+What the floor already buys: gun items are not suppressed for her despite the
+lowest need — 3 of 11 live basket picks are gun items, Spiritual Overflow among
+them at #2, found via its spirit stats.
 
 ### Defence: flat health and % resist are separate categories
 
