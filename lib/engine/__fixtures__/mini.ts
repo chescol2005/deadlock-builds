@@ -10,7 +10,13 @@ import type { ItemAnalytics } from "../../analyticsStore";
 import type { HeroAbility, AbilityUpgradeTier } from "../../abilityCoefficients";
 import type { HeroBaseStats } from "../../heroStats";
 import type { Item } from "../../items";
-import { analyticsTerm, constructBasket, makeBasketContext } from "../basketSelect";
+import {
+  analyticsTerm,
+  constructBasket,
+  coverageTerm,
+  makeBasketContext,
+  procPlatformTerm,
+} from "../basketSelect";
 import { estimateEffectValues } from "../effectEstimator";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
@@ -56,6 +62,9 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: ["burst", "damage"],
   },
   {
@@ -78,6 +87,9 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: ["tank", "armor"],
   },
   {
@@ -100,6 +112,9 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: ["mobility", "speed"],
   },
   {
@@ -122,6 +137,9 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 10,
       economy: 5,
     },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: ["sustain", "lifesteal", "heal"],
   },
 ];
@@ -1207,6 +1225,9 @@ function mkCandidate(
     category,
     cost,
     categoryValues: { ...zeroValues(), ...values },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: [],
   };
 }
@@ -1380,6 +1401,102 @@ console.log("\n9. basketSelect: empirical analytics term gating");
   assert(
     analyticsTerm.evaluate(basketCandidates[1], state, noAnalyticsCtx) === null,
     "with no analytics map supplied the term is inert (engine stays pure/offline)",
+  );
+}
+
+console.log("\n10. basketSelect: per-hit proc platform term");
+{
+  // Same gun, same cost, same coverage -- one is a flat-stat item, the other
+  // delivers most of its value per weapon hit.
+  const flatItem = mkCandidate("flat_gun", 201, "gun", 1000, { gunDamage: 100 });
+  const procItem = {
+    ...mkCandidate("proc_gun", 202, "gun", 1000, { gunDamage: 100 }),
+    procReliance: 0.8,
+  };
+
+  const state: BasketState = {
+    picked: [],
+    coverage: zeroValues(),
+    soulsPerCategory: { gun: 0, spirit: 0, vitality: 0 },
+    spent: 0,
+  };
+  const ctxFor = (procPlatformFactor?: number) =>
+    makeBasketContext({
+      needVector: splitNeed,
+      soulBudget: 10000,
+      maxItems: 12,
+      procPlatformFactor,
+    });
+
+  // A hero who lands hits better than roster average.
+  const goodCtx = ctxFor(1.3);
+  const procGood = procPlatformTerm.evaluate(procItem, state, goodCtx);
+  const flatGood = procPlatformTerm.evaluate(flatItem, state, goodCtx);
+  assert(
+    procGood !== null && procGood.value > 0,
+    "a per-hit item gains value for a hero who lands hits better than roster average",
+    `Got: ${JSON.stringify(procGood)}`,
+  );
+  assert(
+    flatGood === null,
+    "a flat-stat item (procReliance 0) is untouched by the proc term",
+    `Got: ${JSON.stringify(flatGood)}`,
+  );
+
+  // ...and loses it for a hero who lands them worse. This is a DIFFERENTIAL
+  // signal, not a blanket bonus for every per-hit item.
+  const procBad = procPlatformTerm.evaluate(procItem, state, ctxFor(0.7));
+  assert(
+    procBad !== null && procBad.value < 0,
+    "the same per-hit item loses value for a hero who lands hits worse than average",
+    `Got: ${JSON.stringify(procBad)}`,
+  );
+
+  // Exactly roster-average contributes nothing, so the term cannot act as a
+  // silent across-the-board bonus for every proc item.
+  assert(
+    procPlatformTerm.evaluate(procItem, state, ctxFor(1)) === null,
+    "a roster-average platform (factor 1.0) contributes nothing",
+  );
+
+  // Omitted factor => inert. An absent factor must never bias a basket.
+  assert(
+    procPlatformTerm.evaluate(procItem, state, ctxFor(undefined)) === null,
+    "with no procPlatformFactor supplied the term is inert",
+  );
+
+  // Relevance gate, same as analyticsTerm: a per-hit item covering no un-met
+  // need must not become worth buying just because the hero lands hits well.
+  const irrelevantProc = {
+    ...mkCandidate("proc_filler", 203, "vitality", 900, { bonusHealth: 100 }),
+    procReliance: 1,
+  };
+  const gunOnlyCtx = makeBasketContext({
+    needVector: { ...splitNeed, bonusHealth: 0, resist: 0, shield: 0 },
+    soulBudget: 10000,
+    maxItems: 12,
+    procPlatformFactor: 1.3,
+  });
+  assert(
+    procPlatformTerm.evaluate(irrelevantProc, state, gunOnlyCtx) === null,
+    "a per-hit item covering no un-met need is still rejected -- the relevance gate wins",
+  );
+
+  // Bounded: one slot of coverage must dominate the nudge, or a proc item could
+  // outrank a strictly better-covering one.
+  const coverage = coverageTerm.evaluate(procItem, state, goodCtx);
+  assert(
+    coverage !== null && procGood !== null && Math.abs(procGood.value) < coverage.value,
+    "the proc nudge stays small relative to one slot of coverage",
+    `proc=${procGood?.value}, coverage=${coverage?.value}`,
+  );
+
+  // Scaling is proportional to how much of the item is per-hit.
+  const half = procPlatformTerm.evaluate({ ...procItem, procReliance: 0.4 }, state, goodCtx);
+  assert(
+    half !== null && procGood !== null && half.value < procGood.value,
+    "a less per-hit-reliant item gains proportionally less",
+    `half=${half?.value}, full=${procGood?.value}`,
   );
 }
 

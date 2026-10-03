@@ -122,6 +122,12 @@ const WEAPON_PROFILE_OVERRIDES: ReadonlyMap<string, WeaponProfileOverride> = new
   ["citadel_weapon_necro_set", { hardCutoffAtFalloffEnd: true, cannotMiss: true }],
 ]);
 
+// How far a fully-clamped z-score moves the proc-platform factor from 1.0:
+// the roster's best per-hit platform reads 1.35 and the worst 0.65, a ~2x
+// spread. Deliberately bounded well below the coverage term's influence — this
+// adjusts the ranking among per-hit items, it does not decide the basket.
+const PROC_PLATFORM_SWING = 0.35;
+
 // Floor on the range multiplier, for exactly the MIN_GUN_FACTOR reason: a
 // multiplier of 0 would zero a hero's effective gun DPS, which then gets
 // filtered out of the roster baseline entirely rather than merely ranking last.
@@ -375,6 +381,75 @@ function effectiveGunDps(
   if (raw == null || !Number.isFinite(raw) || raw <= 0) return nominal;
 
   return nominal * Math.min(1, raw);
+}
+
+/**
+ * How good this hero is as a platform for PER-HIT item effects, relative to
+ * the roster, in [1 - PROC_PLATFORM_SWING, 1 + PROC_PLATFORM_SWING].
+ *
+ * Why this is a separate signal from gun need: a bullet proc's worth scales
+ * with how many bullets land per second, NOT with how much damage each one
+ * does. The two can point opposite ways, and Graves is the clearest case —
+ * lowest gun need on the roster (3.6 damage per shot, 17m cutoff) while firing
+ * 9.8 shots/s and being unable to miss, which makes her one of the best proc
+ * platforms in the game. Confirmed from play: her gun builds run Mystic Shot,
+ * Toxic Bullets, Ricochet and Tesla Bullets — all per-hit items — rather than
+ * raw weapon-damage scaling.
+ *
+ * Deliberately NOT discounted by range falloff: the question here is how often
+ * an effect triggers while she is in a fight she can actually participate in.
+ * Her range limit already lowers her gun need; charging it again here would
+ * double-count the same weakness, which is the bug this module keeps hitting.
+ *
+ * Known imprecision, documented rather than hidden: `bulletsPerSecond` counts
+ * PELLETS (verified: bullets_per_second = shots_per_second x bullets), so a
+ * shotgun reads high here. That is right for per-bullet procs (more pellets =
+ * more proc rolls) and wrong for per-SHOT build-ups like Toxic Bullets'
+ * `BuildUpPerShot`. Separating them needs `bullets`, which is captured in
+ * WeaponItemRaw but not surfaced onto HeroBaseStats — see CLAUDE.md.
+ */
+export function deriveProcPlatformFactor(input: {
+  baseStats: HeroBaseStats;
+  roster: ReadonlyArray<HeroBaseStats>;
+  gunAccuracyByHeroId?: ReadonlyMap<number, number>;
+}): number {
+  const { baseStats, roster, gunAccuracyByHeroId } = input;
+
+  // Same policy for the hero and the roster, for the same reason as the gun
+  // z-score: a discounted hero compared against undiscounted peers is noise.
+  const hitRate = (h: HeroBaseStats): number => {
+    const shots = h.bulletsPerSecond;
+    if (!Number.isFinite(shots) || shots <= 0) return 0;
+    if (!gunAccuracyByHeroId) return shots;
+
+    const cannotMiss = WEAPON_PROFILE_OVERRIDES.get(h.weaponClass)?.cannotMiss === true;
+    const measured = gunAccuracyByHeroId.get(h.heroId);
+    if (typeof measured === "number" && Number.isFinite(measured) && measured > 0) {
+      return shots * Math.min(1, measured);
+    }
+    return cannotMiss
+      ? shots
+      : shots * (median(rosterAccuracies(roster, gunAccuracyByHeroId)) ?? 1);
+  };
+
+  const rosterRates = roster.map(hitRate).filter((v) => v > 0);
+  const own = hitRate(baseStats);
+  if (own <= 0) return 1;
+
+  const z = computeZScore(own, rosterRates);
+  const clamped = Math.max(-Z_SCORE_CLAMP, Math.min(Z_SCORE_CLAMP, z));
+  return 1 + (clamped / Z_SCORE_CLAMP) * PROC_PLATFORM_SWING;
+}
+
+/** Accuracies of roster heroes that actually have measured data. */
+function rosterAccuracies(
+  roster: ReadonlyArray<HeroBaseStats>,
+  accuracyByHeroId: ReadonlyMap<number, number>,
+): number[] {
+  return roster.flatMap((h) => {
+    const a = accuracyByHeroId.get(h.heroId);
+    return typeof a === "number" && Number.isFinite(a) && a > 0 ? [a] : [];
+  });
 }
 
 /**

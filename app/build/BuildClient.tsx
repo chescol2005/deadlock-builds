@@ -50,7 +50,7 @@ import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
 import { resolveAccuracyAtRank } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
 import { constructBasket, makeBasketContext } from "@/lib/engine/basketSelect";
-import { deriveHeroNeedVector } from "@/lib/engine/heroNeed";
+import { deriveHeroNeedVector, deriveProcPlatformFactor } from "@/lib/engine/heroNeed";
 import { toItemCandidates } from "@/lib/engine/itemAdapter";
 
 const VIEW_MODE_TABS = [
@@ -428,11 +428,22 @@ export default function BuildClient({
 
     const committed = buildItems.reduce((sum, i) => sum + i.cost, 0);
 
+    // Separate from gun need on purpose: a bullet proc's worth scales with how
+    // many bullets LAND per second, not with how hard each one hits. The two
+    // genuinely diverge — a hero can have the roster's weakest gun and still be
+    // one of its best platforms for per-hit items.
+    const procPlatformFactor = deriveProcPlatformFactor({
+      baseStats: heroBaseStats,
+      roster: heroRoster,
+      gunAccuracyByHeroId,
+    });
+
     const ctx = makeBasketContext({
       needVector,
       soulBudget: Math.max(0, boonSouls - committed),
       maxItems: Math.max(0, MAX_ACTIVE_ITEMS - buildItems.length),
       itemAnalytics,
+      procPlatformFactor,
     });
 
     return constructBasket(candidates, ctx);

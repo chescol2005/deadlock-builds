@@ -240,6 +240,40 @@ function emptyCategoryValues(): Record<ScoreCategory, number> {
   return values;
 }
 
+/**
+ * Share of an item's total scored magnitude that is delivered PER WEAPON HIT,
+ * in [0, 1]. 0 for an item with no per-hit mechanic at all.
+ *
+ * Hero-independent by construction — this module never sees a hero. It answers
+ * only "how much of this item's worth rides on landing bullets", leaving the
+ * hero-specific half (how fast and how reliably they land them) to
+ * `procPlatformTerm` in basketSelect.ts. Keeping the two apart is what stops
+ * per-item constants from being inflated to compensate for one hero.
+ *
+ * Measured on absolute magnitudes so a negative drawback elsewhere on the item
+ * cannot cancel out and overstate the per-hit share.
+ */
+function deriveProcReliance(stats: ItemStats): number {
+  let perHit = 0;
+  let total = 0;
+
+  for (const estimate of estimateEffectValues(stats)) {
+    const mag = Math.abs(estimate.value);
+    total += mag;
+    if (estimate.perHit) perHit += mag;
+  }
+
+  for (const [key, rawValue] of Object.entries(stats)) {
+    if (!Number.isFinite(rawValue)) continue;
+    const mapping = STAT_KEY_TO_SCORE[key];
+    if (!mapping) continue;
+    total += Math.abs(rawValue * mapping.weight);
+  }
+
+  if (!(total > 0) || !(perHit > 0)) return 0;
+  return Math.min(1, perHit / total);
+}
+
 function deriveCategoryValues(stats: ItemStats): Record<ScoreCategory, number> {
   const values = emptyCategoryValues();
 
@@ -279,6 +313,7 @@ export function toItemCandidate(item: Item): ItemCandidate {
     category: item.category,
     cost: item.cost,
     categoryValues: deriveCategoryValues(item.stats),
+    procReliance: deriveProcReliance(item.stats),
     tags: item.tags,
   };
 }

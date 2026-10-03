@@ -719,12 +719,44 @@ Two hero×item interactions the per-item model structurally cannot see:
   kit that is a systematic underestimate.
 
 So the right reading for a hero like this is "don't buy gun items that scale the
-gun; DO buy per-hit proc items." Both gaps are interaction value — Milestone F,
-scaled by a hero-specific proc multiplier (shots/s × accuracy, plus spirit power
-for spirit procs), which needs hero context in `toItemCandidate()` that it does
-not currently take. **Do NOT close this by inflating the per-item constants** —
-that trades a known underestimate on one hero for an unknown overestimate on
-every low-fire-rate hero.
+gun; DO buy per-hit proc items."
+
+**Gap 1 is now BUILT; gap 2 is not.** `procPlatformTerm` in `basketSelect.ts`
+scales a per-hit item by how well a hero lands hits, composed from two halves
+kept deliberately apart:
+
+- `ItemCandidate.procReliance` (hero-independent, `itemAdapter.ts`) — the share
+  of an item's scored magnitude delivered per weapon hit, from the `perHit` flag
+  on `EffectEstimate`.
+- `BasketContext.procPlatformFactor` (hero-specific,
+  `heroNeed.ts::deriveProcPlatformFactor`) — bullets landed per second versus
+  the roster, bounded by `PROC_PLATFORM_SWING`.
+
+Splitting it this way is what keeps per-item constants from being inflated to
+compensate for one hero. The term is relevance-gated and roster-average-neutral:
+factor 1.0 contributes exactly nothing, so it reorders per-hit items rather than
+blanket-boosting them. Live: Graves is 2nd of 44 on proc platform (1.207) while
+last on gun need — the divergence this exists to express.
+
+**Honest limits of that fix, measured not assumed.** It moved her items only
+modestly (Ricochet 17→14, Toxic Bullets 29→26, Tesla Bullets 45→44) and moved
+**Mystic Shot not at all** (38→38). The term is bounded to 10% of one slot by
+design, and more importantly it is not what holds Mystic Shot down:
+
+**Gap 2 — spirit-scaling procs are still not spirit-aware.** Mystic Shot
+(`ProcChance 100`, `ProcBonusMagicDamage 40`) converts spirit power into
+gun-triggered damage and is priced as a flat `spiritDamage 27` regardless of the
+buyer's spirit. That is the dominant reason it under-ranks on a 100%-spirit kit,
+and it needs the item's value to scale with hero spirit power — a genuine
+hero×item product, i.e. Milestone F. **Do NOT close it by raising
+`PROC_PLATFORM_MAX_FRACTION`** — that inflates every per-hit item on every
+high-fire-rate hero to fix one item's scaling, trading a known underestimate for
+an unknown overestimate.
+
+Known imprecision in the factor itself: `bulletsPerSecond` counts PELLETS, so
+shotguns read high (Calico tops the roster at 1.350 on 42.9 pellets/s). Right
+for per-bullet procs, wrong for per-SHOT build-ups like Toxic Bullets'
+`BuildUpPerShot`; separating them needs `bullets` on `HeroBaseStats`.
 
 What the floor already buys: gun items are not suppressed for her despite the
 lowest need — 3 of 11 live basket picks are gun items, Spiritual Overflow among
