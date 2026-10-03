@@ -29,6 +29,27 @@ type WeaponItemRaw = {
     bullets_per_second?: number;
     reload_duration?: number;
     clip_size?: number;
+    // Valve's own sustained-DPS figure, reload downtime included. Verified
+    // live against Graves (hero 76, `citadel_weapon_necro_set`): 35.29
+    // nominal (bullet_damage x bullets_per_second) vs 20.20 here, a 43%
+    // overstatement the naive product doesn't catch. Consumed by
+    // fetchHeroStats -> HeroBaseStats.dpsWithReload -> heroNeed.ts.
+    damage_per_second_with_reload?: number;
+    // Pellets per shot (verified live: Calico = 9, Graves = 1). Already baked
+    // into bullets_per_second (bullets_per_second = shots_per_second x
+    // bullets, verified live), so NOT needed for DPS math — it is only an
+    // explanatory signal for why a shotgun-style hero's accuracy reads low.
+    // Not yet surfaced past this raw type; no consumer exists.
+    bullets?: number;
+    // Range falloff curve, in source units (divide by 39.37 for metres).
+    // Verified live: Graves falls off 300->670 (7.6m->17.0m) to 50% damage,
+    // not to 0 — the "cannot shoot past 17m" behavior is a separate bullet
+    // travel-distance limit, not this curve. NOT yet surfaced past this raw
+    // type: translating a range profile into a score needs a design decision
+    // this repo hasn't made (no positioning/engagement-range model exists).
+    damage_falloff_start_range?: number;
+    damage_falloff_end_range?: number;
+    damage_falloff_end_scale?: number;
   };
 };
 
@@ -87,6 +108,7 @@ export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
     bulletsPerSecond: weaponInfo?.bullets_per_second ?? 0,
     reloadTime: weaponInfo?.reload_duration ?? 0,
     ammo: weaponInfo?.clip_size ?? 0,
+    dpsWithReload: weaponInfo?.damage_per_second_with_reload ?? 0,
     lightMeleeDamage: statVal(ss, "light_melee_damage"),
     lightMeleePerBoon: meleePBoon,
     heavyMeleeDamage: statVal(ss, "heavy_melee_damage"),

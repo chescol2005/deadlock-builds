@@ -183,15 +183,39 @@ function deriveAbilitySpiritShare(abilities: ReadonlyArray<HeroAbility>): number
 
 /**
  * NOMINAL gun DPS at max boon — the quantity gun items multiply, assuming every
- * shot lands.
+ * shot lands AND the hero never stops shooting to reload.
  *
  * Uses `calculateStatsAtBoon` rather than re-deriving the boon formula, and
  * multiplies by fire rate because per-shot damage alone is not comparable
  * between heroes (see the GUN_EVAL_BOON comment above).
+ *
+ * Discounted by a reload-efficiency ratio computed from the hero's own base
+ * (boon-0) stats: Valve's `dpsWithReload` versus the naive
+ * bulletDamage x bulletsPerSecond product this function used to return
+ * unmodified. Verified live against Graves: the naive product overstates her
+ * sustained DPS by 43% (35.3 vs 20.2) because her clip empties every ~4s
+ * against a 2.8s reload. Applying the RATIO (not the raw with-reload figure)
+ * to the boon-scaled burst DPS keeps boon growth and reload downtime as two
+ * independently-correct effects instead of conflating them.
+ *
+ * A hero with no reload data (`dpsWithReload <= 0` — every pre-existing
+ * fixture, and any real hero whose weapon_info fetch failed) gets ratio 1: no
+ * discount, matching this function's behavior before this field existed. This
+ * is the same fail-open policy this module already applies to missing
+ * accuracy data.
  */
 function nominalGunDps(stats: HeroBaseStats): number {
   const scaled = calculateStatsAtBoon(stats, GUN_EVAL_BOON);
-  const dps = scaled.bulletDamage * stats.bulletsPerSecond;
+  const burstDps = scaled.bulletDamage * stats.bulletsPerSecond;
+  if (!(burstDps > 0)) return 0;
+
+  const baseBurstDps = stats.bulletDamage * stats.bulletsPerSecond;
+  const reloadEfficiency =
+    stats.dpsWithReload > 0 && baseBurstDps > 0
+      ? Math.min(1, stats.dpsWithReload / baseBurstDps)
+      : 1;
+
+  const dps = burstDps * reloadEfficiency;
   return Number.isFinite(dps) && dps > 0 ? dps : 0;
 }
 

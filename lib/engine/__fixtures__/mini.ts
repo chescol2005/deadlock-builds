@@ -617,6 +617,10 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
     bulletsPerSecond: 5,
     reloadTime: 2,
     ammo: 20,
+    // 0 = "no reload data" -- nominalGunDps treats this as ratio 1 (no
+    // discount), so every existing fixture below keeps its exact prior
+    // behavior. Fixtures testing the reload discount override this directly.
+    dpsWithReload: 0,
     lightMeleeDamage: 60,
     lightMeleePerBoon: 2,
     heavyMeleeDamage: 100,
@@ -800,6 +804,74 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
       Number.isFinite(noAccuracy.gunDamage) && noAccuracy.gunDamage > 0,
       "with no accuracy data supplied at all, gun need still derives from nominal DPS",
       `Got: ${noAccuracy.gunDamage}`,
+    );
+  }
+
+  // ── Reload-adjusted DPS ──
+  // bulletDamage x bulletsPerSecond assumes the hero never stops shooting to
+  // reload. Verified live: Graves' naive product overstates her sustained DPS
+  // by 43% (35.3 vs Valve's own dpsWithReload of 20.2) because her clip
+  // empties every ~4s against a 2.8s reload. dpsWithReload lets nominalGunDps
+  // correct for that without re-deriving Valve's own reload formula.
+  {
+    // Same nominal gun on paper -- only reload efficiency differs.
+    const fastReload = { ...mkHero(20, 700, 8), bulletDamage: 10, bulletsPerSecond: 5 };
+    fastReload.dpsWithReload = 48; // barely discounted: 48/50 = 96% uptime
+    const slowReload = { ...mkHero(21, 700, 8), bulletDamage: 10, bulletsPerSecond: 5 };
+    slowReload.dpsWithReload = 25; // heavy downtime: 25/50 = 50% uptime
+
+    const reloadRoster = [fastReload, slowReload, mkHero(22, 700, 8), mkHero(23, 700, 8)];
+
+    const fastNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: fastReload,
+      roster: reloadRoster,
+    });
+    const slowNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: slowReload,
+      roster: reloadRoster,
+    });
+    assert(
+      fastNeed.gunDamage > slowNeed.gunDamage,
+      "identical nominal guns diverge on reload uptime -- less time reloading is worth investing in more",
+      `fast=${fastNeed.gunDamage}, slow=${slowNeed.gunDamage}`,
+    );
+
+    // A malformed/impossible dpsWithReload above the nominal product must not
+    // INFLATE gun need past what the nominal product itself would give --
+    // mirrors the same Math.min(1, ...) clamp effectiveGunDps applies to
+    // accuracy above 100%.
+    const overstated = { ...mkHero(26, 700, 8), bulletDamage: 10, bulletsPerSecond: 5 };
+    overstated.dpsWithReload = 999;
+    const overstatedNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: overstated,
+      roster: [overstated, mkHero(27, 700, 8)],
+    });
+    const nominalNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: mkHero(26, 700, 8),
+      roster: [mkHero(26, 700, 8), mkHero(27, 700, 8)],
+    });
+    assert(
+      overstatedNeed.gunDamage <= nominalNeed.gunDamage + 1e-9,
+      "a dpsWithReload above the nominal product is clamped, never allowed to inflate gun need past nominal",
+      `overstated=${overstatedNeed.gunDamage}, nominal=${nominalNeed.gunDamage}`,
+    );
+
+    // Every fixture above this point predates dpsWithReload (mkHero defaults
+    // it to 0) and must be completely unaffected -- this is the fail-open
+    // guarantee the rest of this file's gun-need assertions depend on.
+    const noReloadData = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: mkHero(24, 700, 8),
+      roster: [mkHero(24, 700, 8), mkHero(25, 700, 8)],
+    });
+    assert(
+      Number.isFinite(noReloadData.gunDamage) && noReloadData.gunDamage > 0,
+      "with no reload data supplied (dpsWithReload = 0), gun need still derives from the nominal product unmodified",
+      `Got: ${noReloadData.gunDamage}`,
     );
   }
 

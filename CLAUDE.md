@@ -604,25 +604,49 @@ Emergent and correct, not coded in: Calico's gun need _falls_ at higher rank
 Calico's accuracy improves only +4.2pp across ranks against Geist's +12.6pp —
 a spread weapon benefits less from better aim than a precision one.
 
-**Known limitation — accuracy is a proxy, and `weapon_info` is the real fix.**
-`GET /v1/assets/items/{weapon_class}` (class name is on
-`hero.items.weapon_primary`) returns a `weapon_info` block this repo does NOT
-consume yet, holding the ground truth the accuracy ratio only approximates:
+**`weapon_info` — partially wired.** `GET /v1/assets/items/{weapon_class}`
+(class name is on `hero.items.weapon_primary`) returns a `weapon_info` block
+holding ground truth the accuracy ratio only approximates. One piece of it is
+now consumed; two are deliberately not, because they need a design decision
+this repo hasn't made:
 
-- `bullets` — pellets per shot. Calico is `bullets: 9`, which is _why_ she
-  reads 43.5%: it is a shotgun, not bad aim.
-- `damage_falloff_start_range` / `damage_falloff_end_range` /
-  `damage_falloff_end_scale` — range profile in source units (÷39.37 for
-  metres). Graves is 300/670 → 7.6m/17.0m.
-- `damage_per_second_with_reload` — Valve's own figure, accounting for reload
-  downtime that `bulletDamage × bulletsPerSecond` ignores entirely (Graves:
-  35.3 nominal vs 20.2 with reload, a 43% overstatement).
+- **Wired.** `damage_per_second_with_reload` — Valve's own sustained-DPS
+  figure, reload downtime included — flows through
+  `fetchHeroStats` → `HeroBaseStats.dpsWithReload` →
+  `heroNeed.ts::nominalGunDps()`, which discounts the naive
+  `bulletDamage × bulletsPerSecond` product by the ratio
+  `dpsWithReload / (bulletDamage × bulletsPerSecond)` at base (boon 0), then
+  applies that ratio to the boon-scaled product — so boon growth and reload
+  downtime stay two independently-correct effects instead of getting
+  conflated. Verified live against Graves: naive 35.3 vs 20.2 with reload (the
+  documented 43% overstatement), ratio 0.572, matching exactly. A hero with no
+  reload data (`dpsWithReload` 0 — the pre-existing fixture default, or any
+  real hero whose `weapon_info` fetch failed) gets ratio 1, i.e. no discount:
+  the same fail-open policy this module already applies to missing accuracy
+  data.
+- **Captured in the raw API type, NOT surfaced into `HeroBaseStats` or scoring
+  yet** — `lib/api/deadlockApi.ts`'s `WeaponItemRaw["weapon_info"]` documents
+  both, but no consumer exists:
+  - `bullets` — pellets per shot. Calico is `bullets: 9`, which is _why_ she
+    reads 43.5% accuracy: it is a shotgun, not bad aim. Verified live it is
+    already baked into `bullets_per_second` (bullets_per_second =
+    shots_per_second × bullets), so it is NOT needed for the DPS math above —
+    only useful as an explanatory signal, not a required input.
+  - `damage_falloff_start_range` / `damage_falloff_end_range` /
+    `damage_falloff_end_scale` — range profile in source units (÷39.37 for
+    metres). Verified live: Graves is 300/670 → 7.6m/17.0m, falling to 50%
+    damage at the far end, NOT to 0 — the "cannot shoot past 17m" behavior the
+    hero-knowledge note above describes is a separate bullet travel-distance
+    limit, not this falloff curve. Translating a range profile into a score
+    needs an actual design decision (this app has no positioning/engagement-
+    range model at all), so it stays unconsumed rather than guessed at.
 
-Until that is wired in: range falloff is **not modelled at all** for any hero,
-and a hero with no shot data may simply have a weapon whose shots are not
-counted discretely — Graves is a beam that cannot miss, so her true accuracy is
-~1.0 offset by a hard 17m range limit, making the median fallback a rough wash
-rather than a correct value.
+Range falloff is still **not modelled at all** for any hero, and a hero with
+no shot data may simply have a weapon whose shots are not counted discretely —
+Graves is a beam that cannot miss, so her true accuracy is ~1.0 offset by a
+hard 17m range limit, making the median fallback a rough wash rather than a
+correct value. The reload-DPS fix above does not change this: it corrects her
+sustained damage output, not her accuracy discount.
 
 ### Defence: flat health and % resist are separate categories
 
