@@ -832,6 +832,81 @@ measured stat. It deliberately does not model target count actually hit,
 positioning, or whether a slow converts into a kill. Every estimate carries a
 `basis` string so it is never an unexplained number.
 
+### Item values are NOT flat — read the published scaling coefficients
+
+`properties[key].scale_function.stat_scale` is Valve's own coefficient, and
+`parseStats` used to discard it, keeping only `value` — which is just the BASE
+of a scaling expression. Mystic Shot's `ProcBonusMagicDamage` is
+**`40 + 0.9 x spirit power`**, not 40.
+
+Measured live across all 173 shopable items: **29 `ETechPower`-scaled
+properties on 22 items, median 1.5x understatement at 100 spirit power**, up to
+3.3x (Mystic Shot), 2.9x (Mercurial Magnum), 2.7x (Spirit Snatch). It reaches
+well past damage — Reactive Barrier's absorb is `325 + 1.8 x spirit` (325 ->
+505), so the barrier souls-per-EHP figures above are understated for spirit
+heroes.
+
+Now captured by `lib/itemNormalizer.ts` into `Item.statScaling` and applied by
+`lib/engine/itemAdapter.ts::resolveScaledStats(item, ctx?)`. Additive, the same
+convention as `calculateAbilityDamage` (`value += stat x scale`). **Omitting
+`ctx` returns the unscaled base**, so every hero-free caller and fixture is
+byte-identical to before.
+
+**Only 2 of the 8 published scaling types have a non-circular source**, and the
+split is the whole design:
+
+| Type                                                                                                         | Supplied by                                       | Resolved?                         |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- | --------------------------------- |
+| `ETechPower`                                                                                                 | hero spirit + `TechPower`/`SpiritPower` items     | yes — 29 props, 22 items          |
+| `ELevelUpBoons`                                                                                              | hero boon level                                   | yes — 8 props                     |
+| `EItemCooldown` (99), `ETechDuration` (54), `ETechRange` (51), `EHealingOutput` (27), `EChannelDuration` (2) | OTHER ITEMS                                       | only from the already-owned build |
+| `EBuildUpRate` (7)                                                                                           | nothing — no supplier key exists in the catalogue | captured, never applied           |
+
+The item-supplied types resolve against the **already-owned build, never the
+basket under construction**: an item's value must not depend on which other
+items the basket happens to pick, or selection becomes circular.
+Candidate-on-candidate scaling is item x item — Milestone F, deliberately not
+modelled here.
+
+Two traps when touching this:
+
+- **Preserve the sign.** Alchemical Fire's `BulletArmorReduction` is -7 scaling
+  at -0.055, so scaling makes the shred STRONGER (more negative). Clamping to
+  positive silently inverts every enemy-debuff item — see the sign-convention
+  warning above.
+- **Only the single-stat form carries a coefficient.**
+  `scale_function_multi_stats` publishes `scaling_stats` with NO `stat_scale`,
+  so there is nothing to read and inventing one would be fabricating data.
+
+**`SpiritPower` is a second API name for `TechPower`** — and the two modules
+disagreed. `lib/buildCalculations.ts`'s `SPIRIT_POWER_KEYS` listed only
+`TechPower` while the engine's `STAT_KEY_TO_SCORE` counted both, so
+`totalSpiritPower` silently dropped up to 20 per item. Verified live: 19 items
+use `TechPower`, 6 use `SpiritPower` (Counterspell, Mystic Shot, Healing Nova,
+Alchemical Fire, Arcane Surge, Veil Walker), **none use both**, so summing both
+cannot double-count. It compounded on Mystic Shot, which is both a
+`SpiritPower` item AND `ETechPower`-scaled: undercounting spirit power
+under-resolved that item's own scaling. **When a duplicate key is found, fix
+EVERY module that reads it** — fixing one and not the other is worse than
+fixing neither, because the two then disagree silently.
+
+**What this did and did not change, measured.** Graves' basket composition
+shifted (Spiritual Overflow out; Diviner's Kevlar and Crippling Headshot in),
+and Mystic Shot's modelled `spiritDamage` went 27 -> 72 at 100 spirit and 117
+at 200. But its RANK among her 53 gun items barely moved (38 -> 37 at 200
+spirit): the increase is real and correct, yet still short of the items above
+it. Coverage saturation is NOT the cause — the per-slot spiritDamage target is
+428.6, far above any of these values.
+
+That remaining delta is the honest boundary of per-item valuation. The builds
+this came from are described as PAIRS — "Heroic Aura + Mystic Shot", "Ricochet
+
+- Toxic Bullets + Tesla" — and pair value is exactly what a per-item model
+  cannot represent, no matter how accurate each item's own coefficient is. With
+  scaling and proc frequency both now correct, the leftover genuinely is
+  Milestone F. **Do not chase it by inflating per-item numbers that are now
+  verifiably right.**
+
 ### Non-substitutable categories: shred and anti-heal
 
 `gunShred` / `spiritShred` / `antiHeal` exist for the same reason `resist` was

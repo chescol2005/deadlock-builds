@@ -424,7 +424,18 @@ export default function BuildClient({
     });
 
     const ownedIds = new Set(buildItems.map((i) => i.id));
-    const candidates = toItemCandidates(allItems.filter((i) => !ownedIds.has(i.id)));
+
+    // Item values are NOT flat — Mystic Shot's proc is `40 + 0.9 x spirit
+    // power`, so pricing it at 40 understates it ~3.3x at 100 spirit. Resolve
+    // the published coefficients against what the player actually has.
+    //
+    // Both inputs come from the hero and the ALREADY-OWNED build, never from
+    // the candidates being chosen: an item's value must not depend on which
+    // other items the basket happens to pick, or selection becomes circular.
+    const candidates = toItemCandidates(
+      allItems.filter((i) => !ownedIds.has(i.id)),
+      { spiritPower: totalSpiritPower, boonLevel: manualBoonLevel },
+    );
 
     const committed = buildItems.reduce((sum, i) => sum + i.cost, 0);
 
@@ -457,6 +468,8 @@ export default function BuildClient({
     itemAnalytics,
     heroAccuracy,
     selectedRankTier,
+    totalSpiritPower,
+    manualBoonLevel,
   ]);
 
   const ultimateUnlocked = manualBoonLevel >= 7;

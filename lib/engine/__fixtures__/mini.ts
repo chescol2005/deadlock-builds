@@ -20,7 +20,7 @@ import {
 import { estimateEffectValues } from "../effectEstimator";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
-import { toItemCandidate } from "../itemAdapter";
+import { resolveScaledStats, toItemCandidate } from "../itemAdapter";
 import { baseCategoryStage } from "../stages/baseCategoryStage";
 import { intentWeightStage } from "../stages/intentWeightStage";
 import type {
@@ -285,6 +285,7 @@ console.log("\n6. itemAdapter: Item -> ItemCandidate");
       AbilityCooldownBetweenCharge: -1,
       ChannelMoveSpeed: -1,
     },
+    statScaling: {},
   };
 
   const candidate = toItemCandidate(item);
@@ -334,6 +335,7 @@ console.log("\n6. itemAdapter: Item -> ItemCandidate");
   const altSpirit = toItemCandidate({
     ...item,
     stats: { SpiritPower: 20 },
+    statScaling: {},
   });
   assert(
     altSpirit.categoryValues.spiritDamage === 20,
@@ -379,6 +381,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { DamagePerChain: 33, ChainCount: 4, ProcChance: 15 },
+    statScaling: {},
   });
   assert(
     proc.categoryValues.gunDamage > 0,
@@ -404,6 +407,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { WeaponPower: 19.8 },
+    statScaling: {},
   });
   assert(
     measured.categoryValues.gunDamage > proc.categoryValues.gunDamage,
@@ -426,6 +430,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 6400,
     tags: [],
     stats: { MagicResistReduction: -9, TechArmorDamageReduction: -6 },
+    statScaling: {},
   });
   assert(
     shred.categoryValues.spiritShred > 0 && shred.categoryValues.spiritDamage === 0,
@@ -444,6 +449,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { BulletArmorReduction: -10 },
+    statScaling: {},
   });
   assert(
     bulletShred.categoryValues.gunShred > 0 && bulletShred.categoryValues.spiritShred === 0,
@@ -463,6 +469,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { HealAmpReceivePenaltyPercent: -35, HealAmpRegenPenaltyPercent: -35 },
+    statScaling: {},
   });
   assert(
     antiHeal.categoryValues.antiHeal > 0,
@@ -478,6 +485,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { HealAmpReceivePenaltyPercent: -35 },
+    statScaling: {},
   });
   assert(
     antiHeal.categoryValues.antiHeal === antiHealSingle.categoryValues.antiHeal,
@@ -496,6 +504,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 6400,
     tags: [],
     stats: { TechPowerReduction: -30 },
+    statScaling: {},
   });
   assert(
     outputCut.categoryValues.utility > 0 && outputCut.categoryValues.spiritShred === 0,
@@ -513,6 +522,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 6400,
     tags: [],
     stats: { RicochetDamagePercent: 65 },
+    statScaling: {},
   });
   assert(
     aoe.categoryValues.economy > 0,
@@ -530,6 +540,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { BonusMoveSpeed: -0.5 },
+    statScaling: {},
   });
   assert(
     selfDebuff.categoryValues.mobility < 0,
@@ -561,6 +572,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 1600,
     tags: [],
     stats: { StackingGoldPerMinute: 18, MaxStacks: 16, NonPlayerBonusWeaponPower: -15 },
+    statScaling: {},
   });
   assert(
     earner.categoryValues.economy > 0,
@@ -578,6 +590,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 1600,
     tags: [],
     stats: { StackingGoldPerMinute: 18, MaxStacks: 16 },
+    statScaling: {},
   });
   assert(
     earnerNoPenalty.categoryValues.economy > earner.categoryValues.economy,
@@ -1497,6 +1510,93 @@ console.log("\n10. basketSelect: per-hit proc platform term");
     half !== null && procGood !== null && half.value < procGood.value,
     "a less per-hit-reliant item gains proportionally less",
     `half=${half?.value}, full=${procGood?.value}`,
+  );
+}
+
+console.log("\n11. itemAdapter: published scaling coefficients");
+{
+  // Modelled on the real Mystic Shot: ProcBonusMagicDamage 40 scaling at 0.9
+  // per point of spirit power, plus a flat SpiritPower 7. Verified live.
+  const mysticShot: Item = {
+    id: "mystic_shot",
+    numericId: 7001,
+    name: "Mystic Shot",
+    category: "gun",
+    tier: 1,
+    cost: 1600,
+    tags: [],
+    stats: { ProcBonusMagicDamage: 40, ProcChance: 100, SpiritPower: 7 },
+    statScaling: { ProcBonusMagicDamage: { scaleType: "ETechPower", statScale: 0.9 } },
+  };
+
+  // No context => unscaled base, byte-identical to the pre-scaling behaviour.
+  const flat = resolveScaledStats(mysticShot);
+  assert(
+    flat.ProcBonusMagicDamage === 40,
+    "with no valuation context the base value is returned unscaled",
+    `Got: ${flat.ProcBonusMagicDamage}`,
+  );
+
+  // 40 + 0.9 x 100 = 130. Additive, matching ability scaling exactly.
+  const at100 = resolveScaledStats(mysticShot, { spiritPower: 100 });
+  assert(
+    Math.abs(at100.ProcBonusMagicDamage - 130) < 1e-9,
+    "ETechPower scaling is additive: base + statScale x spiritPower",
+    `Got: ${at100.ProcBonusMagicDamage}`,
+  );
+
+  // Unscaled stats on the same item must pass through untouched.
+  assert(
+    at100.SpiritPower === 7 && at100.ProcChance === 100,
+    "stats without a published coefficient are left exactly as-is",
+    `Got: SpiritPower=${at100.SpiritPower}, ProcChance=${at100.ProcChance}`,
+  );
+
+  // A scale type with no context field (EBuildUpRate has no supplier anywhere
+  // in the catalogue) must resolve to base rather than being guessed at.
+  const unmapped: Item = {
+    ...mysticShot,
+    id: "unmapped_scale",
+    statScaling: { ProcBonusMagicDamage: { scaleType: "EBuildUpRate", statScale: 5 } },
+  };
+  assert(
+    resolveScaledStats(unmapped, { spiritPower: 100 }).ProcBonusMagicDamage === 40,
+    "an unmapped scale type resolves to base -- unmapped scaling is ignored, never guessed",
+  );
+
+  // Sign preservation: Alchemical Fire's BulletArmorReduction is -7 scaling at
+  // -0.055, so scaling makes the shred STRONGER (more negative). Clamping to
+  // positive here would silently invert every enemy-debuff item.
+  const shred: Item = {
+    ...mysticShot,
+    id: "alchemical_fire",
+    stats: { BulletArmorReduction: -7 },
+    statScaling: { BulletArmorReduction: { scaleType: "ETechPower", statScale: -0.055 } },
+  };
+  const shredAt100 = resolveScaledStats(shred, { spiritPower: 100 });
+  assert(
+    Math.abs(shredAt100.BulletArmorReduction - -12.5) < 1e-9,
+    "a negative enemy-debuff value scales further negative, never flipped positive",
+    `Got: ${shredAt100.BulletArmorReduction}`,
+  );
+
+  // End to end: scaling must actually raise the candidate's scored value, or
+  // none of the above reaches the basket.
+  const scaledCandidate = toItemCandidate(mysticShot, { spiritPower: 100 });
+  const flatCandidate = toItemCandidate(mysticShot);
+  assert(
+    scaledCandidate.categoryValues.spiritDamage > flatCandidate.categoryValues.spiritDamage,
+    "a spirit-scaled item scores strictly higher for a high-spirit hero than when priced flat",
+    `scaled=${scaledCandidate.categoryValues.spiritDamage}, flat=${flatCandidate.categoryValues.spiritDamage}`,
+  );
+
+  // Zero spirit power must behave exactly like no context -- not like a
+  // partially-applied scale.
+  const atZero = toItemCandidate(mysticShot, { spiritPower: 0 });
+  assert(
+    atZero.categoryValues.spiritDamage === flatCandidate.categoryValues.spiritDamage,
+    "zero spirit power resolves identically to no context at all",
+    `zero=${atZero.categoryValues.spiritDamage}, flat=${flatCandidate.categoryValues.spiritDamage}`,
   );
 }
 

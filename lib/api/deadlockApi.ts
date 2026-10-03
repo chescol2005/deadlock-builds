@@ -242,6 +242,22 @@ export type UpgradeV2Raw = {
       postfix?: string;
       css_class?: string;
       disable_value?: string;
+      /**
+       * How this property scales off a player stat. `value` is only the BASE:
+       * Mystic Shot's ProcBonusMagicDamage is `40 + 0.9 x spirit power`, with
+       * `stat_scale` 0.9 and `specific_stat_scale_type` "ETechPower".
+       *
+       * `scaling_stats` is the multi-stat form (`scale_function_multi_stats`),
+       * which carries no single coefficient. Captured by lib/itemNormalizer.ts
+       * into `Item.statScaling`.
+       */
+      scale_function?: {
+        class_name?: string;
+        subclass_name?: string;
+        specific_stat_scale_type?: string;
+        scaling_stats?: string[];
+        stat_scale?: number;
+      };
     }
   >;
   [k: string]: unknown;
