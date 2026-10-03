@@ -621,6 +621,16 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
     // discount), so every existing fixture below keeps its exact prior
     // behavior. Fixtures testing the reload discount override this directly.
     dpsWithReload: 0,
+    // No weapon class and an all-zero falloff profile = "no weapon_info data",
+    // which rangeEfficiency() treats as flat (multiplier 1, no discount), so
+    // every pre-existing fixture below keeps its exact prior behavior.
+    // Fixtures testing the range discount override these directly.
+    weaponClass: "",
+    falloffStartRange: 0,
+    falloffEndRange: 0,
+    falloffStartScale: 1,
+    falloffEndScale: 1,
+    maxRange: 0,
     lightMeleeDamage: 60,
     lightMeleePerBoon: 2,
     heavyMeleeDamage: 100,
@@ -753,9 +763,12 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
       `marksman=${marksmanNeed.gunDamage}, sprayer=${sprayerNeed.gunDamage}`,
     );
 
-    // A hero with NO accuracy data (verified live: Graves records zero shots)
-    // must not be left undiscounted while every peer is discounted — that would
-    // inflate them into looking like the best gun in the roster.
+    // A hero with no accuracy data and NO cannot-miss override has genuinely
+    // UNKNOWN accuracy and must not be left undiscounted while every peer is
+    // discounted — that would inflate them into looking like the best gun in
+    // the roster. Verified live: 5 heroes are in this state (Deadman Danny,
+    // Solomon, Violet, Nurse Harrow, Baba — all recent additions with no match
+    // data), so this is the common case, not an edge case.
     const unknown = { ...mkHero(14, 700, 8), bulletDamage: 20, bulletDamagePerBoon: 1.0 };
     unknown.bulletsPerSecond = 6;
     const withUnknown = deriveHeroNeedVector({
@@ -767,8 +780,31 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
     assert(
       Number.isFinite(withUnknown.gunDamage) &&
         withUnknown.gunDamage <= marksmanNeed.gunDamage + 1e-9,
-      "a hero with no accuracy data falls back to median, never to an undiscounted advantage",
+      "a hero with no accuracy data and no cannot-miss override falls back to median, never to an undiscounted advantage",
       `unknown=${withUnknown.gunDamage}, marksman=${marksmanNeed.gunDamage}`,
+    );
+
+    // The cannot-miss override is what separates "accuracy inapplicable" from
+    // "accuracy unknown". Same gun, same absence from the map, different
+    // meaning — and it must resolve to exactly an explicit 1.0 entry.
+    const beam = { ...unknown, heroId: 15, weaponClass: "citadel_weapon_necro_set" };
+    const beamRoster = [...accRoster, beam];
+    const beamNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: beam,
+      roster: beamRoster,
+      gunAccuracyByHeroId: accuracy, // no entry for hero 15 either
+    });
+    const beamExplicit = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: beam,
+      roster: beamRoster,
+      gunAccuracyByHeroId: new Map([...accuracy, [15, 1]]),
+    });
+    assert(
+      Math.abs(beamNeed.gunDamage - beamExplicit.gunDamage) < 1e-9,
+      "a cannot-miss weapon absent from the accuracy map resolves to exactly an explicit 1.0 entry, not the median",
+      `absent=${beamNeed.gunDamage}, explicit1.0=${beamExplicit.gunDamage}`,
     );
 
     // Rank enters as a different accuracy map for the same hero: higher-ranked
@@ -872,6 +908,164 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
       Number.isFinite(noReloadData.gunDamage) && noReloadData.gunDamage > 0,
       "with no reload data supplied (dpsWithReload = 0), gun need still derives from the nominal product unmodified",
       `Got: ${noReloadData.gunDamage}`,
+    );
+  }
+
+  // ── Range-falloff discount ──
+  // A weapon that loses damage at range lands less of its nominal DPS. This is
+  // ORTHOGONAL to accuracy: accuracy says which shots hit, falloff says how
+  // much a hit deals, so both apply without double-counting.
+  {
+    // Short-range vs long-range, identical guns otherwise. Falloff ranges are
+    // in METRES (converted at fetch time), against ENGAGEMENT_RANGE_WEIGHTS'
+    // 5-30m band.
+    const shortRange = {
+      ...mkHero(30, 700, 8),
+      falloffStartRange: 8,
+      falloffEndRange: 18,
+      falloffEndScale: 0.1,
+      maxRange: 178,
+    };
+    const longRange = {
+      ...mkHero(31, 700, 8),
+      falloffStartRange: 22,
+      falloffEndRange: 58,
+      falloffEndScale: 0.1,
+      maxRange: 178,
+    };
+    const rangeRoster = [shortRange, longRange, mkHero(32, 700, 8), mkHero(33, 700, 8)];
+
+    const shortNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: shortRange,
+      roster: rangeRoster,
+    });
+    const longNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: longRange,
+      roster: rangeRoster,
+    });
+    assert(
+      longNeed.gunDamage > shortNeed.gunDamage,
+      "identical guns diverge on range profile -- the one that holds damage at range is worth investing in more",
+      `long=${longNeed.gunDamage}, short=${shortNeed.gunDamage}`,
+    );
+
+    // HARD_CUTOFF_WEAPON_CLASSES: Graves' The Teacher deals FULL damage inside
+    // 17m and ZERO past it. Read generically, end_scale 0.5 would instead say
+    // "50% damage past 17m" -- understating her in-range damage and
+    // overstating her out-of-range damage simultaneously. The exception must
+    // actually bite, so these two must not score the same.
+    const teacher = {
+      ...mkHero(34, 700, 8),
+      weaponClass: "citadel_weapon_necro_set",
+      falloffStartRange: 7.62,
+      falloffEndRange: 17.02,
+      falloffEndScale: 0.5,
+      maxRange: 178,
+    };
+    // Both variants share ONE roster: compared against a roster of neutral
+    // (no-falloff) heroes only, each is such an outlier that the z-score
+    // saturates Z_SCORE_CLAMP and both floor to MIN_GUN_FACTOR, hiding the very
+    // difference under test. Same baseline for both is also the correct
+    // comparison -- gun need is relative to the roster.
+    const asIfGeneric = { ...teacher, heroId: 44, weaponClass: "some_other_weapon" };
+    const cutoffRoster = [teacher, asIfGeneric, mkHero(35, 700, 8), mkHero(36, 700, 8)];
+    const teacherNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: teacher,
+      roster: cutoffRoster,
+    });
+    const genericNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: asIfGeneric,
+      roster: cutoffRoster,
+    });
+    assert(
+      Math.abs(teacherNeed.gunDamage - genericNeed.gunDamage) > 1e-9,
+      "a hard-cutoff weapon is NOT scored as a generic falloff curve -- the hand-authored exception changes the result",
+      `teacher=${teacherNeed.gunDamage}, asGeneric=${genericNeed.gunDamage}`,
+    );
+
+    // The multiplier for a hard-cutoff weapon is exactly the share of
+    // ENGAGEMENT_RANGE_WEIGHTS inside the cutoff. At 17m that is the 5/10/15m
+    // buckets = 0.08 + 0.20 + 0.27 = 0.55. Locking the calibration: if the
+    // weights are retuned, this is the assertion that should force a decision.
+    const inRangeShare = 0.08 + 0.2 + 0.27;
+    const wideCutoff = { ...teacher, heroId: 37, falloffEndRange: 999 };
+    const wideRoster = [wideCutoff, mkHero(35, 700, 8), mkHero(36, 700, 8)];
+    const wideNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: wideCutoff,
+      roster: wideRoster,
+    });
+    assert(
+      inRangeShare === 0.55 && wideNeed.gunDamage > teacherNeed.gunDamage,
+      "the 17m cutoff keeps only the 0.55 weight inside range, so a wider cutoff on the same gun scores strictly higher",
+      `inRangeShare=${inRangeShare}, wide=${wideNeed.gunDamage}, cutoff17m=${teacherNeed.gunDamage}`,
+    );
+
+    // Past maxRange a generic weapon deals nothing, but MIN_RANGE_EFFICIENCY
+    // must keep the multiplier off exactly 0 -- a 0 would drop the hero out of
+    // the roster baseline entirely instead of merely ranking them last. Same
+    // hazard class as MIN_GUN_FACTOR.
+    const unusable = { ...mkHero(38, 700, 8), maxRange: 1, falloffEndRange: 0 };
+    const unusableNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: unusable,
+      roster: [unusable, mkHero(39, 700, 8), mkHero(40, 700, 8)],
+    });
+    assert(
+      unusableNeed.gunDamage > 0,
+      "a weapon unusable at every sampled range still floors strictly above zero, never dropping out of the comparison",
+      `Got: ${unusableNeed.gunDamage}`,
+    );
+
+    // Fail-open: every fixture predating this change leaves the falloff fields
+    // at mkHero's zeros, which must read as "unknown" -> flat, no discount.
+    const noRangeData = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: mkHero(41, 700, 8),
+      roster: [mkHero(41, 700, 8), mkHero(42, 700, 8)],
+    });
+    assert(
+      Number.isFinite(noRangeData.gunDamage) && noRangeData.gunDamage > 0,
+      "with no falloff data supplied, gun need derives unmodified (no silent zero-damage weapon)",
+      `Got: ${noRangeData.gunDamage}`,
+    );
+  }
+
+  // ── Cannot-miss accuracy fallback ──
+  // A hero absent from the accuracy map has no shot data at all, which means a
+  // weapon whose shots are not counted discretely -- one that cannot miss.
+  // Verified live: Graves alone, hit = 0 AND miss = 0 over 536,097 matches.
+  // Previously this fell back to the roster median (0.515), charging her a
+  // fabricated ~48% miss rate that was really standing in for the range
+  // weakness rangeEfficiency() now carries from real weapon data.
+  {
+    // The cannot-miss hero carries the override; the comparison hero is an
+    // identical gun measured at a poor 40%.
+    const beamHero = { ...mkHero(50, 700, 8), weaponClass: "citadel_weapon_necro_set" };
+    const measured = mkHero(51, 700, 8);
+    const accRoster = [beamHero, measured];
+    const accuracy = new Map<number, number>([[51, 0.4]]);
+
+    const beamNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: beamHero,
+      roster: accRoster,
+      gunAccuracyByHeroId: accuracy,
+    });
+    const measuredNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: measured,
+      roster: accRoster,
+      gunAccuracyByHeroId: accuracy,
+    });
+    assert(
+      beamNeed.gunDamage > measuredNeed.gunDamage,
+      "a cannot-miss weapon outranks an identical gun measured at 40% accuracy",
+      `beam=${beamNeed.gunDamage}, measured=${measuredNeed.gunDamage}`,
     );
   }
 

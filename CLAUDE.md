@@ -594,10 +594,24 @@ Two things to preserve when touching this:
 - **Discount the hero AND the roster with the same policy.** Gun strength is a
   z-score against the roster; comparing a discounted hero to nominal peers is
   meaningless.
-- **Missing accuracy ≠ zero accuracy.** Exactly one hero (Graves, verified) has
-  no shot data. `heroNeed.ts` falls back to the median of heroes that DO have
-  data — never 1.0, which would leave them undiscounted while every peer is
-  discounted, inflating them into looking like the roster's best gun.
+- **Missing accuracy ≠ zero accuracy, and "inapplicable" ≠ "unknown".** Absence
+  from the accuracy map covers TWO cases that must not be conflated:
+  - **Accuracy inapplicable** — the weapon's shots are not counted discretely,
+    so it cannot miss. Verified live: Graves alone, with an analytics row over
+    536,097 matches reporting `total_shots_hit` 0 AND `total_shots_missed` 0.
+    Flagged via `WEAPON_PROFILE_OVERRIDES`' `cannotMiss` in `heroNeed.ts` and
+    treated as 1.0. Her range weakness is priced by the falloff term instead
+    (see below) — charging a miss penalty too would double-count it.
+  - **Accuracy unknown** — no analytics row at all. Verified live: 5 heroes
+    (Deadman Danny, Solomon, Violet, Nurse Harrow, Baba), all recent additions
+    with no match data. These fall back to the median of heroes that DO have
+    data — never 1.0, which would leave them undiscounted while every peer is
+    discounted, inflating them into looking like the roster's best gun.
+
+  This bit during implementation: treating all absences as `cannotMiss` pinned
+  Violet and Nurse Harrow at the maximum gun need of 2.000, **above Drifter**,
+  the roster's actual best gun. A hero missing from analytics is the common
+  case, not an edge case — check which of the two you're in.
 
 Emergent and correct, not coded in: Calico's gun need _falls_ at higher rank
 (1.16 Initiate → 1.10 Eternus) while Geist's rises (1.25 → 1.38), because
@@ -624,29 +638,65 @@ this repo hasn't made:
   real hero whose `weapon_info` fetch failed) gets ratio 1, i.e. no discount:
   the same fail-open policy this module already applies to missing accuracy
   data.
+- **Wired.** The range/falloff profile — `damage_falloff_start_range` /
+  `_end_range` / `_start_scale` / `_end_scale` plus the hard `range` cap — flows
+  through `fetchHeroStats` (converted to **metres** there, ÷39.37, so no
+  consumer repeats the divisor) → `HeroBaseStats` → `heroNeed.ts`'s
+  `rangeEfficiency()`. See "Range falloff" below.
 - **Captured in the raw API type, NOT surfaced into `HeroBaseStats` or scoring
   yet** — `lib/api/deadlockApi.ts`'s `WeaponItemRaw["weapon_info"]` documents
-  both, but no consumer exists:
+  it, but no consumer exists:
   - `bullets` — pellets per shot. Calico is `bullets: 9`, which is _why_ she
     reads 43.5% accuracy: it is a shotgun, not bad aim. Verified live it is
     already baked into `bullets_per_second` (bullets_per_second =
     shots_per_second × bullets), so it is NOT needed for the DPS math above —
-    only useful as an explanatory signal, not a required input.
-  - `damage_falloff_start_range` / `damage_falloff_end_range` /
-    `damage_falloff_end_scale` — range profile in source units (÷39.37 for
-    metres). Verified live: Graves is 300/670 → 7.6m/17.0m, falling to 50%
-    damage at the far end, NOT to 0 — the "cannot shoot past 17m" behavior the
-    hero-knowledge note above describes is a separate bullet travel-distance
-    limit, not this falloff curve. Translating a range profile into a score
-    needs an actual design decision (this app has no positioning/engagement-
-    range model at all), so it stays unconsumed rather than guessed at.
+    only useful as an explanatory signal, not a required input. Do NOT multiply
+    by it: that would inflate shotgun heroes ~9×.
 
-Range falloff is still **not modelled at all** for any hero, and a hero with
-no shot data may simply have a weapon whose shots are not counted discretely —
-Graves is a beam that cannot miss, so her true accuracy is ~1.0 offset by a
-hard 17m range limit, making the median fallback a rough wash rather than a
-correct value. The reload-DPS fix above does not change this: it corrects her
-sustained damage output, not her accuracy discount.
+### Range falloff (wired, with one hand-authored exception)
+
+Nominal DPS assumes every shot deals full damage regardless of distance.
+`rangeEfficiency()` in `heroNeed.ts` turns a weapon's falloff curve into one
+expected-damage multiplier over `ENGAGEMENT_RANGE_WEIGHTS`, an assumed 5–30m
+distribution of engagement ranges.
+
+**Those weights are an ASSUMPTION, not a measurement** — no endpoint reports
+engagement distance, so nothing in the data can settle them. They are the
+"lane-typical" calibration (55% of weight inside 17m). Retune in that one
+constant; a fixture locks the 0.55 figure so a change forces a decision.
+
+**This is orthogonal to the accuracy discount and composes with it** — the two
+are not double-counting. Accuracy measures which shots LAND (a hit at 30m is
+still logged as a hit); falloff measures how much damage a landed shot deals.
+Neither term can observe the other's effect.
+
+Verified live across all 44 heroes: `damage_falloff_start_scale` is 1 and
+`damage_falloff_bias` is 0.5 for **every** hero, so the curve SHAPE cannot
+reorder a cross-hero z-score — `rangeEfficiency()` interpolates linearly on
+that basis. If either ever varies per hero, revisit it. 40 of 44 fall to
+`end_scale 0.1`; the hard `range` cap varies more than the curve does (Apollo
+25m, Bebop 32m, Rem 76m, the other 41 at 178m).
+
+**`WEAPON_PROFILE_OVERRIDES` — the falloff fields do not mean the same thing on
+every weapon.** Graves' The Teacher reports 7.62m→17.02m at `end_scale` 0.5,
+which reads generically as "50% damage past 17m". **It is not.** Her weapon has
+no damage falloff: it deals full damage to a hard 17m cutoff and **zero** past
+it, and those range fields instead drive her Build-Up per bullet (most notably
+Essence Theft). Reading them generically understates her in-range damage and
+overstates her out-of-range damage at the same time. Nothing in `weapon_info`
+distinguishes this case, so it is hand-authored game knowledge with the same
+upkeep shape as `GOAL_WEIGHTS_MAP` — if another weapon shares the quirk we
+cannot detect it from data and will silently mis-model it.
+
+Two related mechanics are deliberately NOT modelled, since both are interaction
+value (Milestone F territory), not per-hero gun strength: Essence Theft's
+build-up scaling off that same falloff range, and Ricochet's own damage falloff,
+which is measured from the main target to the ricocheted target rather than from
+the shooter.
+
+Live result: Graves derives the roster's **lowest** gun need (0.399 of 44),
+correctly — her 17m cutoff is by far the earliest on the roster, where a typical
+hero holds full damage to 18–20m and does not bottom out until ~55m.
 
 ### Defence: flat health and % resist are separate categories
 

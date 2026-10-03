@@ -42,16 +42,41 @@ type WeaponItemRaw = {
     // Not yet surfaced past this raw type; no consumer exists.
     bullets?: number;
     // Range falloff curve, in source units (divide by 39.37 for metres).
-    // Verified live: Graves falls off 300->670 (7.6m->17.0m) to 50% damage,
-    // not to 0 — the "cannot shoot past 17m" behavior is a separate bullet
-    // travel-distance limit, not this curve. NOT yet surfaced past this raw
-    // type: translating a range profile into a score needs a design decision
-    // this repo hasn't made (no positioning/engagement-range model exists).
+    // Damage holds at damage_falloff_start_scale out to start_range, then
+    // scales to damage_falloff_end_scale -- the fraction RETAINED -- by
+    // end_range. Verified live across all 44 live heroes: start_scale is 1 and
+    // damage_falloff_bias is 0.5 for every single one, so the curve SHAPE
+    // cannot reorder heroes and lib/engine/heroNeed.ts interpolates linearly.
+    // If either ever varies per hero, that assumption needs revisiting.
+    //
+    // CAUTION: these fields do NOT mean the same thing on every weapon.
+    // Graves' The Teacher (citadel_weapon_necro_set) reports 300->670 at
+    // end_scale 0.5, but her weapon has NO damage falloff: it deals full
+    // damage to a hard 17m (= end_range) cutoff and ZERO beyond it, and these
+    // range fields instead drive her Build-Up per bullet (most notably Essence
+    // Theft). Nothing in the payload distinguishes that case, so it is a
+    // hand-authored exception -- see HARD_CUTOFF_WEAPON_CLASSES in
+    // lib/engine/heroNeed.ts.
     damage_falloff_start_range?: number;
     damage_falloff_end_range?: number;
+    damage_falloff_start_scale?: number;
     damage_falloff_end_scale?: number;
+    // Hard travel cap: the weapon deals nothing past this. Varies far more
+    // than the falloff curve does (verified live: Apollo 25m, Bebop 32m,
+    // Rem 76m, all 41 others 178m).
+    range?: number;
   };
 };
+
+// Source units per metre, for the weapon range fields above.
+const SOURCE_UNITS_PER_METRE = 39.37;
+
+/** Source units -> metres. Absent/non-finite reads as 0, i.e. "unknown". */
+function metres(sourceUnits: number | undefined): number {
+  return typeof sourceUnits === "number" && Number.isFinite(sourceUnits)
+    ? sourceUnits / SOURCE_UNITS_PER_METRE
+    : 0;
+}
 
 function statVal(stats: HeroStartingStats | undefined, key: string): number {
   return stats?.[key]?.value ?? 0;
@@ -109,6 +134,16 @@ export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
     reloadTime: weaponInfo?.reload_duration ?? 0,
     ammo: weaponInfo?.clip_size ?? 0,
     dpsWithReload: weaponInfo?.damage_per_second_with_reload ?? 0,
+    weaponClass: d.items?.weapon_primary ?? "",
+    // Converted to metres here so no downstream consumer has to remember the
+    // source-unit divisor. start_scale defaults to 1 (full damage before
+    // falloff begins) rather than 0, which would read as a weapon that deals
+    // nothing at point blank.
+    falloffStartRange: metres(weaponInfo?.damage_falloff_start_range),
+    falloffEndRange: metres(weaponInfo?.damage_falloff_end_range),
+    falloffStartScale: weaponInfo?.damage_falloff_start_scale ?? 1,
+    falloffEndScale: weaponInfo?.damage_falloff_end_scale ?? 1,
+    maxRange: metres(weaponInfo?.range),
     lightMeleeDamage: statVal(ss, "light_melee_damage"),
     lightMeleePerBoon: meleePBoon,
     heavyMeleeDamage: statVal(ss, "heavy_melee_damage"),
