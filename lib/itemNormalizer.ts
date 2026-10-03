@@ -1,5 +1,5 @@
 import type { UpgradeV2Raw } from "./api/deadlockApi";
-import type { Item, ItemCategory, ItemTier, ItemTag } from "./items";
+import type { Item, ItemCategory, ItemTier, ItemTag, ItemStats, ItemStatScalings } from "./items";
 
 function parseStats(raw: UpgradeV2Raw): Record<string, number> {
   const stats: Record<string, number> = {};
@@ -16,6 +16,37 @@ function parseStats(raw: UpgradeV2Raw): Record<string, number> {
   }
 
   return stats;
+}
+
+/**
+ * Captures the published scaling coefficient for each stat that has one.
+ *
+ * `parseStats` keeps only `value`, which is the BASE of a scaling expression,
+ * not the whole thing — ignoring the coefficient understates the 29
+ * `ETechPower`-scaled properties by a median 1.5x (up to 3.3x on Mystic Shot).
+ *
+ * Keyed to match `parseStats` exactly, so a stat is never given a coefficient
+ * without a base value to apply it to. Only the single-stat form is captured:
+ * `scale_function_multi_stats` publishes `scaling_stats` with NO `stat_scale`,
+ * so there is no coefficient to read and guessing one would be inventing data.
+ */
+function parseStatScaling(raw: UpgradeV2Raw, parsedStats: ItemStats): ItemStatScalings {
+  const scalings: ItemStatScalings = {};
+  if (!raw.properties) return scalings;
+
+  for (const [key, entry] of Object.entries(raw.properties)) {
+    if (!(key in parsedStats)) continue; // no base value kept => nothing to scale
+
+    const fn = entry.scale_function;
+    const scaleType = fn?.specific_stat_scale_type;
+    const statScale = fn?.stat_scale;
+    if (typeof scaleType !== "string" || scaleType.length === 0) continue;
+    if (typeof statScale !== "number" || !Number.isFinite(statScale) || statScale === 0) continue;
+
+    scalings[key] = { scaleType, statScale };
+  }
+
+  return scalings;
 }
 
 function deriveTags(raw: UpgradeV2Raw, parsedStats: Record<string, number>): ItemTag[] {
@@ -101,6 +132,7 @@ export function normalizeItem(raw: UpgradeV2Raw): Item {
     cost: Number(raw.cost),
     tags: tags.length > 0 ? tags : ["utility"],
     stats: parsedStats,
+    statScaling: parseStatScaling(raw, parsedStats),
     icon: firstNonEmpty(
       raw.shop_image_webp,
       raw.shop_image,

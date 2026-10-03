@@ -240,6 +240,137 @@ function emptyCategoryValues(): Record<ScoreCategory, number> {
   return values;
 }
 
+/**
+ * The player stats that item values scale off, for `resolveScaledStats`.
+ *
+ * Every field is optional and defaults to 0, which reproduces the unscaled
+ * base value exactly — so omitting the context is identical to this module's
+ * behaviour before scaling was read, and no caller is silently changed.
+ *
+ * Verified live against all 173 shopable items: of the 8 scaling types the API
+ * publishes, only TWO have a source that is knowable while a basket is being
+ * CHOSEN, and the split matters:
+ *
+ *  - `spiritPower` (ETechPower — 29 properties on 22 items, the big one) and
+ *    `boonLevel` (ELevelUpBoons — 8 properties) come from the HERO, so they
+ *    are known up front.
+ *  - cooldown reduction, tech duration, tech range, healing output and channel
+ *    duration are supplied by OTHER ITEMS (`ItemCooldownReduction`,
+ *    `BonusAbilityDurationPercent`, `TechRangeMultiplier`, `HealAmp*`…). During
+ *    basket selection those are circular — an item's value would depend on
+ *    which other items get picked — so they resolve against the ALREADY-OWNED
+ *    build, never the basket under construction. Candidate-on-candidate
+ *    scaling is deliberately not modelled; that is item x item, i.e. the
+ *    Milestone F covariance layer.
+ *  - `EBuildUpRate` has no supplier key anywhere in the catalogue, so there is
+ *    nothing to resolve it against at all. Captured, never applied.
+ */
+export type ItemValuationContext = {
+  /** Spirit power. Hero base at the evaluated boon + already-owned items. */
+  spiritPower?: number;
+  /** Boon level, 0-35. */
+  boonLevel?: number;
+  /** From already-owned items only — see the circularity note above. */
+  cooldownReduction?: number;
+  techDuration?: number;
+  techRange?: number;
+  healingOutput?: number;
+  channelDuration?: number;
+};
+
+/**
+ * Maps a published `specific_stat_scale_type` to the context field that
+ * supplies it. A type absent here resolves to base — unmapped scaling is
+ * ignored rather than guessed, the same policy STAT_KEY_TO_SCORE applies to
+ * unmapped stat keys.
+ */
+const SCALE_TYPE_TO_CONTEXT: Readonly<Record<string, keyof ItemValuationContext>> = {
+  ETechPower: "spiritPower",
+  ELevelUpBoons: "boonLevel",
+  EItemCooldown: "cooldownReduction",
+  ETechDuration: "techDuration",
+  ETechRange: "techRange",
+  EHealingOutput: "healingOutput",
+  EChannelDuration: "channelDuration",
+  // EBuildUpRate: no supplier exists in the catalogue — intentionally absent.
+};
+
+/**
+ * Applies published scaling coefficients to an item's base stats.
+ *
+ * Deadlock item values are not flat: Mystic Shot's `ProcBonusMagicDamage` is
+ * `40 + 0.9 x spirit power`. Reading only the base understates the
+ * ETechPower-scaled properties by a median 1.5x and Mystic Shot by 3.3x at 100
+ * spirit. Additive, matching ability scaling exactly (see
+ * `calculateAbilityDamage` in lib/abilityCoefficients.ts).
+ *
+ * Sign is preserved deliberately: `Alchemical Fire`'s `BulletArmorReduction` is
+ * -7 scaling at -0.055, so scaling makes the shred STRONGER (more negative).
+ * Clamping to positive here would silently invert enemy-debuff items — see the
+ * sign-convention warning in CLAUDE.md.
+ */
+export function resolveScaledStats(item: Item, ctx?: ItemValuationContext): ItemStats {
+  if (!ctx) return item.stats;
+
+  const scalings = item.statScaling;
+  let resolved: ItemStats | null = null;
+
+  for (const [key, scaling] of Object.entries(scalings)) {
+    const field = SCALE_TYPE_TO_CONTEXT[scaling.scaleType];
+    if (!field) continue; // unmapped scale type — never guessed
+
+    const statValue = ctx[field];
+    if (typeof statValue !== "number" || !Number.isFinite(statValue) || statValue === 0) continue;
+
+    const base = item.stats[key];
+    if (typeof base !== "number" || !Number.isFinite(base)) continue;
+
+    const scaled = base + statValue * scaling.statScale;
+    if (!Number.isFinite(scaled)) continue;
+
+    // Copy lazily: an item with no applicable scaling keeps its original
+    // object, so this is free for the majority of the catalogue.
+    resolved ??= { ...item.stats };
+    resolved[key] = scaled;
+  }
+
+  return resolved ?? item.stats;
+}
+
+/**
+ * Share of an item's total scored magnitude that is delivered PER WEAPON HIT,
+ * in [0, 1]. 0 for an item with no per-hit mechanic at all.
+ *
+ * Hero-independent by construction — this module never sees a hero. It answers
+ * only "how much of this item's worth rides on landing bullets", leaving the
+ * hero-specific half (how fast and how reliably they land them) to
+ * `procPlatformTerm` in basketSelect.ts. Keeping the two apart is what stops
+ * per-item constants from being inflated to compensate for one hero.
+ *
+ * Measured on absolute magnitudes so a negative drawback elsewhere on the item
+ * cannot cancel out and overstate the per-hit share.
+ */
+function deriveProcReliance(stats: ItemStats): number {
+  let perHit = 0;
+  let total = 0;
+
+  for (const estimate of estimateEffectValues(stats)) {
+    const mag = Math.abs(estimate.value);
+    total += mag;
+    if (estimate.perHit) perHit += mag;
+  }
+
+  for (const [key, rawValue] of Object.entries(stats)) {
+    if (!Number.isFinite(rawValue)) continue;
+    const mapping = STAT_KEY_TO_SCORE[key];
+    if (!mapping) continue;
+    total += Math.abs(rawValue * mapping.weight);
+  }
+
+  if (!(total > 0) || !(perHit > 0)) return 0;
+  return Math.min(1, perHit / total);
+}
+
 function deriveCategoryValues(stats: ItemStats): Record<ScoreCategory, number> {
   const values = emptyCategoryValues();
 
@@ -271,18 +402,28 @@ function deriveCategoryValues(stats: ItemStats): Record<ScoreCategory, number> {
   return values;
 }
 
-export function toItemCandidate(item: Item): ItemCandidate {
+/**
+ * `ctx` resolves published scaling coefficients against the player's stats —
+ * see `resolveScaledStats`. Omitted, values are the unscaled bases exactly as
+ * before, so this stays a pure per-item function for callers with no hero.
+ */
+export function toItemCandidate(item: Item, ctx?: ItemValuationContext): ItemCandidate {
+  const stats = resolveScaledStats(item, ctx);
   return {
     itemId: item.id,
     numericId: item.numericId,
     name: item.name,
     category: item.category,
     cost: item.cost,
-    categoryValues: deriveCategoryValues(item.stats),
+    categoryValues: deriveCategoryValues(stats),
+    procReliance: deriveProcReliance(stats),
     tags: item.tags,
   };
 }
 
-export function toItemCandidates(items: ReadonlyArray<Item>): ItemCandidate[] {
-  return items.map(toItemCandidate);
+export function toItemCandidates(
+  items: ReadonlyArray<Item>,
+  ctx?: ItemValuationContext,
+): ItemCandidate[] {
+  return items.map((item) => toItemCandidate(item, ctx));
 }

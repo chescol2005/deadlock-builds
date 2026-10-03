@@ -12,6 +12,25 @@ export type HeroBaseStats = {
   // must treat 0 as "unknown," never as a real zero-DPS weapon. Used by
   // lib/engine/heroNeed.ts to discount nominal gun DPS by reload uptime.
   dpsWithReload: number;
+  // Weapon class name from hero.items.weapon_primary (e.g.
+  // "citadel_weapon_necro_set"). Carried so lib/engine/heroNeed.ts can apply
+  // per-weapon range-profile exceptions, since some weapons' falloff_* fields
+  // do not mean what they mean on every other weapon. "" when unavailable.
+  weaponClass: string;
+  // Damage-falloff profile, converted to METRES at fetch time (the API reports
+  // source units; / 39.37). Full damage holds to falloffStartRange, then scales
+  // toward falloffEndScale -- the fraction of damage RETAINED at and beyond
+  // falloffEndRange -- reached at falloffEndRange. maxRange is the hard travel
+  // cap past which the weapon deals nothing at all.
+  //
+  // All 0 when no weapon_info was available; consumers must treat a 0
+  // falloffEndRange as "unknown" and apply no discount, never as a weapon that
+  // deals zero damage everywhere.
+  falloffStartRange: number;
+  falloffEndRange: number;
+  falloffStartScale: number;
+  falloffEndScale: number;
+  maxRange: number;
   lightMeleeDamage: number;
   lightMeleePerBoon: number;
   heavyMeleeDamage: number;

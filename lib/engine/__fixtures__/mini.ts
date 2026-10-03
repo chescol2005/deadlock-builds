@@ -10,11 +10,17 @@ import type { ItemAnalytics } from "../../analyticsStore";
 import type { HeroAbility, AbilityUpgradeTier } from "../../abilityCoefficients";
 import type { HeroBaseStats } from "../../heroStats";
 import type { Item } from "../../items";
-import { analyticsTerm, constructBasket, makeBasketContext } from "../basketSelect";
+import {
+  analyticsTerm,
+  constructBasket,
+  coverageTerm,
+  makeBasketContext,
+  procPlatformTerm,
+} from "../basketSelect";
 import { estimateEffectValues } from "../effectEstimator";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
-import { toItemCandidate } from "../itemAdapter";
+import { resolveScaledStats, toItemCandidate } from "../itemAdapter";
 import { baseCategoryStage } from "../stages/baseCategoryStage";
 import { intentWeightStage } from "../stages/intentWeightStage";
 import type {
@@ -56,6 +62,9 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: ["burst", "damage"],
   },
   {
@@ -78,6 +87,9 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: ["tank", "armor"],
   },
   {
@@ -100,6 +112,9 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 0,
       economy: 0,
     },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: ["mobility", "speed"],
   },
   {
@@ -122,6 +137,9 @@ const candidates: ReadonlyArray<ItemCandidate> = [
       utility: 10,
       economy: 5,
     },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: ["sustain", "lifesteal", "heal"],
   },
 ];
@@ -267,6 +285,7 @@ console.log("\n6. itemAdapter: Item -> ItemCandidate");
       AbilityCooldownBetweenCharge: -1,
       ChannelMoveSpeed: -1,
     },
+    statScaling: {},
   };
 
   const candidate = toItemCandidate(item);
@@ -316,6 +335,7 @@ console.log("\n6. itemAdapter: Item -> ItemCandidate");
   const altSpirit = toItemCandidate({
     ...item,
     stats: { SpiritPower: 20 },
+    statScaling: {},
   });
   assert(
     altSpirit.categoryValues.spiritDamage === 20,
@@ -361,6 +381,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { DamagePerChain: 33, ChainCount: 4, ProcChance: 15 },
+    statScaling: {},
   });
   assert(
     proc.categoryValues.gunDamage > 0,
@@ -386,6 +407,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { WeaponPower: 19.8 },
+    statScaling: {},
   });
   assert(
     measured.categoryValues.gunDamage > proc.categoryValues.gunDamage,
@@ -408,6 +430,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 6400,
     tags: [],
     stats: { MagicResistReduction: -9, TechArmorDamageReduction: -6 },
+    statScaling: {},
   });
   assert(
     shred.categoryValues.spiritShred > 0 && shred.categoryValues.spiritDamage === 0,
@@ -426,6 +449,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { BulletArmorReduction: -10 },
+    statScaling: {},
   });
   assert(
     bulletShred.categoryValues.gunShred > 0 && bulletShred.categoryValues.spiritShred === 0,
@@ -445,6 +469,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { HealAmpReceivePenaltyPercent: -35, HealAmpRegenPenaltyPercent: -35 },
+    statScaling: {},
   });
   assert(
     antiHeal.categoryValues.antiHeal > 0,
@@ -460,6 +485,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { HealAmpReceivePenaltyPercent: -35 },
+    statScaling: {},
   });
   assert(
     antiHeal.categoryValues.antiHeal === antiHealSingle.categoryValues.antiHeal,
@@ -478,6 +504,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 6400,
     tags: [],
     stats: { TechPowerReduction: -30 },
+    statScaling: {},
   });
   assert(
     outputCut.categoryValues.utility > 0 && outputCut.categoryValues.spiritShred === 0,
@@ -495,6 +522,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 6400,
     tags: [],
     stats: { RicochetDamagePercent: 65 },
+    statScaling: {},
   });
   assert(
     aoe.categoryValues.economy > 0,
@@ -512,6 +540,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 3200,
     tags: [],
     stats: { BonusMoveSpeed: -0.5 },
+    statScaling: {},
   });
   assert(
     selfDebuff.categoryValues.mobility < 0,
@@ -543,6 +572,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 1600,
     tags: [],
     stats: { StackingGoldPerMinute: 18, MaxStacks: 16, NonPlayerBonusWeaponPower: -15 },
+    statScaling: {},
   });
   assert(
     earner.categoryValues.economy > 0,
@@ -560,6 +590,7 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     cost: 1600,
     tags: [],
     stats: { StackingGoldPerMinute: 18, MaxStacks: 16 },
+    statScaling: {},
   });
   assert(
     earnerNoPenalty.categoryValues.economy > earner.categoryValues.economy,
@@ -621,6 +652,16 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
     // discount), so every existing fixture below keeps its exact prior
     // behavior. Fixtures testing the reload discount override this directly.
     dpsWithReload: 0,
+    // No weapon class and an all-zero falloff profile = "no weapon_info data",
+    // which rangeEfficiency() treats as flat (multiplier 1, no discount), so
+    // every pre-existing fixture below keeps its exact prior behavior.
+    // Fixtures testing the range discount override these directly.
+    weaponClass: "",
+    falloffStartRange: 0,
+    falloffEndRange: 0,
+    falloffStartScale: 1,
+    falloffEndScale: 1,
+    maxRange: 0,
     lightMeleeDamage: 60,
     lightMeleePerBoon: 2,
     heavyMeleeDamage: 100,
@@ -753,9 +794,12 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
       `marksman=${marksmanNeed.gunDamage}, sprayer=${sprayerNeed.gunDamage}`,
     );
 
-    // A hero with NO accuracy data (verified live: Graves records zero shots)
-    // must not be left undiscounted while every peer is discounted — that would
-    // inflate them into looking like the best gun in the roster.
+    // A hero with no accuracy data and NO cannot-miss override has genuinely
+    // UNKNOWN accuracy and must not be left undiscounted while every peer is
+    // discounted — that would inflate them into looking like the best gun in
+    // the roster. Verified live: 5 heroes are in this state (Deadman Danny,
+    // Solomon, Violet, Nurse Harrow, Baba — all recent additions with no match
+    // data), so this is the common case, not an edge case.
     const unknown = { ...mkHero(14, 700, 8), bulletDamage: 20, bulletDamagePerBoon: 1.0 };
     unknown.bulletsPerSecond = 6;
     const withUnknown = deriveHeroNeedVector({
@@ -767,8 +811,31 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
     assert(
       Number.isFinite(withUnknown.gunDamage) &&
         withUnknown.gunDamage <= marksmanNeed.gunDamage + 1e-9,
-      "a hero with no accuracy data falls back to median, never to an undiscounted advantage",
+      "a hero with no accuracy data and no cannot-miss override falls back to median, never to an undiscounted advantage",
       `unknown=${withUnknown.gunDamage}, marksman=${marksmanNeed.gunDamage}`,
+    );
+
+    // The cannot-miss override is what separates "accuracy inapplicable" from
+    // "accuracy unknown". Same gun, same absence from the map, different
+    // meaning — and it must resolve to exactly an explicit 1.0 entry.
+    const beam = { ...unknown, heroId: 15, weaponClass: "citadel_weapon_necro_set" };
+    const beamRoster = [...accRoster, beam];
+    const beamNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: beam,
+      roster: beamRoster,
+      gunAccuracyByHeroId: accuracy, // no entry for hero 15 either
+    });
+    const beamExplicit = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: beam,
+      roster: beamRoster,
+      gunAccuracyByHeroId: new Map([...accuracy, [15, 1]]),
+    });
+    assert(
+      Math.abs(beamNeed.gunDamage - beamExplicit.gunDamage) < 1e-9,
+      "a cannot-miss weapon absent from the accuracy map resolves to exactly an explicit 1.0 entry, not the median",
+      `absent=${beamNeed.gunDamage}, explicit1.0=${beamExplicit.gunDamage}`,
     );
 
     // Rank enters as a different accuracy map for the same hero: higher-ranked
@@ -872,6 +939,164 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
       Number.isFinite(noReloadData.gunDamage) && noReloadData.gunDamage > 0,
       "with no reload data supplied (dpsWithReload = 0), gun need still derives from the nominal product unmodified",
       `Got: ${noReloadData.gunDamage}`,
+    );
+  }
+
+  // ── Range-falloff discount ──
+  // A weapon that loses damage at range lands less of its nominal DPS. This is
+  // ORTHOGONAL to accuracy: accuracy says which shots hit, falloff says how
+  // much a hit deals, so both apply without double-counting.
+  {
+    // Short-range vs long-range, identical guns otherwise. Falloff ranges are
+    // in METRES (converted at fetch time), against ENGAGEMENT_RANGE_WEIGHTS'
+    // 5-30m band.
+    const shortRange = {
+      ...mkHero(30, 700, 8),
+      falloffStartRange: 8,
+      falloffEndRange: 18,
+      falloffEndScale: 0.1,
+      maxRange: 178,
+    };
+    const longRange = {
+      ...mkHero(31, 700, 8),
+      falloffStartRange: 22,
+      falloffEndRange: 58,
+      falloffEndScale: 0.1,
+      maxRange: 178,
+    };
+    const rangeRoster = [shortRange, longRange, mkHero(32, 700, 8), mkHero(33, 700, 8)];
+
+    const shortNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: shortRange,
+      roster: rangeRoster,
+    });
+    const longNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: longRange,
+      roster: rangeRoster,
+    });
+    assert(
+      longNeed.gunDamage > shortNeed.gunDamage,
+      "identical guns diverge on range profile -- the one that holds damage at range is worth investing in more",
+      `long=${longNeed.gunDamage}, short=${shortNeed.gunDamage}`,
+    );
+
+    // HARD_CUTOFF_WEAPON_CLASSES: Graves' The Teacher deals FULL damage inside
+    // 17m and ZERO past it. Read generically, end_scale 0.5 would instead say
+    // "50% damage past 17m" -- understating her in-range damage and
+    // overstating her out-of-range damage simultaneously. The exception must
+    // actually bite, so these two must not score the same.
+    const teacher = {
+      ...mkHero(34, 700, 8),
+      weaponClass: "citadel_weapon_necro_set",
+      falloffStartRange: 7.62,
+      falloffEndRange: 17.02,
+      falloffEndScale: 0.5,
+      maxRange: 178,
+    };
+    // Both variants share ONE roster: compared against a roster of neutral
+    // (no-falloff) heroes only, each is such an outlier that the z-score
+    // saturates Z_SCORE_CLAMP and both floor to MIN_GUN_FACTOR, hiding the very
+    // difference under test. Same baseline for both is also the correct
+    // comparison -- gun need is relative to the roster.
+    const asIfGeneric = { ...teacher, heroId: 44, weaponClass: "some_other_weapon" };
+    const cutoffRoster = [teacher, asIfGeneric, mkHero(35, 700, 8), mkHero(36, 700, 8)];
+    const teacherNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: teacher,
+      roster: cutoffRoster,
+    });
+    const genericNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: asIfGeneric,
+      roster: cutoffRoster,
+    });
+    assert(
+      Math.abs(teacherNeed.gunDamage - genericNeed.gunDamage) > 1e-9,
+      "a hard-cutoff weapon is NOT scored as a generic falloff curve -- the hand-authored exception changes the result",
+      `teacher=${teacherNeed.gunDamage}, asGeneric=${genericNeed.gunDamage}`,
+    );
+
+    // The multiplier for a hard-cutoff weapon is exactly the share of
+    // ENGAGEMENT_RANGE_WEIGHTS inside the cutoff. At 17m that is the 5/10/15m
+    // buckets = 0.08 + 0.20 + 0.27 = 0.55. Locking the calibration: if the
+    // weights are retuned, this is the assertion that should force a decision.
+    const inRangeShare = 0.08 + 0.2 + 0.27;
+    const wideCutoff = { ...teacher, heroId: 37, falloffEndRange: 999 };
+    const wideRoster = [wideCutoff, mkHero(35, 700, 8), mkHero(36, 700, 8)];
+    const wideNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: wideCutoff,
+      roster: wideRoster,
+    });
+    assert(
+      inRangeShare === 0.55 && wideNeed.gunDamage > teacherNeed.gunDamage,
+      "the 17m cutoff keeps only the 0.55 weight inside range, so a wider cutoff on the same gun scores strictly higher",
+      `inRangeShare=${inRangeShare}, wide=${wideNeed.gunDamage}, cutoff17m=${teacherNeed.gunDamage}`,
+    );
+
+    // Past maxRange a generic weapon deals nothing, but MIN_RANGE_EFFICIENCY
+    // must keep the multiplier off exactly 0 -- a 0 would drop the hero out of
+    // the roster baseline entirely instead of merely ranking them last. Same
+    // hazard class as MIN_GUN_FACTOR.
+    const unusable = { ...mkHero(38, 700, 8), maxRange: 1, falloffEndRange: 0 };
+    const unusableNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: unusable,
+      roster: [unusable, mkHero(39, 700, 8), mkHero(40, 700, 8)],
+    });
+    assert(
+      unusableNeed.gunDamage > 0,
+      "a weapon unusable at every sampled range still floors strictly above zero, never dropping out of the comparison",
+      `Got: ${unusableNeed.gunDamage}`,
+    );
+
+    // Fail-open: every fixture predating this change leaves the falloff fields
+    // at mkHero's zeros, which must read as "unknown" -> flat, no discount.
+    const noRangeData = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: mkHero(41, 700, 8),
+      roster: [mkHero(41, 700, 8), mkHero(42, 700, 8)],
+    });
+    assert(
+      Number.isFinite(noRangeData.gunDamage) && noRangeData.gunDamage > 0,
+      "with no falloff data supplied, gun need derives unmodified (no silent zero-damage weapon)",
+      `Got: ${noRangeData.gunDamage}`,
+    );
+  }
+
+  // ── Cannot-miss accuracy fallback ──
+  // A hero absent from the accuracy map has no shot data at all, which means a
+  // weapon whose shots are not counted discretely -- one that cannot miss.
+  // Verified live: Graves alone, hit = 0 AND miss = 0 over 536,097 matches.
+  // Previously this fell back to the roster median (0.515), charging her a
+  // fabricated ~48% miss rate that was really standing in for the range
+  // weakness rangeEfficiency() now carries from real weapon data.
+  {
+    // The cannot-miss hero carries the override; the comparison hero is an
+    // identical gun measured at a poor 40%.
+    const beamHero = { ...mkHero(50, 700, 8), weaponClass: "citadel_weapon_necro_set" };
+    const measured = mkHero(51, 700, 8);
+    const accRoster = [beamHero, measured];
+    const accuracy = new Map<number, number>([[51, 0.4]]);
+
+    const beamNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: beamHero,
+      roster: accRoster,
+      gunAccuracyByHeroId: accuracy,
+    });
+    const measuredNeed = deriveHeroNeedVector({
+      abilities: spiritKit,
+      baseStats: measured,
+      roster: accRoster,
+      gunAccuracyByHeroId: accuracy,
+    });
+    assert(
+      beamNeed.gunDamage > measuredNeed.gunDamage,
+      "a cannot-miss weapon outranks an identical gun measured at 40% accuracy",
+      `beam=${beamNeed.gunDamage}, measured=${measuredNeed.gunDamage}`,
     );
   }
 
@@ -1013,6 +1238,9 @@ function mkCandidate(
     category,
     cost,
     categoryValues: { ...zeroValues(), ...values },
+    // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
+    // pre-existing assertion in this file is unaffected.
+    procReliance: 0,
     tags: [],
   };
 }
@@ -1186,6 +1414,189 @@ console.log("\n9. basketSelect: empirical analytics term gating");
   assert(
     analyticsTerm.evaluate(basketCandidates[1], state, noAnalyticsCtx) === null,
     "with no analytics map supplied the term is inert (engine stays pure/offline)",
+  );
+}
+
+console.log("\n10. basketSelect: per-hit proc platform term");
+{
+  // Same gun, same cost, same coverage -- one is a flat-stat item, the other
+  // delivers most of its value per weapon hit.
+  const flatItem = mkCandidate("flat_gun", 201, "gun", 1000, { gunDamage: 100 });
+  const procItem = {
+    ...mkCandidate("proc_gun", 202, "gun", 1000, { gunDamage: 100 }),
+    procReliance: 0.8,
+  };
+
+  const state: BasketState = {
+    picked: [],
+    coverage: zeroValues(),
+    soulsPerCategory: { gun: 0, spirit: 0, vitality: 0 },
+    spent: 0,
+  };
+  const ctxFor = (procPlatformFactor?: number) =>
+    makeBasketContext({
+      needVector: splitNeed,
+      soulBudget: 10000,
+      maxItems: 12,
+      procPlatformFactor,
+    });
+
+  // A hero who lands hits better than roster average.
+  const goodCtx = ctxFor(1.3);
+  const procGood = procPlatformTerm.evaluate(procItem, state, goodCtx);
+  const flatGood = procPlatformTerm.evaluate(flatItem, state, goodCtx);
+  assert(
+    procGood !== null && procGood.value > 0,
+    "a per-hit item gains value for a hero who lands hits better than roster average",
+    `Got: ${JSON.stringify(procGood)}`,
+  );
+  assert(
+    flatGood === null,
+    "a flat-stat item (procReliance 0) is untouched by the proc term",
+    `Got: ${JSON.stringify(flatGood)}`,
+  );
+
+  // ...and loses it for a hero who lands them worse. This is a DIFFERENTIAL
+  // signal, not a blanket bonus for every per-hit item.
+  const procBad = procPlatformTerm.evaluate(procItem, state, ctxFor(0.7));
+  assert(
+    procBad !== null && procBad.value < 0,
+    "the same per-hit item loses value for a hero who lands hits worse than average",
+    `Got: ${JSON.stringify(procBad)}`,
+  );
+
+  // Exactly roster-average contributes nothing, so the term cannot act as a
+  // silent across-the-board bonus for every proc item.
+  assert(
+    procPlatformTerm.evaluate(procItem, state, ctxFor(1)) === null,
+    "a roster-average platform (factor 1.0) contributes nothing",
+  );
+
+  // Omitted factor => inert. An absent factor must never bias a basket.
+  assert(
+    procPlatformTerm.evaluate(procItem, state, ctxFor(undefined)) === null,
+    "with no procPlatformFactor supplied the term is inert",
+  );
+
+  // Relevance gate, same as analyticsTerm: a per-hit item covering no un-met
+  // need must not become worth buying just because the hero lands hits well.
+  const irrelevantProc = {
+    ...mkCandidate("proc_filler", 203, "vitality", 900, { bonusHealth: 100 }),
+    procReliance: 1,
+  };
+  const gunOnlyCtx = makeBasketContext({
+    needVector: { ...splitNeed, bonusHealth: 0, resist: 0, shield: 0 },
+    soulBudget: 10000,
+    maxItems: 12,
+    procPlatformFactor: 1.3,
+  });
+  assert(
+    procPlatformTerm.evaluate(irrelevantProc, state, gunOnlyCtx) === null,
+    "a per-hit item covering no un-met need is still rejected -- the relevance gate wins",
+  );
+
+  // Bounded: one slot of coverage must dominate the nudge, or a proc item could
+  // outrank a strictly better-covering one.
+  const coverage = coverageTerm.evaluate(procItem, state, goodCtx);
+  assert(
+    coverage !== null && procGood !== null && Math.abs(procGood.value) < coverage.value,
+    "the proc nudge stays small relative to one slot of coverage",
+    `proc=${procGood?.value}, coverage=${coverage?.value}`,
+  );
+
+  // Scaling is proportional to how much of the item is per-hit.
+  const half = procPlatformTerm.evaluate({ ...procItem, procReliance: 0.4 }, state, goodCtx);
+  assert(
+    half !== null && procGood !== null && half.value < procGood.value,
+    "a less per-hit-reliant item gains proportionally less",
+    `half=${half?.value}, full=${procGood?.value}`,
+  );
+}
+
+console.log("\n11. itemAdapter: published scaling coefficients");
+{
+  // Modelled on the real Mystic Shot: ProcBonusMagicDamage 40 scaling at 0.9
+  // per point of spirit power, plus a flat SpiritPower 7. Verified live.
+  const mysticShot: Item = {
+    id: "mystic_shot",
+    numericId: 7001,
+    name: "Mystic Shot",
+    category: "gun",
+    tier: 1,
+    cost: 1600,
+    tags: [],
+    stats: { ProcBonusMagicDamage: 40, ProcChance: 100, SpiritPower: 7 },
+    statScaling: { ProcBonusMagicDamage: { scaleType: "ETechPower", statScale: 0.9 } },
+  };
+
+  // No context => unscaled base, byte-identical to the pre-scaling behaviour.
+  const flat = resolveScaledStats(mysticShot);
+  assert(
+    flat.ProcBonusMagicDamage === 40,
+    "with no valuation context the base value is returned unscaled",
+    `Got: ${flat.ProcBonusMagicDamage}`,
+  );
+
+  // 40 + 0.9 x 100 = 130. Additive, matching ability scaling exactly.
+  const at100 = resolveScaledStats(mysticShot, { spiritPower: 100 });
+  assert(
+    Math.abs(at100.ProcBonusMagicDamage - 130) < 1e-9,
+    "ETechPower scaling is additive: base + statScale x spiritPower",
+    `Got: ${at100.ProcBonusMagicDamage}`,
+  );
+
+  // Unscaled stats on the same item must pass through untouched.
+  assert(
+    at100.SpiritPower === 7 && at100.ProcChance === 100,
+    "stats without a published coefficient are left exactly as-is",
+    `Got: SpiritPower=${at100.SpiritPower}, ProcChance=${at100.ProcChance}`,
+  );
+
+  // A scale type with no context field (EBuildUpRate has no supplier anywhere
+  // in the catalogue) must resolve to base rather than being guessed at.
+  const unmapped: Item = {
+    ...mysticShot,
+    id: "unmapped_scale",
+    statScaling: { ProcBonusMagicDamage: { scaleType: "EBuildUpRate", statScale: 5 } },
+  };
+  assert(
+    resolveScaledStats(unmapped, { spiritPower: 100 }).ProcBonusMagicDamage === 40,
+    "an unmapped scale type resolves to base -- unmapped scaling is ignored, never guessed",
+  );
+
+  // Sign preservation: Alchemical Fire's BulletArmorReduction is -7 scaling at
+  // -0.055, so scaling makes the shred STRONGER (more negative). Clamping to
+  // positive here would silently invert every enemy-debuff item.
+  const shred: Item = {
+    ...mysticShot,
+    id: "alchemical_fire",
+    stats: { BulletArmorReduction: -7 },
+    statScaling: { BulletArmorReduction: { scaleType: "ETechPower", statScale: -0.055 } },
+  };
+  const shredAt100 = resolveScaledStats(shred, { spiritPower: 100 });
+  assert(
+    Math.abs(shredAt100.BulletArmorReduction - -12.5) < 1e-9,
+    "a negative enemy-debuff value scales further negative, never flipped positive",
+    `Got: ${shredAt100.BulletArmorReduction}`,
+  );
+
+  // End to end: scaling must actually raise the candidate's scored value, or
+  // none of the above reaches the basket.
+  const scaledCandidate = toItemCandidate(mysticShot, { spiritPower: 100 });
+  const flatCandidate = toItemCandidate(mysticShot);
+  assert(
+    scaledCandidate.categoryValues.spiritDamage > flatCandidate.categoryValues.spiritDamage,
+    "a spirit-scaled item scores strictly higher for a high-spirit hero than when priced flat",
+    `scaled=${scaledCandidate.categoryValues.spiritDamage}, flat=${flatCandidate.categoryValues.spiritDamage}`,
+  );
+
+  // Zero spirit power must behave exactly like no context -- not like a
+  // partially-applied scale.
+  const atZero = toItemCandidate(mysticShot, { spiritPower: 0 });
+  assert(
+    atZero.categoryValues.spiritDamage === flatCandidate.categoryValues.spiritDamage,
+    "zero spirit power resolves identically to no context at all",
+    `zero=${atZero.categoryValues.spiritDamage}, flat=${flatCandidate.categoryValues.spiritDamage}`,
   );
 }
 

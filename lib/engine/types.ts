@@ -64,6 +64,16 @@ export interface ItemCandidate {
   category: ItemCategory;
   cost: number;
   categoryValues: Readonly<Record<ScoreCategory, number>>;
+  /**
+   * Share of this item's scored magnitude delivered PER WEAPON HIT, in [0, 1]
+   * (bullet procs, on-hit build-ups, per-shot bounces). 0 for items with no
+   * per-hit mechanic.
+   *
+   * Hero-independent: it says how much of the item rides on landing bullets,
+   * NOT how well a given hero lands them. `procPlatformTerm` supplies the
+   * hero half.
+   */
+  procReliance: number;
   tags: ReadonlyArray<string>;
 }
 
@@ -139,6 +149,15 @@ export interface BasketContext {
    * ALWAYS passed in — never fetched inside the engine, which must stay pure.
    */
   itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
+  /**
+   * How good this hero is as a platform for per-hit effects, relative to the
+   * roster: shots landed per second versus peers. 1 = roster-average, >1 better.
+   *
+   * ALWAYS passed in (derived by `deriveProcPlatformFactor` in heroNeed.ts) —
+   * never computed inside basketSelect, which sees no hero stats. Omitted, the
+   * proc term is inert, so an omitted factor can never silently bias a basket.
+   */
+  procPlatformFactor?: number;
 }
 
 /**

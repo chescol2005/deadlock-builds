@@ -71,6 +71,68 @@ const GUN_EVAL_BOON = 35;
 // far below the best.
 const MIN_GUN_FACTOR = 0.15;
 
+// Assumed distribution of gun-combat engagement ranges, in metres, used to turn
+// a weapon's damage-falloff curve into one expected-damage multiplier.
+//
+// These weights are an ASSUMPTION, not a measurement. No endpoint on
+// deadlock-api.com reports engagement distance, so nothing in the data can
+// settle them; they are the "lane-typical" calibration, deliberately weighted
+// toward mid-range lane fights. Retune HERE, in one place, rather than
+// scattering range constants through the module. Weights must sum to 1.
+//
+// What the choice controls: for a weapon with a hard cutoff, the multiplier is
+// exactly the share of weight inside that cutoff. For Graves (17m) this
+// distribution puts 55% of engagements in range, so her multiplier is 0.550.
+const ENGAGEMENT_RANGE_WEIGHTS: ReadonlyArray<readonly [metres: number, weight: number]> = [
+  [5, 0.08],
+  [10, 0.2],
+  [15, 0.27],
+  [20, 0.22],
+  [25, 0.15],
+  [30, 0.08],
+];
+
+// Per-weapon corrections where the generic reading of the API data is wrong.
+//
+// Hand-authored game knowledge, with the same upkeep shape as GOAL_WEIGHTS_MAP:
+// nothing in weapon_info distinguishes either case below, so if another weapon
+// shares a quirk we cannot detect it from data and would silently mis-model it.
+// One table rather than two sets, so a newly-identified weapon cannot be added
+// to one list and forgotten in the other.
+type WeaponProfileOverride = {
+  // The damage_falloff_* fields are NOT a damage curve: the weapon deals full
+  // damage out to falloffEndRange and ZERO past it.
+  //
+  // Graves' The Teacher reports 7.62m->17.02m at end_scale 0.5, which reads
+  // generically as "50% damage past 17m". It is not: her weapon has no damage
+  // falloff, and those range fields drive her Build-Up per bullet (most notably
+  // Essence Theft) instead. Reading them generically understates her in-range
+  // damage AND overstates her out-of-range damage simultaneously.
+  readonly hardCutoffAtFalloffEnd?: boolean;
+  // Shots are not counted discretely, so the weapon cannot miss and observed
+  // accuracy is not merely missing but inapplicable.
+  //
+  // Verified live: Graves has an analytics row over 536,097 matches reporting
+  // total_shots_hit = 0 AND total_shots_missed = 0. This is NOT the same as a
+  // hero absent from analytics altogether — see the fallback in effectiveGunDps.
+  readonly cannotMiss?: boolean;
+};
+const WEAPON_PROFILE_OVERRIDES: ReadonlyMap<string, WeaponProfileOverride> = new Map([
+  // Graves — The Teacher
+  ["citadel_weapon_necro_set", { hardCutoffAtFalloffEnd: true, cannotMiss: true }],
+]);
+
+// How far a fully-clamped z-score moves the proc-platform factor from 1.0:
+// the roster's best per-hit platform reads 1.35 and the worst 0.65, a ~2x
+// spread. Deliberately bounded well below the coverage term's influence — this
+// adjusts the ranking among per-hit items, it does not decide the basket.
+const PROC_PLATFORM_SWING = 0.35;
+
+// Floor on the range multiplier, for exactly the MIN_GUN_FACTOR reason: a
+// multiplier of 0 would zero a hero's effective gun DPS, which then gets
+// filtered out of the roster baseline entirely rather than merely ranking last.
+const MIN_RANGE_EFFICIENCY = 0.05;
+
 // Cross-hero normalization needs at least 2 heroes to compute a standard
 // deviation at all.
 const MIN_ROSTER_FOR_NORMALIZATION = 2;
@@ -228,6 +290,54 @@ function median(values: ReadonlyArray<number>): number | null {
 }
 
 /**
+ * Fraction of this weapon's damage that lands at distance `d` metres.
+ *
+ * Linear between start and end because damage_falloff_bias is 0.5 on all 44
+ * live heroes (verified) — a uniform shape cannot reorder a cross-hero z-score,
+ * so a more faithful curve would add precision the ranking cannot use.
+ *
+ * Fails open at 1 (no discount) when the profile is missing or degenerate,
+ * matching how this module already treats absent reload and accuracy data.
+ */
+function damageScaleAtRange(stats: HeroBaseStats, d: number): number {
+  if (WEAPON_PROFILE_OVERRIDES.get(stats.weaponClass)?.hardCutoffAtFalloffEnd) {
+    // No falloff — full damage inside the cutoff, nothing at all outside it.
+    return stats.falloffEndRange > 0 && d > stats.falloffEndRange ? 0 : 1;
+  }
+
+  if (stats.maxRange > 0 && d > stats.maxRange) return 0;
+
+  // No usable profile -> treat as flat. Guards the no-weapon_info case (all
+  // zeros) and any inverted/degenerate range pair.
+  if (!(stats.falloffEndRange > stats.falloffStartRange)) return 1;
+
+  if (d <= stats.falloffStartRange) return stats.falloffStartScale;
+  if (d >= stats.falloffEndRange) return stats.falloffEndScale;
+
+  const t = (d - stats.falloffStartRange) / (stats.falloffEndRange - stats.falloffStartRange);
+  return stats.falloffStartScale + (stats.falloffEndScale - stats.falloffStartScale) * t;
+}
+
+/**
+ * Expected share of nominal damage this weapon lands, over
+ * ENGAGEMENT_RANGE_WEIGHTS.
+ *
+ * This is ORTHOGONAL to the accuracy discount below and composes with it
+ * multiplicatively, which is why applying both is not double-counting:
+ * accuracy measures which shots LAND (a hit at 30m is still logged as a hit),
+ * while this measures how much damage a landed shot actually deals. Neither
+ * term can see the other's effect.
+ */
+function rangeEfficiency(stats: HeroBaseStats): number {
+  const expected = ENGAGEMENT_RANGE_WEIGHTS.reduce(
+    (acc, [d, w]) => acc + w * damageScaleAtRange(stats, d),
+    0,
+  );
+  if (!Number.isFinite(expected)) return 1;
+  return Math.max(MIN_RANGE_EFFICIENCY, Math.min(1, expected));
+}
+
+/**
  * EFFECTIVE gun DPS — nominal DPS discounted by how much of it actually lands.
  *
  * Why this matters: nominal DPS assumes perfect accuracy, which systematically
@@ -237,25 +347,109 @@ function median(values: ReadonlyArray<number>): number | null {
  * than the raw number implies. Discounting makes heroes comparable on damage
  * that actually connects.
  *
+ * Also discounted by rangeEfficiency() — see that function for why the two
+ * terms compose rather than double-count.
+ *
  * `accuracyByHeroId` is passed IN (never fetched here — this module stays pure)
- * and is keyed by `HeroBaseStats.heroId`. A hero missing from the map — some
- * genuinely have no shot data at all (verified: Graves) — falls back to the
- * median accuracy of the heroes that DO have data, deliberately not to 1.0:
- * leaving them undiscounted while every peer is discounted would inflate them
- * into looking like the best gun in the game.
+ * and is keyed by `HeroBaseStats.heroId`. A hero absent from it falls into one
+ * of TWO genuinely different cases, which must not be conflated:
+ *
+ *  1. The weapon cannot miss (WEAPON_PROFILE_OVERRIDES `cannotMiss`) — shots
+ *     are not counted discretely, so accuracy is inapplicable, not unknown.
+ *     Treated as 1.0. Its range weakness is carried by rangeEfficiency() from
+ *     real weapon data, so charging a miss penalty too would double-count.
+ *     Verified live: Graves alone, hit = 0 AND miss = 0 over 536,097 matches.
+ *
+ *  2. The hero has no analytics row at all — genuinely UNKNOWN accuracy.
+ *     Verified live: 5 such heroes (Deadman Danny, Solomon, Violet, Nurse
+ *     Harrow, Baba), all recent additions with no match data yet. These fall
+ *     back to the median accuracy of heroes that DO have data, deliberately
+ *     NOT to 1.0 — leaving them undiscounted while every peer is discounted
+ *     inflates them to the top of the roster's gun need, which is exactly the
+ *     bug this split exists to prevent.
  */
 function effectiveGunDps(
   stats: HeroBaseStats,
   accuracyByHeroId: ReadonlyMap<number, number> | undefined,
   fallbackAccuracy: number | null,
 ): number {
-  const nominal = nominalGunDps(stats);
+  const nominal = nominalGunDps(stats) * rangeEfficiency(stats);
   if (!accuracyByHeroId) return nominal; // no accuracy data supplied at all
 
-  const raw = accuracyByHeroId.get(stats.heroId) ?? fallbackAccuracy;
+  const cannotMiss = WEAPON_PROFILE_OVERRIDES.get(stats.weaponClass)?.cannotMiss === true;
+  const raw = accuracyByHeroId.get(stats.heroId) ?? (cannotMiss ? 1 : fallbackAccuracy);
   if (raw == null || !Number.isFinite(raw) || raw <= 0) return nominal;
 
   return nominal * Math.min(1, raw);
+}
+
+/**
+ * How good this hero is as a platform for PER-HIT item effects, relative to
+ * the roster, in [1 - PROC_PLATFORM_SWING, 1 + PROC_PLATFORM_SWING].
+ *
+ * Why this is a separate signal from gun need: a bullet proc's worth scales
+ * with how many bullets land per second, NOT with how much damage each one
+ * does. The two can point opposite ways, and Graves is the clearest case —
+ * lowest gun need on the roster (3.6 damage per shot, 17m cutoff) while firing
+ * 9.8 shots/s and being unable to miss, which makes her one of the best proc
+ * platforms in the game. Confirmed from play: her gun builds run Mystic Shot,
+ * Toxic Bullets, Ricochet and Tesla Bullets — all per-hit items — rather than
+ * raw weapon-damage scaling.
+ *
+ * Deliberately NOT discounted by range falloff: the question here is how often
+ * an effect triggers while she is in a fight she can actually participate in.
+ * Her range limit already lowers her gun need; charging it again here would
+ * double-count the same weakness, which is the bug this module keeps hitting.
+ *
+ * Known imprecision, documented rather than hidden: `bulletsPerSecond` counts
+ * PELLETS (verified: bullets_per_second = shots_per_second x bullets), so a
+ * shotgun reads high here. That is right for per-bullet procs (more pellets =
+ * more proc rolls) and wrong for per-SHOT build-ups like Toxic Bullets'
+ * `BuildUpPerShot`. Separating them needs `bullets`, which is captured in
+ * WeaponItemRaw but not surfaced onto HeroBaseStats — see CLAUDE.md.
+ */
+export function deriveProcPlatformFactor(input: {
+  baseStats: HeroBaseStats;
+  roster: ReadonlyArray<HeroBaseStats>;
+  gunAccuracyByHeroId?: ReadonlyMap<number, number>;
+}): number {
+  const { baseStats, roster, gunAccuracyByHeroId } = input;
+
+  // Same policy for the hero and the roster, for the same reason as the gun
+  // z-score: a discounted hero compared against undiscounted peers is noise.
+  const hitRate = (h: HeroBaseStats): number => {
+    const shots = h.bulletsPerSecond;
+    if (!Number.isFinite(shots) || shots <= 0) return 0;
+    if (!gunAccuracyByHeroId) return shots;
+
+    const cannotMiss = WEAPON_PROFILE_OVERRIDES.get(h.weaponClass)?.cannotMiss === true;
+    const measured = gunAccuracyByHeroId.get(h.heroId);
+    if (typeof measured === "number" && Number.isFinite(measured) && measured > 0) {
+      return shots * Math.min(1, measured);
+    }
+    return cannotMiss
+      ? shots
+      : shots * (median(rosterAccuracies(roster, gunAccuracyByHeroId)) ?? 1);
+  };
+
+  const rosterRates = roster.map(hitRate).filter((v) => v > 0);
+  const own = hitRate(baseStats);
+  if (own <= 0) return 1;
+
+  const z = computeZScore(own, rosterRates);
+  const clamped = Math.max(-Z_SCORE_CLAMP, Math.min(Z_SCORE_CLAMP, z));
+  return 1 + (clamped / Z_SCORE_CLAMP) * PROC_PLATFORM_SWING;
+}
+
+/** Accuracies of roster heroes that actually have measured data. */
+function rosterAccuracies(
+  roster: ReadonlyArray<HeroBaseStats>,
+  accuracyByHeroId: ReadonlyMap<number, number>,
+): number[] {
+  return roster.flatMap((h) => {
+    const a = accuracyByHeroId.get(h.heroId);
+    return typeof a === "number" && Number.isFinite(a) && a > 0 ? [a] : [];
+  });
 }
 
 /**
@@ -275,7 +469,8 @@ function deriveGunFactor(
 ): number {
   // The fallback must be computed once from the heroes that have data, and the
   // SAME discount policy applied to the hero and to every roster member —
-  // comparing a discounted hero against nominal peers would be meaningless.
+  // comparing a discounted hero against nominal peers would be meaningless,
+  // since this is a z-score against the roster.
   const known = accuracyByHeroId
     ? roster.flatMap((h) => {
         const a = accuracyByHeroId.get(h.heroId);

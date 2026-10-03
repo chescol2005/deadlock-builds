@@ -96,6 +96,7 @@ if (process.env.NODE_ENV !== "production") {
       cost: 3000,
       tags: ["burst", "dps"],
       stats: { bulletDamage: 80 },
+      statScaling: {},
     },
     {
       id: "fixture-tank",
@@ -106,6 +107,7 @@ if (process.env.NODE_ENV !== "production") {
       cost: 3000,
       tags: ["tankiness"],
       stats: { maxHealth: 300 },
+      statScaling: {},
     },
   ];
 
@@ -128,6 +130,7 @@ if (process.env.NODE_ENV !== "production") {
       cost: 3000,
       tags: ["burst", "dps"],
       stats: { bulletDamage: 80 },
+      statScaling: {},
     },
   ]);
   if (withExclusion.some((r) => r.item.id === "fixture-burst")) {
@@ -147,6 +150,7 @@ if (process.env.NODE_ENV !== "production") {
       cost: 3200,
       tags: ["dps"],
       stats: {},
+      statScaling: {},
     },
   ];
   const baseScore = scoreItems(fixture, "burst", []).find(

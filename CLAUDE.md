@@ -594,10 +594,24 @@ Two things to preserve when touching this:
 - **Discount the hero AND the roster with the same policy.** Gun strength is a
   z-score against the roster; comparing a discounted hero to nominal peers is
   meaningless.
-- **Missing accuracy ≠ zero accuracy.** Exactly one hero (Graves, verified) has
-  no shot data. `heroNeed.ts` falls back to the median of heroes that DO have
-  data — never 1.0, which would leave them undiscounted while every peer is
-  discounted, inflating them into looking like the roster's best gun.
+- **Missing accuracy ≠ zero accuracy, and "inapplicable" ≠ "unknown".** Absence
+  from the accuracy map covers TWO cases that must not be conflated:
+  - **Accuracy inapplicable** — the weapon's shots are not counted discretely,
+    so it cannot miss. Verified live: Graves alone, with an analytics row over
+    536,097 matches reporting `total_shots_hit` 0 AND `total_shots_missed` 0.
+    Flagged via `WEAPON_PROFILE_OVERRIDES`' `cannotMiss` in `heroNeed.ts` and
+    treated as 1.0. Her range weakness is priced by the falloff term instead
+    (see below) — charging a miss penalty too would double-count it.
+  - **Accuracy unknown** — no analytics row at all. Verified live: 5 heroes
+    (Deadman Danny, Solomon, Violet, Nurse Harrow, Baba), all recent additions
+    with no match data. These fall back to the median of heroes that DO have
+    data — never 1.0, which would leave them undiscounted while every peer is
+    discounted, inflating them into looking like the roster's best gun.
+
+  This bit during implementation: treating all absences as `cannotMiss` pinned
+  Violet and Nurse Harrow at the maximum gun need of 2.000, **above Drifter**,
+  the roster's actual best gun. A hero missing from analytics is the common
+  case, not an edge case — check which of the two you're in.
 
 Emergent and correct, not coded in: Calico's gun need _falls_ at higher rank
 (1.16 Initiate → 1.10 Eternus) while Geist's rises (1.25 → 1.38), because
@@ -624,29 +638,129 @@ this repo hasn't made:
   real hero whose `weapon_info` fetch failed) gets ratio 1, i.e. no discount:
   the same fail-open policy this module already applies to missing accuracy
   data.
+- **Wired.** The range/falloff profile — `damage_falloff_start_range` /
+  `_end_range` / `_start_scale` / `_end_scale` plus the hard `range` cap — flows
+  through `fetchHeroStats` (converted to **metres** there, ÷39.37, so no
+  consumer repeats the divisor) → `HeroBaseStats` → `heroNeed.ts`'s
+  `rangeEfficiency()`. See "Range falloff" below.
 - **Captured in the raw API type, NOT surfaced into `HeroBaseStats` or scoring
   yet** — `lib/api/deadlockApi.ts`'s `WeaponItemRaw["weapon_info"]` documents
-  both, but no consumer exists:
+  it, but no consumer exists:
   - `bullets` — pellets per shot. Calico is `bullets: 9`, which is _why_ she
     reads 43.5% accuracy: it is a shotgun, not bad aim. Verified live it is
     already baked into `bullets_per_second` (bullets_per_second =
     shots_per_second × bullets), so it is NOT needed for the DPS math above —
-    only useful as an explanatory signal, not a required input.
-  - `damage_falloff_start_range` / `damage_falloff_end_range` /
-    `damage_falloff_end_scale` — range profile in source units (÷39.37 for
-    metres). Verified live: Graves is 300/670 → 7.6m/17.0m, falling to 50%
-    damage at the far end, NOT to 0 — the "cannot shoot past 17m" behavior the
-    hero-knowledge note above describes is a separate bullet travel-distance
-    limit, not this falloff curve. Translating a range profile into a score
-    needs an actual design decision (this app has no positioning/engagement-
-    range model at all), so it stays unconsumed rather than guessed at.
+    only useful as an explanatory signal, not a required input. Do NOT multiply
+    by it: that would inflate shotgun heroes ~9×.
 
-Range falloff is still **not modelled at all** for any hero, and a hero with
-no shot data may simply have a weapon whose shots are not counted discretely —
-Graves is a beam that cannot miss, so her true accuracy is ~1.0 offset by a
-hard 17m range limit, making the median fallback a rough wash rather than a
-correct value. The reload-DPS fix above does not change this: it corrects her
-sustained damage output, not her accuracy discount.
+### Range falloff (wired, with one hand-authored exception)
+
+Nominal DPS assumes every shot deals full damage regardless of distance.
+`rangeEfficiency()` in `heroNeed.ts` turns a weapon's falloff curve into one
+expected-damage multiplier over `ENGAGEMENT_RANGE_WEIGHTS`, an assumed 5–30m
+distribution of engagement ranges.
+
+**Those weights are an ASSUMPTION, not a measurement** — no endpoint reports
+engagement distance, so nothing in the data can settle them. They are the
+"lane-typical" calibration (55% of weight inside 17m). Retune in that one
+constant; a fixture locks the 0.55 figure so a change forces a decision.
+
+**This is orthogonal to the accuracy discount and composes with it** — the two
+are not double-counting. Accuracy measures which shots LAND (a hit at 30m is
+still logged as a hit); falloff measures how much damage a landed shot deals.
+Neither term can observe the other's effect.
+
+Verified live across all 44 heroes: `damage_falloff_start_scale` is 1 and
+`damage_falloff_bias` is 0.5 for **every** hero, so the curve SHAPE cannot
+reorder a cross-hero z-score — `rangeEfficiency()` interpolates linearly on
+that basis. If either ever varies per hero, revisit it. 40 of 44 fall to
+`end_scale 0.1`; the hard `range` cap varies more than the curve does (Apollo
+25m, Bebop 32m, Rem 76m, the other 41 at 178m).
+
+**`WEAPON_PROFILE_OVERRIDES` — the falloff fields do not mean the same thing on
+every weapon.** Graves' The Teacher reports 7.62m→17.02m at `end_scale` 0.5,
+which reads generically as "50% damage past 17m". **It is not.** Her weapon has
+no damage falloff: it deals full damage to a hard 17m cutoff and **zero** past
+it, and those range fields instead drive her Build-Up per bullet (most notably
+Essence Theft). Reading them generically understates her in-range damage and
+overstates her out-of-range damage at the same time. Nothing in `weapon_info`
+distinguishes this case, so it is hand-authored game knowledge with the same
+upkeep shape as `GOAL_WEIGHTS_MAP` — if another weapon shares the quirk we
+cannot detect it from data and will silently mis-model it.
+
+Two related mechanics are deliberately NOT modelled, since both are interaction
+value (Milestone F territory), not per-hero gun strength: Essence Theft's
+build-up scaling off that same falloff range, and Ricochet's own damage falloff,
+which is measured from the main target to the ricocheted target rather than from
+the shooter.
+
+Live result: Graves derives the roster's **lowest** gun need (0.399 of 44). That
+is correct for gun items that SCALE her gun — her 17m cutoff is by far the
+earliest on the roster, where a typical hero holds full damage to 18–20m and
+does not bottom out until ~55m.
+
+**But "lowest gun need" is NOT the same as "no gun items", and the scalar hides
+a real distinction.** Graves has genuine gun builds (confirmed from play, not
+inferred from data): Heroic Aura + Mystic Shot ± Toxic Bullets as the normal
+route into gun investment, and a Ricochet + Toxic Bullets ± Tesla Bullets build.
+Verified against the live basket, those items rank 10th, 38th, 29th, 17th and
+45th of 54 gun items for her — Mystic Shot and Tesla Bullets clearly too low.
+
+Two hero×item interactions the per-item model structurally cannot see:
+
+- **Proc frequency is not hero-aware.** Tesla Bullets is `ProcChance 15` /
+  `ProcCooldown 0.2`; Toxic Bullets is `BuildUpPerShot 1.28`. Expected procs per
+  second scales with SHOTS per second and with hit reliability, and Graves fires
+  9.8/s and cannot miss — near the roster's best proc platform. The estimator
+  applies one flat expected value for every hero.
+- **Spirit-scaling procs are not spirit-aware.** Mystic Shot (`ProcChance 100`,
+  `ProcBonusMagicDamage 40`) converts spirit power into gun-triggered damage and
+  is priced as a flat `spiritDamage 27` with zero gunDamage. On a 100%-spirit
+  kit that is a systematic underestimate.
+
+So the right reading for a hero like this is "don't buy gun items that scale the
+gun; DO buy per-hit proc items."
+
+**Gap 1 is now BUILT; gap 2 is not.** `procPlatformTerm` in `basketSelect.ts`
+scales a per-hit item by how well a hero lands hits, composed from two halves
+kept deliberately apart:
+
+- `ItemCandidate.procReliance` (hero-independent, `itemAdapter.ts`) — the share
+  of an item's scored magnitude delivered per weapon hit, from the `perHit` flag
+  on `EffectEstimate`.
+- `BasketContext.procPlatformFactor` (hero-specific,
+  `heroNeed.ts::deriveProcPlatformFactor`) — bullets landed per second versus
+  the roster, bounded by `PROC_PLATFORM_SWING`.
+
+Splitting it this way is what keeps per-item constants from being inflated to
+compensate for one hero. The term is relevance-gated and roster-average-neutral:
+factor 1.0 contributes exactly nothing, so it reorders per-hit items rather than
+blanket-boosting them. Live: Graves is 2nd of 44 on proc platform (1.207) while
+last on gun need — the divergence this exists to express.
+
+**Honest limits of that fix, measured not assumed.** It moved her items only
+modestly (Ricochet 17→14, Toxic Bullets 29→26, Tesla Bullets 45→44) and moved
+**Mystic Shot not at all** (38→38). The term is bounded to 10% of one slot by
+design, and more importantly it is not what holds Mystic Shot down:
+
+**Gap 2 — spirit-scaling procs are still not spirit-aware.** Mystic Shot
+(`ProcChance 100`, `ProcBonusMagicDamage 40`) converts spirit power into
+gun-triggered damage and is priced as a flat `spiritDamage 27` regardless of the
+buyer's spirit. That is the dominant reason it under-ranks on a 100%-spirit kit,
+and it needs the item's value to scale with hero spirit power — a genuine
+hero×item product, i.e. Milestone F. **Do NOT close it by raising
+`PROC_PLATFORM_MAX_FRACTION`** — that inflates every per-hit item on every
+high-fire-rate hero to fix one item's scaling, trading a known underestimate for
+an unknown overestimate.
+
+Known imprecision in the factor itself: `bulletsPerSecond` counts PELLETS, so
+shotguns read high (Calico tops the roster at 1.350 on 42.9 pellets/s). Right
+for per-bullet procs, wrong for per-SHOT build-ups like Toxic Bullets'
+`BuildUpPerShot`; separating them needs `bullets` on `HeroBaseStats`.
+
+What the floor already buys: gun items are not suppressed for her despite the
+lowest need — 3 of 11 live basket picks are gun items, Spiritual Overflow among
+them at #2, found via its spirit stats.
 
 ### Defence: flat health and % resist are separate categories
 
@@ -717,6 +831,81 @@ expected-value contributions (`33 × 4 × 0.15 = 19.8`), then scales everything 
 measured stat. It deliberately does not model target count actually hit,
 positioning, or whether a slow converts into a kill. Every estimate carries a
 `basis` string so it is never an unexplained number.
+
+### Item values are NOT flat — read the published scaling coefficients
+
+`properties[key].scale_function.stat_scale` is Valve's own coefficient, and
+`parseStats` used to discard it, keeping only `value` — which is just the BASE
+of a scaling expression. Mystic Shot's `ProcBonusMagicDamage` is
+**`40 + 0.9 x spirit power`**, not 40.
+
+Measured live across all 173 shopable items: **29 `ETechPower`-scaled
+properties on 22 items, median 1.5x understatement at 100 spirit power**, up to
+3.3x (Mystic Shot), 2.9x (Mercurial Magnum), 2.7x (Spirit Snatch). It reaches
+well past damage — Reactive Barrier's absorb is `325 + 1.8 x spirit` (325 ->
+505), so the barrier souls-per-EHP figures above are understated for spirit
+heroes.
+
+Now captured by `lib/itemNormalizer.ts` into `Item.statScaling` and applied by
+`lib/engine/itemAdapter.ts::resolveScaledStats(item, ctx?)`. Additive, the same
+convention as `calculateAbilityDamage` (`value += stat x scale`). **Omitting
+`ctx` returns the unscaled base**, so every hero-free caller and fixture is
+byte-identical to before.
+
+**Only 2 of the 8 published scaling types have a non-circular source**, and the
+split is the whole design:
+
+| Type                                                                                                         | Supplied by                                       | Resolved?                         |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- | --------------------------------- |
+| `ETechPower`                                                                                                 | hero spirit + `TechPower`/`SpiritPower` items     | yes — 29 props, 22 items          |
+| `ELevelUpBoons`                                                                                              | hero boon level                                   | yes — 8 props                     |
+| `EItemCooldown` (99), `ETechDuration` (54), `ETechRange` (51), `EHealingOutput` (27), `EChannelDuration` (2) | OTHER ITEMS                                       | only from the already-owned build |
+| `EBuildUpRate` (7)                                                                                           | nothing — no supplier key exists in the catalogue | captured, never applied           |
+
+The item-supplied types resolve against the **already-owned build, never the
+basket under construction**: an item's value must not depend on which other
+items the basket happens to pick, or selection becomes circular.
+Candidate-on-candidate scaling is item x item — Milestone F, deliberately not
+modelled here.
+
+Two traps when touching this:
+
+- **Preserve the sign.** Alchemical Fire's `BulletArmorReduction` is -7 scaling
+  at -0.055, so scaling makes the shred STRONGER (more negative). Clamping to
+  positive silently inverts every enemy-debuff item — see the sign-convention
+  warning above.
+- **Only the single-stat form carries a coefficient.**
+  `scale_function_multi_stats` publishes `scaling_stats` with NO `stat_scale`,
+  so there is nothing to read and inventing one would be fabricating data.
+
+**`SpiritPower` is a second API name for `TechPower`** — and the two modules
+disagreed. `lib/buildCalculations.ts`'s `SPIRIT_POWER_KEYS` listed only
+`TechPower` while the engine's `STAT_KEY_TO_SCORE` counted both, so
+`totalSpiritPower` silently dropped up to 20 per item. Verified live: 19 items
+use `TechPower`, 6 use `SpiritPower` (Counterspell, Mystic Shot, Healing Nova,
+Alchemical Fire, Arcane Surge, Veil Walker), **none use both**, so summing both
+cannot double-count. It compounded on Mystic Shot, which is both a
+`SpiritPower` item AND `ETechPower`-scaled: undercounting spirit power
+under-resolved that item's own scaling. **When a duplicate key is found, fix
+EVERY module that reads it** — fixing one and not the other is worse than
+fixing neither, because the two then disagree silently.
+
+**What this did and did not change, measured.** Graves' basket composition
+shifted (Spiritual Overflow out; Diviner's Kevlar and Crippling Headshot in),
+and Mystic Shot's modelled `spiritDamage` went 27 -> 72 at 100 spirit and 117
+at 200. But its RANK among her 53 gun items barely moved (38 -> 37 at 200
+spirit): the increase is real and correct, yet still short of the items above
+it. Coverage saturation is NOT the cause — the per-slot spiritDamage target is
+428.6, far above any of these values.
+
+That remaining delta is the honest boundary of per-item valuation. The builds
+this came from are described as PAIRS — "Heroic Aura + Mystic Shot", "Ricochet
+
+- Toxic Bullets + Tesla" — and pair value is exactly what a per-item model
+  cannot represent, no matter how accurate each item's own coefficient is. With
+  scaling and proc frequency both now correct, the leftover genuinely is
+  Milestone F. **Do not chase it by inflating per-item numbers that are now
+  verifiably right.**
 
 ### Non-substitutable categories: shred and anti-heal
 

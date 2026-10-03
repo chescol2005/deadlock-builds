@@ -50,7 +50,7 @@ import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
 import { resolveAccuracyAtRank } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
 import { constructBasket, makeBasketContext } from "@/lib/engine/basketSelect";
-import { deriveHeroNeedVector } from "@/lib/engine/heroNeed";
+import { deriveHeroNeedVector, deriveProcPlatformFactor } from "@/lib/engine/heroNeed";
 import { toItemCandidates } from "@/lib/engine/itemAdapter";
 
 const VIEW_MODE_TABS = [
@@ -424,15 +424,37 @@ export default function BuildClient({
     });
 
     const ownedIds = new Set(buildItems.map((i) => i.id));
-    const candidates = toItemCandidates(allItems.filter((i) => !ownedIds.has(i.id)));
+
+    // Item values are NOT flat — Mystic Shot's proc is `40 + 0.9 x spirit
+    // power`, so pricing it at 40 understates it ~3.3x at 100 spirit. Resolve
+    // the published coefficients against what the player actually has.
+    //
+    // Both inputs come from the hero and the ALREADY-OWNED build, never from
+    // the candidates being chosen: an item's value must not depend on which
+    // other items the basket happens to pick, or selection becomes circular.
+    const candidates = toItemCandidates(
+      allItems.filter((i) => !ownedIds.has(i.id)),
+      { spiritPower: totalSpiritPower, boonLevel: manualBoonLevel },
+    );
 
     const committed = buildItems.reduce((sum, i) => sum + i.cost, 0);
+
+    // Separate from gun need on purpose: a bullet proc's worth scales with how
+    // many bullets LAND per second, not with how hard each one hits. The two
+    // genuinely diverge — a hero can have the roster's weakest gun and still be
+    // one of its best platforms for per-hit items.
+    const procPlatformFactor = deriveProcPlatformFactor({
+      baseStats: heroBaseStats,
+      roster: heroRoster,
+      gunAccuracyByHeroId,
+    });
 
     const ctx = makeBasketContext({
       needVector,
       soulBudget: Math.max(0, boonSouls - committed),
       maxItems: Math.max(0, MAX_ACTIVE_ITEMS - buildItems.length),
       itemAnalytics,
+      procPlatformFactor,
     });
 
     return constructBasket(candidates, ctx);
@@ -446,6 +468,8 @@ export default function BuildClient({
     itemAnalytics,
     heroAccuracy,
     selectedRankTier,
+    totalSpiritPower,
+    manualBoonLevel,
   ]);
 
   const ultimateUnlocked = manualBoonLevel >= 7;

@@ -135,6 +135,18 @@ const ANALYTICS_WINRATE_CLAMP = 0.1;
  */
 const ANALYTICS_MAX_FRACTION = 0.06;
 
+/**
+ * Hard ceiling on `procPlatformTerm`, as a fraction of one slot's coverage.
+ *
+ * Sized between the category bonus (15%) and the analytics nudge (6%): the
+ * mechanism is a real, mechanical one — a proc fires per bullet, so hits per
+ * second genuinely multiply it — but how much of a hero's fight time is spent
+ * shooting, in range, on a target is not modelled. Enough to reorder the
+ * per-hit items for a hero whose whole gun identity is procs; never enough to
+ * override stat coverage.
+ */
+const PROC_PLATFORM_MAX_FRACTION = 0.1;
+
 /** Max categories named in a coverage `reason` before it is truncated. */
 const MAX_REASON_CATEGORIES = 3;
 
@@ -229,6 +241,8 @@ export function makeBasketContext(opts: {
   maxItems?: number;
   coverageTargetPerSlot?: number;
   itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
+  /** See BasketContext.procPlatformFactor. Omitted => procPlatformTerm inert. */
+  procPlatformFactor?: number;
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -270,6 +284,12 @@ export function makeBasketContext(opts: {
     soulBudget,
     maxItems,
     itemAnalytics: opts.itemAnalytics,
+    // Sanitized here so a non-finite factor degrades to "inert" rather than
+    // poisoning every candidate's marginal value with NaN.
+    procPlatformFactor:
+      typeof opts.procPlatformFactor === "number" && Number.isFinite(opts.procPlatformFactor)
+        ? opts.procPlatformFactor
+        : undefined,
   };
 }
 
@@ -503,9 +523,67 @@ export const analyticsTerm: MarginalTermFn = {
  * stat signal first, then the concentration counterweight, then the small
  * empirical nudge.
  */
+/**
+ * Scales a per-hit item by how good THIS hero is at landing hits.
+ *
+ * Closes a real gap: `categoryValues` is hero-independent, so a bullet proc is
+ * valued identically for a hero firing 9.8 shots/s who cannot miss and one
+ * firing 1.7 shots/s at 40% accuracy. Verified live against Graves, whose
+ * actual gun builds (Mystic Shot, Toxic Bullets, Ricochet, Tesla Bullets) are
+ * all per-hit items, yet ranked 38th, 29th, 17th and 45th of 54 gun items for
+ * her because her per-shot damage and range are both poor.
+ *
+ * Both halves are needed and neither is sufficient: `candidate.procReliance`
+ * (hero-independent, from itemAdapter) says how much of the item rides on
+ * landing bullets, and `ctx.procPlatformFactor` (hero-specific, from
+ * heroNeed's deriveProcPlatformFactor) says how well this hero does that.
+ *
+ * Relevance-gated exactly like `analyticsTerm`: an item covering no un-met need
+ * gets nothing, so this can never make an irrelevant item worth buying — it
+ * only reorders items that are already useful. Bounded by
+ * PROC_PLATFORM_MAX_FRACTION of one slot's coverage for the same reason.
+ */
+export const procPlatformTerm: MarginalTermFn = {
+  termId: "proc-platform",
+
+  evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
+    const factor = ctx.procPlatformFactor;
+    // Omitted => inert. An absent factor must never silently bias a basket.
+    if (typeof factor !== "number" || !Number.isFinite(factor)) return null;
+
+    const reliance = candidate.procReliance;
+    if (!Number.isFinite(reliance) || reliance <= 0) return null;
+
+    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+
+    // Relative to a roster-average platform. Exactly average contributes
+    // nothing, which keeps this a differential signal rather than a blanket
+    // bonus for every per-hit item.
+    const delta = factor - 1;
+    if (delta === 0) return null;
+
+    const scale = coverageScalePerSlot(ctx);
+    if (scale <= 0) return null;
+
+    const value = delta * reliance * PROC_PLATFORM_MAX_FRACTION * scale;
+    if (!Number.isFinite(value) || value === 0) return null;
+
+    const pct = Math.round(reliance * 100);
+    const sign = value >= 0 ? "+" : "";
+    return {
+      termId: "proc-platform",
+      value,
+      reason:
+        `${sign}${value.toFixed(2)}: ${pct}% of this item's value is per-hit, and this hero ` +
+        `lands hits ${factor >= 1 ? "better" : "worse"} than roster average (x${factor.toFixed(2)})`,
+    };
+  },
+};
+
 export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
   coverageTerm,
   categoryBonusTerm,
+  procPlatformTerm,
   analyticsTerm,
 ];
 
