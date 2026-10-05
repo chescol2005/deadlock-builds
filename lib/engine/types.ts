@@ -64,6 +64,26 @@ export interface ItemCandidate {
   category: ItemCategory;
   cost: number;
   categoryValues: Readonly<Record<ScoreCategory, number>>;
+  /**
+   * Share of this item's scored magnitude delivered PER WEAPON HIT, in [0, 1]
+   * (bullet procs, on-hit build-ups, per-shot bounces). 0 for items with no
+   * per-hit mechanic.
+   *
+   * Hero-independent: it says how much of the item rides on landing bullets,
+   * NOT how well a given hero lands them. `procPlatformTerm` supplies the
+   * hero half.
+   */
+  procReliance: number;
+  /**
+   * Share of this item's scored magnitude that needs a shot to CONNECT but
+   * whose rate is fixed by a cooldown, in [0, 1] (Mystic Shot and the other
+   * ProcChance-100 cooldown-gated bullet effects).
+   *
+   * Distinct from `procReliance` because it earns a different hero-side
+   * multiplier: accuracy ALONE, never fire rate. Firing faster cannot make an
+   * 8s cooldown come up more often, but missing still wastes the charge.
+   */
+  hitDependence: number;
   tags: ReadonlyArray<string>;
 }
 
@@ -139,6 +159,23 @@ export interface BasketContext {
    * ALWAYS passed in — never fetched inside the engine, which must stay pure.
    */
   itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
+  /**
+   * How good this hero is as a platform for per-hit effects, relative to the
+   * roster: shots landed per second versus peers. 1 = roster-average, >1 better.
+   *
+   * ALWAYS passed in (derived by `deriveProcPlatformFactor` in heroNeed.ts) —
+   * never computed inside basketSelect, which sees no hero stats. Omitted, the
+   * proc term is inert, so an omitted factor can never silently bias a basket.
+   */
+  procPlatformFactor?: number;
+  /**
+   * How reliably this hero lands individual shots, relative to the roster.
+   * 1 = roster-average, >1 better. Scales `hitDependence` items only.
+   *
+   * ALWAYS passed in (derived by `deriveHitReliabilityFactor` in heroNeed.ts).
+   * Omitted, the hit-reliability term is inert.
+   */
+  hitReliabilityFactor?: number;
 }
 
 /**

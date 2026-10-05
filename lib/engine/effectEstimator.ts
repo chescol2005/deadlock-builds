@@ -179,6 +179,30 @@ export type EffectEstimate = {
   value: number;
   /** Human-readable derivation, so an estimate is never an unexplained number. */
   basis: string;
+  /**
+   * True when this estimate's value is delivered PER WEAPON HIT (a bullet proc,
+   * an on-hit build-up, a per-shot bounce) rather than by a flat stat or a
+   * cooldown-gated active.
+   *
+   * The value itself is deliberately hero-independent — the estimator never
+   * sees a hero. This flag is what lets a later, hero-aware consumer scale it:
+   * the same proc is worth more to a high-fire-rate, reliably-hitting hero than
+   * to a slow single-shot one. See `procReliance` in itemAdapter.ts and
+   * `procPlatformTerm` in basketSelect.ts.
+   */
+  perHit?: boolean;
+  /**
+   * True when this estimate's value needs a weapon shot to CONNECT, but its
+   * rate is fixed by a cooldown rather than by fire rate.
+   *
+   * The distinction from `perHit` is the hero-side multiplier each one earns:
+   * a per-bullet proc scales with fire rate x accuracy, whereas a
+   * cooldown-gated one scales with accuracy ALONE — firing faster cannot make
+   * an 8s cooldown come up more often, but missing still wastes the charge.
+   *
+   * Mutually exclusive with `perHit`.
+   */
+  requiresHit?: boolean;
 };
 
 function num(stats: ItemStats, key: string): number | null {
@@ -219,6 +243,59 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
     if (!Number.isFinite(raw) || raw <= 0) return;
     out.push({ category, value: raw * EFFECT_CONFIDENCE, basis });
   };
+  /** As `add`, for value delivered per weapon hit. See EffectEstimate.perHit. */
+  const addPerHit = (category: ScoreCategory, raw: number, basis: string) => {
+    if (!Number.isFinite(raw) || raw <= 0) return;
+    out.push({ category, value: raw * EFFECT_CONFIDENCE, basis, perHit: true });
+  };
+
+  // ── Is a "proc" per-bullet, or gated behind a cooldown? ──
+  // These are mechanically different and the catalogue separates them cleanly
+  // (verified live across all 10 ProcChance items):
+  //
+  //  - ProcChance 100 WITH a non-zero AbilityCooldown = a single buffed bullet,
+  //    then the effect goes on cooldown. Mystic Shot (8s), Headhunter (8s),
+  //    Headshot Booster (9s), Restorative Shot (6s), Haunting Shot (2.5s).
+  //    Throughput is one per COOLDOWN, not one per bullet, so firing faster
+  //    does not trigger it more often.
+  //  - ProcChance < 100 with no AbilityCooldown = a genuine per-bullet roll.
+  //    Tesla Bullets (15%), Lucky Shot (25%), Armor Piercer (55%), Infinite
+  //    Rounds (65%). Here firing faster really does mean more procs.
+  //
+  // Only the second kind may be flagged `perHit`. Flagging the first gave a
+  // high-fire-rate hero credit for a rate they cannot influence.
+  const procChance = num(stats, "ProcChance");
+  const procAbilityCooldown = num(stats, "AbilityCooldown");
+  const isCooldownGatedProc =
+    procChance === 100 && procAbilityCooldown != null && procAbilityCooldown > 0;
+  /**
+   * `addPerHit` for a true per-bullet roll; for a cooldown-gated one, flags
+   * `requiresHit` instead.
+   *
+   * A cooldown-gated bullet proc is CONSUMED BY FIRING, not by connecting: miss
+   * the shot and the charge is still spent and the cooldown still starts. So
+   * its expected value per cooldown is scaled by the hero's hit reliability —
+   * accuracy ONLY, never fire rate, since the cooldown fixes the rate.
+   *
+   * Graves is the documented exception: her Mystic bullet is not wasted on a
+   * miss. She needs no special case here because the accuracy she resolves to
+   * is already 1.0 via WEAPON_PROFILE_OVERRIDES' `cannotMiss` in heroNeed.ts.
+   * (Silver shares the exemption only while transformed, which is situational
+   * and deliberately not modelled.)
+   */
+  const addProc = (category: ScoreCategory, raw: number, basis: string) => {
+    if (isCooldownGatedProc) {
+      if (!Number.isFinite(raw) || raw <= 0) return;
+      out.push({
+        category,
+        value: raw * EFFECT_CONFIDENCE,
+        basis: `${basis}, once per ${procAbilityCooldown}s cooldown, wasted on a miss`,
+        requiresHit: true,
+      });
+    } else {
+      addPerHit(category, raw, basis);
+    }
+  };
 
   // ── Chaining bullet procs (Tesla Bullets, Capacitor) ──
   // Expected damage per triggering shot: damage x targets x P(proc).
@@ -226,9 +303,8 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   // is a positioning question this cannot see.
   const chainDamage = num(stats, "DamagePerChain");
   const chainCount = num(stats, "ChainCount");
-  const procChance = num(stats, "ProcChance");
   if (chainDamage != null && chainCount != null && procChance != null) {
-    add(
+    addProc(
       "gunDamage",
       chainDamage * chainCount * (procChance / 100),
       `${chainDamage} dmg x ${chainCount} chained targets x ${procChance}% proc`,
@@ -238,7 +314,7 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   // ── On-hit magic proc (Mystic Shot) ──
   const procMagic = num(stats, "ProcBonusMagicDamage");
   if (procMagic != null && procChance != null) {
-    add(
+    addProc(
       "spiritDamage",
       procMagic * (procChance / 100),
       `${procMagic} bonus spirit damage x ${procChance}% proc`,
@@ -248,7 +324,7 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   // ── Crit proc (Lucky Shot) ──
   const crit = num(stats, "CritDamagePercent");
   if (crit != null && procChance != null) {
-    add("gunDamage", crit * (procChance / 100), `+${crit}% crit damage x ${procChance}% proc`);
+    addProc("gunDamage", crit * (procChance / 100), `+${crit}% crit damage x ${procChance}% proc`);
   }
 
   // ── Damage over time (Toxic Bullets) ──
@@ -260,14 +336,18 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const tickRate = num(stats, "TickRate");
   if (dotPct != null && dotDuration != null && tickRate != null && tickRate > 0) {
     const ticks = dotDuration / tickRate;
-    add("gunDamage", dotPct * ticks, `${dotPct}% max-health per tick x ${ticks.toFixed(0)} ticks`);
+    addPerHit(
+      "gunDamage",
+      dotPct * ticks,
+      `${dotPct}% max-health per tick x ${ticks.toFixed(0)} ticks`,
+    );
   }
 
   // ── Ricochet ──
   // A straight fraction of weapon damage repeated onto nearby targets.
   const ricochet = num(stats, "RicochetDamagePercent");
   if (ricochet != null) {
-    add("gunDamage", ricochet, `${ricochet}% of weapon damage bounced to nearby targets`);
+    addPerHit("gunDamage", ricochet, `${ricochet}% of weapon damage bounced to nearby targets`);
   }
 
   // ── Sustained ground/area DPS (Alchemical Fire, Spirit Burn) ──
