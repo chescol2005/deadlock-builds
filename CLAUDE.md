@@ -907,6 +907,53 @@ this came from are described as PAIRS — "Heroic Aura + Mystic Shot", "Ricochet
   Milestone F. **Do not chase it by inflating per-item numbers that are now
   verifiably right.**
 
+### A "proc" is not always per-bullet — check for a cooldown
+
+`ProcChance` alone does not tell you how often an effect fires. The catalogue
+separates two mechanically different things cleanly (verified live across all
+10 `ProcChance` items):
+
+| Pattern                                              | Items                                                                                                 | Throughput                     |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `ProcChance` 100 **with** non-zero `AbilityCooldown` | Mystic Shot (8s), Headhunter (8s), Headshot Booster (9s), Restorative Shot (6s), Haunting Shot (2.5s) | one buffed bullet per COOLDOWN |
+| `ProcChance` < 100, no `AbilityCooldown`             | Tesla Bullets (15%), Lucky Shot (25%), Armor Piercer (55%), Infinite Rounds (65%)                     | a roll on EVERY bullet         |
+
+Mystic Shot is the clearest case, and its real mechanic is: **+7 spirit power
+passive, plus your next bullet deals `40 + 0.9 x spirit power` bonus spirit
+damage — then an 8s cooldown. The bullet must HIT, and the charge cannot be
+banked unless you stop shooting.** Note `activation` is `"passive"` and
+`is_active_item` is `false` on it, so **the activation fields do NOT identify
+this class** — the `AbilityCooldown` is the discriminator.
+
+Only the second kind may be flagged `perHit`. Flagging the first credited a
+high-fire-rate hero for a trigger rate they cannot influence: firing 9.8
+shots/s instead of 1.7 does not make an 8s cooldown come up more often. Fixed
+via `addProc` in `effectEstimator.ts`, which routes cooldown-gated clusters to
+`add` and genuine per-bullet rolls to `addPerHit`.
+
+**Known unit inconsistency, deliberately NOT "fixed" by guessing.** The
+estimator has no common time basis: a cooldown-gated effect's magnitude (Mystic
+Shot's 40, scoring 20 after `EFFECT_CONFIDENCE`) sits in the same
+`categoryValues` sum as a per-bullet effect's magnitude (Tesla's 9.9). On a
+rate basis those are nowhere near equivalent — Tesla at ~1.5 procs/s hugely
+out-throughputs Mystic Shot's 0.125/s — so the model currently **over**-values
+once-per-8s effects relative to per-bullet ones. Establishing a real rate basis
+means normalising every effect class in the module against a reference cadence,
+which would change every estimate in it. Not attempted here rather than trading
+a known, documented bias for an unknown one.
+
+**This reversed an earlier conclusion in this file's history, which is worth
+recording.** Mystic Shot's low rank (38th of 53 gun items for Graves) was first
+read as the model under-valuing it, and the scaling-coefficient fix above was
+expected to lift it. The coefficient fix IS correct — `40 + 0.9 x spirit` is
+the real per-trigger damage — but once the 8s gate is accounted for, the
+throughput modelling was over-stating the item, not under-stating it. Its rank
+may simply be right. Its real-world worth plausibly rests on things this model
+does not price: the flat +7 spirit passive, a low 1,600 cost, and pairing with
+Heroic Aura — and **pair value is Milestone F, not a per-item coefficient.**
+Do not "correct" a rank toward a play-derived expectation without first
+establishing which mechanism is actually wrong.
+
 ### Non-substitutable categories: shred and anti-heal
 
 `gunShred` / `spiritShred` / `antiHeal` exist for the same reason `resist` was

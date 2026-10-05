@@ -237,15 +237,42 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
     out.push({ category, value: raw * EFFECT_CONFIDENCE, basis, perHit: true });
   };
 
+  // ── Is a "proc" per-bullet, or gated behind a cooldown? ──
+  // These are mechanically different and the catalogue separates them cleanly
+  // (verified live across all 10 ProcChance items):
+  //
+  //  - ProcChance 100 WITH a non-zero AbilityCooldown = a single buffed bullet,
+  //    then the effect goes on cooldown. Mystic Shot (8s), Headhunter (8s),
+  //    Headshot Booster (9s), Restorative Shot (6s), Haunting Shot (2.5s).
+  //    Throughput is one per COOLDOWN, not one per bullet, so firing faster
+  //    does not trigger it more often.
+  //  - ProcChance < 100 with no AbilityCooldown = a genuine per-bullet roll.
+  //    Tesla Bullets (15%), Lucky Shot (25%), Armor Piercer (55%), Infinite
+  //    Rounds (65%). Here firing faster really does mean more procs.
+  //
+  // Only the second kind may be flagged `perHit`. Flagging the first gave a
+  // high-fire-rate hero credit for a rate they cannot influence.
+  const procChance = num(stats, "ProcChance");
+  const procAbilityCooldown = num(stats, "AbilityCooldown");
+  const isCooldownGatedProc =
+    procChance === 100 && procAbilityCooldown != null && procAbilityCooldown > 0;
+  /** `addPerHit` for a true per-bullet roll, plain `add` for a cooldown-gated one. */
+  const addProc = (category: ScoreCategory, raw: number, basis: string) => {
+    if (isCooldownGatedProc) {
+      add(category, raw, `${basis}, once per ${procAbilityCooldown}s cooldown`);
+    } else {
+      addPerHit(category, raw, basis);
+    }
+  };
+
   // ── Chaining bullet procs (Tesla Bullets, Capacitor) ──
   // Expected damage per triggering shot: damage x targets x P(proc).
   // Ignores ChainRadius/ChainTickRate — whether the extra targets are in range
   // is a positioning question this cannot see.
   const chainDamage = num(stats, "DamagePerChain");
   const chainCount = num(stats, "ChainCount");
-  const procChance = num(stats, "ProcChance");
   if (chainDamage != null && chainCount != null && procChance != null) {
-    addPerHit(
+    addProc(
       "gunDamage",
       chainDamage * chainCount * (procChance / 100),
       `${chainDamage} dmg x ${chainCount} chained targets x ${procChance}% proc`,
@@ -255,7 +282,7 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   // ── On-hit magic proc (Mystic Shot) ──
   const procMagic = num(stats, "ProcBonusMagicDamage");
   if (procMagic != null && procChance != null) {
-    addPerHit(
+    addProc(
       "spiritDamage",
       procMagic * (procChance / 100),
       `${procMagic} bonus spirit damage x ${procChance}% proc`,
@@ -265,11 +292,7 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   // ── Crit proc (Lucky Shot) ──
   const crit = num(stats, "CritDamagePercent");
   if (crit != null && procChance != null) {
-    addPerHit(
-      "gunDamage",
-      crit * (procChance / 100),
-      `+${crit}% crit damage x ${procChance}% proc`,
-    );
+    addProc("gunDamage", crit * (procChance / 100), `+${crit}% crit damage x ${procChance}% proc`);
   }
 
   // ── Damage over time (Toxic Bullets) ──

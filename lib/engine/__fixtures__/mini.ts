@@ -1600,6 +1600,81 @@ console.log("\n11. itemAdapter: published scaling coefficients");
   );
 }
 
+console.log("\n12. effectEstimator: cooldown-gated vs per-bullet procs");
+{
+  // Mystic Shot: ProcChance 100 WITH an 8s AbilityCooldown = one buffed bullet,
+  // then the effect is on cooldown. Throughput is one per COOLDOWN, so firing
+  // faster does NOT trigger it more often -- it must not be flagged perHit, or
+  // a high-fire-rate hero is credited for a rate they cannot influence.
+  const gated = estimateEffectValues({
+    ProcBonusMagicDamage: 40,
+    ProcChance: 100,
+    AbilityCooldown: 8,
+  });
+  assert(
+    gated.length > 0 && gated.every((e) => e.perHit !== true),
+    "a ProcChance-100 effect behind a cooldown is NOT flagged per-hit",
+    `Got: ${JSON.stringify(gated)}`,
+  );
+  assert(
+    gated.some((e) => e.basis.includes("once per 8s cooldown")),
+    "the cooldown is named in the basis, so the estimate stays explainable",
+    `Got: ${gated.map((e) => e.basis).join(" | ")}`,
+  );
+
+  // Tesla Bullets: 15% per bullet, no AbilityCooldown = a genuine per-bullet
+  // roll, where firing faster really does mean more procs.
+  const perBullet = estimateEffectValues({
+    DamagePerChain: 33,
+    ChainCount: 4,
+    ProcChance: 15,
+    AbilityCooldown: 0,
+  });
+  assert(
+    perBullet.length > 0 && perBullet.some((e) => e.perHit === true),
+    "a sub-100% proc with no cooldown IS flagged per-hit",
+    `Got: ${JSON.stringify(perBullet)}`,
+  );
+
+  // End to end: the distinction must reach procReliance, which is what the
+  // basket's proc-platform term multiplies.
+  const mkProcItem = (stats: Record<string, number>): Item => ({
+    id: "proc_shape",
+    numericId: 7777,
+    name: "Proc Shape",
+    category: "gun",
+    tier: 2,
+    cost: 1600,
+    tags: [],
+    stats,
+    statScaling: {},
+  });
+  const gatedItem = toItemCandidate(
+    mkProcItem({ ProcBonusMagicDamage: 40, ProcChance: 100, AbilityCooldown: 8 }),
+  );
+  const perBulletItem = toItemCandidate(
+    mkProcItem({ DamagePerChain: 33, ChainCount: 4, ProcChance: 15, AbilityCooldown: 0 }),
+  );
+  assert(
+    gatedItem.procReliance === 0,
+    "a cooldown-gated item has procReliance 0, so the proc-platform term leaves it alone",
+    `Got: ${gatedItem.procReliance}`,
+  );
+  assert(
+    perBulletItem.procReliance > 0,
+    "a true per-bullet item keeps a non-zero procReliance",
+    `Got: ${perBulletItem.procReliance}`,
+  );
+
+  // The gated effect still carries VALUE -- this change removes a wrong
+  // hero-specific multiplier, it does not make the item worthless.
+  assert(
+    gatedItem.categoryValues.spiritDamage > 0,
+    "a cooldown-gated proc is still scored above zero",
+    `Got: ${gatedItem.categoryValues.spiritDamage}`,
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 
 // ---------------------------------------------
