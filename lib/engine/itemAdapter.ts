@@ -351,13 +351,31 @@ export function resolveScaledStats(item: Item, ctx?: ItemValuationContext): Item
  * cannot cancel out and overstate the per-hit share.
  */
 function deriveProcReliance(stats: ItemStats): number {
+  return deriveHitShare(stats, "perHit");
+}
+
+/**
+ * Share of an item's total scored magnitude that needs a shot to CONNECT but
+ * whose rate is fixed by a cooldown, in [0, 1].
+ *
+ * Separate from `procReliance` because the two earn different hero-side
+ * multipliers: a per-bullet proc scales with fire rate x accuracy, a
+ * cooldown-gated one with accuracy alone. Mystic Shot is the motivating case —
+ * miss the shot and the 8s charge is spent anyway.
+ */
+function deriveHitDependence(stats: ItemStats): number {
+  return deriveHitShare(stats, "requiresHit");
+}
+
+/** Shared magnitude-share helper for the two bullet-dependence flags. */
+function deriveHitShare(stats: ItemStats, flag: "perHit" | "requiresHit"): number {
   let perHit = 0;
   let total = 0;
 
   for (const estimate of estimateEffectValues(stats)) {
     const mag = Math.abs(estimate.value);
     total += mag;
-    if (estimate.perHit) perHit += mag;
+    if (estimate[flag]) perHit += mag;
   }
 
   for (const [key, rawValue] of Object.entries(stats)) {
@@ -417,6 +435,7 @@ export function toItemCandidate(item: Item, ctx?: ItemValuationContext): ItemCan
     cost: item.cost,
     categoryValues: deriveCategoryValues(stats),
     procReliance: deriveProcReliance(stats),
+    hitDependence: deriveHitDependence(stats),
     tags: item.tags,
   };
 }

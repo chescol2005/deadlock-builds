@@ -191,6 +191,18 @@ export type EffectEstimate = {
    * `procPlatformTerm` in basketSelect.ts.
    */
   perHit?: boolean;
+  /**
+   * True when this estimate's value needs a weapon shot to CONNECT, but its
+   * rate is fixed by a cooldown rather than by fire rate.
+   *
+   * The distinction from `perHit` is the hero-side multiplier each one earns:
+   * a per-bullet proc scales with fire rate x accuracy, whereas a
+   * cooldown-gated one scales with accuracy ALONE — firing faster cannot make
+   * an 8s cooldown come up more often, but missing still wastes the charge.
+   *
+   * Mutually exclusive with `perHit`.
+   */
+  requiresHit?: boolean;
 };
 
 function num(stats: ItemStats, key: string): number | null {
@@ -256,10 +268,30 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const procAbilityCooldown = num(stats, "AbilityCooldown");
   const isCooldownGatedProc =
     procChance === 100 && procAbilityCooldown != null && procAbilityCooldown > 0;
-  /** `addPerHit` for a true per-bullet roll, plain `add` for a cooldown-gated one. */
+  /**
+   * `addPerHit` for a true per-bullet roll; for a cooldown-gated one, flags
+   * `requiresHit` instead.
+   *
+   * A cooldown-gated bullet proc is CONSUMED BY FIRING, not by connecting: miss
+   * the shot and the charge is still spent and the cooldown still starts. So
+   * its expected value per cooldown is scaled by the hero's hit reliability —
+   * accuracy ONLY, never fire rate, since the cooldown fixes the rate.
+   *
+   * Graves is the documented exception: her Mystic bullet is not wasted on a
+   * miss. She needs no special case here because the accuracy she resolves to
+   * is already 1.0 via WEAPON_PROFILE_OVERRIDES' `cannotMiss` in heroNeed.ts.
+   * (Silver shares the exemption only while transformed, which is situational
+   * and deliberately not modelled.)
+   */
   const addProc = (category: ScoreCategory, raw: number, basis: string) => {
     if (isCooldownGatedProc) {
-      add(category, raw, `${basis}, once per ${procAbilityCooldown}s cooldown`);
+      if (!Number.isFinite(raw) || raw <= 0) return;
+      out.push({
+        category,
+        value: raw * EFFECT_CONFIDENCE,
+        basis: `${basis}, once per ${procAbilityCooldown}s cooldown, wasted on a miss`,
+        requiresHit: true,
+      });
     } else {
       addPerHit(category, raw, basis);
     }

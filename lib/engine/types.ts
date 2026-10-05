@@ -74,6 +74,16 @@ export interface ItemCandidate {
    * hero half.
    */
   procReliance: number;
+  /**
+   * Share of this item's scored magnitude that needs a shot to CONNECT but
+   * whose rate is fixed by a cooldown, in [0, 1] (Mystic Shot and the other
+   * ProcChance-100 cooldown-gated bullet effects).
+   *
+   * Distinct from `procReliance` because it earns a different hero-side
+   * multiplier: accuracy ALONE, never fire rate. Firing faster cannot make an
+   * 8s cooldown come up more often, but missing still wastes the charge.
+   */
+  hitDependence: number;
   tags: ReadonlyArray<string>;
 }
 
@@ -158,6 +168,14 @@ export interface BasketContext {
    * proc term is inert, so an omitted factor can never silently bias a basket.
    */
   procPlatformFactor?: number;
+  /**
+   * How reliably this hero lands individual shots, relative to the roster.
+   * 1 = roster-average, >1 better. Scales `hitDependence` items only.
+   *
+   * ALWAYS passed in (derived by `deriveHitReliabilityFactor` in heroNeed.ts).
+   * Omitted, the hit-reliability term is inert.
+   */
+  hitReliabilityFactor?: number;
 }
 
 /**

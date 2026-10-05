@@ -243,6 +243,8 @@ export function makeBasketContext(opts: {
   itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
   /** See BasketContext.procPlatformFactor. Omitted => procPlatformTerm inert. */
   procPlatformFactor?: number;
+  /** See BasketContext.hitReliabilityFactor. Omitted => the term is inert. */
+  hitReliabilityFactor?: number;
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -289,6 +291,10 @@ export function makeBasketContext(opts: {
     procPlatformFactor:
       typeof opts.procPlatformFactor === "number" && Number.isFinite(opts.procPlatformFactor)
         ? opts.procPlatformFactor
+        : undefined,
+    hitReliabilityFactor:
+      typeof opts.hitReliabilityFactor === "number" && Number.isFinite(opts.hitReliabilityFactor)
+        ? opts.hitReliabilityFactor
         : undefined,
   };
 }
@@ -580,10 +586,64 @@ export const procPlatformTerm: MarginalTermFn = {
   },
 };
 
+/**
+ * Scales a cooldown-gated bullet effect by how reliably this hero connects.
+ *
+ * The sibling of `procPlatformTerm`, deliberately separate because the two
+ * multiply different item-side shares by different hero-side signals:
+ *
+ *  - per-bullet procs (`procReliance`) scale with fire rate x accuracy
+ *  - cooldown-gated procs (`hitDependence`) scale with accuracy ALONE
+ *
+ * Mystic Shot is the case that forced the split: it is consumed by FIRING, so
+ * a miss spends the charge and starts the 8s cooldown regardless, but firing
+ * faster cannot make the cooldown come up more often. Graves lands at the top
+ * of this term via `cannotMiss`, which is also the documented in-game
+ * exception — her Mystic bullet is never wasted on a miss.
+ *
+ * Same guards as the other adjustment terms: relevance-gated, neutral at
+ * roster average, inert when the factor is absent, and bounded by
+ * PROC_PLATFORM_MAX_FRACTION of one slot's coverage.
+ */
+export const hitReliabilityTerm: MarginalTermFn = {
+  termId: "hit-reliability",
+
+  evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
+    const factor = ctx.hitReliabilityFactor;
+    if (typeof factor !== "number" || !Number.isFinite(factor)) return null;
+
+    const dependence = candidate.hitDependence;
+    if (!Number.isFinite(dependence) || dependence <= 0) return null;
+
+    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+
+    const delta = factor - 1;
+    if (delta === 0) return null;
+
+    const scale = coverageScalePerSlot(ctx);
+    if (scale <= 0) return null;
+
+    const value = delta * dependence * PROC_PLATFORM_MAX_FRACTION * scale;
+    if (!Number.isFinite(value) || value === 0) return null;
+
+    const pct = Math.round(dependence * 100);
+    const sign = value >= 0 ? "+" : "";
+    return {
+      termId: "hit-reliability",
+      value,
+      reason:
+        `${sign}${value.toFixed(2)}: ${pct}% of this item's value is a cooldown-gated shot ` +
+        `that is wasted on a miss, and this hero connects ` +
+        `${factor >= 1 ? "better" : "worse"} than roster average (x${factor.toFixed(2)})`,
+    };
+  },
+};
+
 export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
   coverageTerm,
   categoryBonusTerm,
   procPlatformTerm,
+  hitReliabilityTerm,
   analyticsTerm,
 ];
 

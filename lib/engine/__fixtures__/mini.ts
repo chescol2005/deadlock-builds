@@ -14,6 +14,7 @@ import {
   analyticsTerm,
   constructBasket,
   coverageTerm,
+  hitReliabilityTerm,
   makeBasketContext,
   procPlatformTerm,
 } from "../basketSelect";
@@ -65,6 +66,7 @@ const candidates: ReadonlyArray<ItemCandidate> = [
     // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
     // pre-existing assertion in this file is unaffected.
     procReliance: 0,
+    hitDependence: 0,
     tags: ["burst", "damage"],
   },
   {
@@ -90,6 +92,7 @@ const candidates: ReadonlyArray<ItemCandidate> = [
     // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
     // pre-existing assertion in this file is unaffected.
     procReliance: 0,
+    hitDependence: 0,
     tags: ["tank", "armor"],
   },
   {
@@ -115,6 +118,7 @@ const candidates: ReadonlyArray<ItemCandidate> = [
     // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
     // pre-existing assertion in this file is unaffected.
     procReliance: 0,
+    hitDependence: 0,
     tags: ["mobility", "speed"],
   },
   {
@@ -140,6 +144,7 @@ const candidates: ReadonlyArray<ItemCandidate> = [
     // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
     // pre-existing assertion in this file is unaffected.
     procReliance: 0,
+    hitDependence: 0,
     tags: ["sustain", "lifesteal", "heal"],
   },
 ];
@@ -1241,6 +1246,7 @@ function mkCandidate(
     // 0 = no per-hit mechanic, so procPlatformTerm stays inert here and every
     // pre-existing assertion in this file is unaffected.
     procReliance: 0,
+    hitDependence: 0,
     tags: [],
   };
 }
@@ -1425,6 +1431,7 @@ console.log("\n10. basketSelect: per-hit proc platform term");
   const procItem = {
     ...mkCandidate("proc_gun", 202, "gun", 1000, { gunDamage: 100 }),
     procReliance: 0.8,
+    hitDependence: 0,
   };
 
   const state: BasketState = {
@@ -1483,6 +1490,7 @@ console.log("\n10. basketSelect: per-hit proc platform term");
   const irrelevantProc = {
     ...mkCandidate("proc_filler", 203, "vitality", 900, { bonusHealth: 100 }),
     procReliance: 1,
+    hitDependence: 0,
   };
   const gunOnlyCtx = makeBasketContext({
     needVector: { ...splitNeed, bonusHealth: 0, resist: 0, shield: 0 },
@@ -1672,6 +1680,84 @@ console.log("\n12. effectEstimator: cooldown-gated vs per-bullet procs");
     gatedItem.categoryValues.spiritDamage > 0,
     "a cooldown-gated proc is still scored above zero",
     `Got: ${gatedItem.categoryValues.spiritDamage}`,
+  );
+}
+
+console.log("\n13. basketSelect: hit-reliability term (cooldown-gated procs)");
+{
+  const state: BasketState = {
+    picked: [],
+    coverage: zeroValues(),
+    soulsPerCategory: { gun: 0, spirit: 0, vitality: 0 },
+    spent: 0,
+  };
+  const base = mkCandidate("gated_gun", 301, "gun", 1000, { gunDamage: 100 });
+  const gatedItem = { ...base, hitDependence: 0.8 };
+  const perBulletItem = { ...base, itemId: "perhit_gun", procReliance: 0.8 };
+
+  const ctxFor = (opts: { hit?: number; proc?: number }) =>
+    makeBasketContext({
+      needVector: splitNeed,
+      soulBudget: 10000,
+      maxItems: 12,
+      hitReliabilityFactor: opts.hit,
+      procPlatformFactor: opts.proc,
+    });
+
+  // A hero who connects better than average is worth more a cooldown-gated
+  // shot, because a miss spends the charge regardless.
+  const good = hitReliabilityTerm.evaluate(gatedItem, state, ctxFor({ hit: 1.3 }));
+  assert(
+    good !== null && good.value > 0,
+    "a cooldown-gated bullet effect gains value for a hero who connects better than average",
+    `Got: ${JSON.stringify(good)}`,
+  );
+  const bad = hitReliabilityTerm.evaluate(gatedItem, state, ctxFor({ hit: 0.7 }));
+  assert(
+    bad !== null && bad.value < 0,
+    "...and loses value for one who connects worse",
+    `Got: ${JSON.stringify(bad)}`,
+  );
+
+  // THE POINT OF THE SPLIT: fire rate must not touch a cooldown-gated effect,
+  // and accuracy must not touch a per-bullet one through this term.
+  assert(
+    procPlatformTerm.evaluate(gatedItem, state, ctxFor({ proc: 1.3 })) === null,
+    "the fire-rate term ignores a cooldown-gated effect -- shooting faster cannot shorten a cooldown",
+  );
+  assert(
+    hitReliabilityTerm.evaluate(perBulletItem, state, ctxFor({ hit: 1.3 })) === null,
+    "the hit-reliability term ignores a per-bullet proc, which the fire-rate term already covers",
+  );
+
+  // Standard guards, matching the sibling terms.
+  assert(
+    hitReliabilityTerm.evaluate(gatedItem, state, ctxFor({ hit: 1 })) === null,
+    "a roster-average connector (factor 1.0) contributes nothing",
+  );
+  assert(
+    hitReliabilityTerm.evaluate(gatedItem, state, ctxFor({})) === null,
+    "with no hitReliabilityFactor supplied the term is inert",
+  );
+  const irrelevant = {
+    ...mkCandidate("gated_filler", 302, "vitality", 900, { bonusHealth: 100 }),
+    hitDependence: 1,
+  };
+  const gunOnly = makeBasketContext({
+    needVector: { ...splitNeed, bonusHealth: 0, resist: 0, shield: 0 },
+    soulBudget: 10000,
+    maxItems: 12,
+    hitReliabilityFactor: 1.3,
+  });
+  assert(
+    hitReliabilityTerm.evaluate(irrelevant, state, gunOnly) === null,
+    "a cooldown-gated item covering no un-met need is still rejected by the relevance gate",
+  );
+  const coverage = coverageTerm.evaluate(gatedItem, state, ctxFor({ hit: 1.3 }));
+  assert(
+    coverage !== null && good !== null && Math.abs(good.value) < coverage.value,
+    "the hit-reliability nudge stays small relative to one slot of coverage",
+    `hit=${good?.value}, coverage=${coverage?.value}`,
   );
 }
 

@@ -954,6 +954,48 @@ Heroic Aura — and **pair value is Milestone F, not a per-item coefficient.**
 Do not "correct" a rank toward a play-derived expectation without first
 establishing which mechanism is actually wrong.
 
+#### A cooldown-gated proc is wasted on a MISS — scale it by accuracy
+
+Mystic Shot activates when you FIRE, not when you connect: miss and the charge
+is spent and the 8s cooldown starts anyway. So its expected value per cooldown
+scales with hit reliability — **accuracy only, never fire rate**, because the
+cooldown fixes the rate. That is the opposite split from a per-bullet proc:
+
+| Item-side share                   | Hero-side multiplier | Term                 |
+| --------------------------------- | -------------------- | -------------------- |
+| `procReliance` (per-bullet rolls) | fire rate x accuracy | `procPlatformTerm`   |
+| `hitDependence` (cooldown-gated)  | accuracy ALONE       | `hitReliabilityTerm` |
+
+**Graves is the documented in-game exception** — her Mystic bullet is not
+wasted on a miss — and she needs no special case: `cannotMiss` already resolves
+her to accuracy 1.0, which puts her 1st of 44 on `deriveHitReliabilityFactor`
+(1.350) for exactly the right reason. **Silver lands 2nd (1.129) purely from
+having the roster's best measured accuracy**, and is the only OTHER hero the
+wiki names as exempt (while transformed with Lycan Curse) — emergent agreement,
+not coded in. Silver's exemption is conditional on the transform, so it is
+deliberately not modelled.
+
+Live: Mystic Shot moves 39th -> 35th of Graves' gun items, `hitDependence` 0.84.
+
+Known imprecision: measured accuracy counts PELLETS, so a spreadshot hero reads
+low — but the Mystic pellet on a spreadshot weapon is always fired at the
+crosshair CENTRE, making it more reliable than their pellet accuracy implies.
+This therefore understates cooldown-gated procs on shotgun heroes.
+
+**Mystic Shot interaction facts — all Milestone F, none encodable per-item.**
+Recorded so nobody tries to express them as a per-item constant:
+
+- **It cannot crit or headshot**, so headshot/crit items do not amplify it.
+- **It is NOT affected by Ricochet.** Worth stating plainly because Ricochet
+  and Mystic Shot are easy to assume combo: they do not.
+- **The Mystic bullet lands BEFORE regular bullets**, which makes debuff
+  ordering matter: Bullet Resist Shredder applies first and amplifies the
+  weapon damage, while Crippling Headshot's spirit-resist reduction applies
+  after and does NOT amplify Mystic Shot's spirit damage.
+- It is immune to evasion.
+- On explosive alternate-fire weapons it deals no area damage — only spirit
+  damage to the enemy closest to impact.
+
 ### Non-substitutable categories: shred and anti-heal
 
 `gunShred` / `spiritShred` / `antiHeal` exist for the same reason `resist` was

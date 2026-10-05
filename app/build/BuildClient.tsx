@@ -50,7 +50,11 @@ import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
 import { resolveAccuracyAtRank } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
 import { constructBasket, makeBasketContext } from "@/lib/engine/basketSelect";
-import { deriveHeroNeedVector, deriveProcPlatformFactor } from "@/lib/engine/heroNeed";
+import {
+  deriveHeroNeedVector,
+  deriveHitReliabilityFactor,
+  deriveProcPlatformFactor,
+} from "@/lib/engine/heroNeed";
 import { toItemCandidates } from "@/lib/engine/itemAdapter";
 
 const VIEW_MODE_TABS = [
@@ -455,6 +459,13 @@ export default function BuildClient({
       maxItems: Math.max(0, MAX_ACTIVE_ITEMS - buildItems.length),
       itemAnalytics,
       procPlatformFactor,
+      // Cooldown-gated bullet effects (Mystic Shot) are spent by FIRING, so a
+      // miss wastes the charge. Accuracy only -- the cooldown fixes the rate.
+      hitReliabilityFactor: deriveHitReliabilityFactor({
+        baseStats: heroBaseStats,
+        roster: heroRoster,
+        gunAccuracyByHeroId,
+      }),
     });
 
     return constructBasket(candidates, ctx);

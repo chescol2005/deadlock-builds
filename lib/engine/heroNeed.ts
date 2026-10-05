@@ -441,6 +441,61 @@ export function deriveProcPlatformFactor(input: {
   return 1 + (clamped / Z_SCORE_CLAMP) * PROC_PLATFORM_SWING;
 }
 
+/**
+ * How reliably this hero lands individual shots, relative to the roster, in
+ * [1 - PROC_PLATFORM_SWING, 1 + PROC_PLATFORM_SWING].
+ *
+ * Scales cooldown-gated bullet effects (`ItemCandidate.hitDependence`), which
+ * are consumed by FIRING rather than by connecting: miss the shot and the
+ * charge is spent and the cooldown starts anyway. Accuracy ONLY — never fire
+ * rate, because the cooldown fixes the rate.
+ *
+ * Graves needs no special case despite being the documented exception (her
+ * Mystic bullet is not wasted on a miss): she resolves to accuracy 1.0 through
+ * WEAPON_PROFILE_OVERRIDES' `cannotMiss`, which lands her at the top of this
+ * factor for exactly the right reason. Silver shares the exemption only while
+ * transformed, which is situational and deliberately not modelled.
+ *
+ * Known imprecision: measured accuracy counts PELLETS, so a spreadshot hero
+ * reads low — yet the wiki notes their Mystic pellet is always fired at the
+ * crosshair centre, making it MORE reliable than their pellet accuracy
+ * implies. This therefore understates cooldown-gated procs on shotgun heroes.
+ */
+export function deriveHitReliabilityFactor(input: {
+  baseStats: HeroBaseStats;
+  roster: ReadonlyArray<HeroBaseStats>;
+  gunAccuracyByHeroId?: ReadonlyMap<number, number>;
+}): number {
+  const { baseStats, roster, gunAccuracyByHeroId } = input;
+  if (!gunAccuracyByHeroId) return 1;
+
+  const known = rosterAccuracies(roster, gunAccuracyByHeroId);
+  const fallback = median(known);
+
+  const accuracyFor = (h: HeroBaseStats): number | null => {
+    const measured = gunAccuracyByHeroId.get(h.heroId);
+    if (typeof measured === "number" && Number.isFinite(measured) && measured > 0) {
+      return Math.min(1, measured);
+    }
+    // Same two-case split as effectGunDps: a cannot-miss weapon is 1.0,
+    // genuinely-unknown accuracy falls back to the roster median.
+    if (WEAPON_PROFILE_OVERRIDES.get(h.weaponClass)?.cannotMiss) return 1;
+    return fallback;
+  };
+
+  const own = accuracyFor(baseStats);
+  if (own == null) return 1;
+
+  const rosterValues = roster.flatMap((h) => {
+    const a = accuracyFor(h);
+    return a == null ? [] : [a];
+  });
+
+  const z = computeZScore(own, rosterValues);
+  const clamped = Math.max(-Z_SCORE_CLAMP, Math.min(Z_SCORE_CLAMP, z));
+  return 1 + (clamped / Z_SCORE_CLAMP) * PROC_PLATFORM_SWING;
+}
+
 /** Accuracies of roster heroes that actually have measured data. */
 function rosterAccuracies(
   roster: ReadonlyArray<HeroBaseStats>,
