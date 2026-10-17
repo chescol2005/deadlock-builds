@@ -270,9 +270,13 @@ lib/engine/                   — staged-pipeline scoring surface (WIP, parallel
                                 INDEPENDENT signals, not one split budget
   itemAdapter.ts              — toItemCandidate(), toItemCandidates() — Item bridge
   basketSelect.ts             — constructBasket(), makeBasketContext(),
-                                coverageTerm/categoryBonusTerm/analyticsTerm.
+                                coverageTerm/categoryBonusTerm/procPlatformTerm/
+                                hitReliabilityTerm/synergyTerm/analyticsTerm.
                                 Add a Milestone F covariance term as one more
                                 MarginalTermFn — no change to the greedy loop
+  synergy.ts                  — SYNERGY_RULES: hand-authored positive item-pair
+                                table, consumed by synergyTerm (see "Positive
+                                synergy" below)
 lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cached,
                                 fail-open match-analytics (win rate, matches) from
                                 /v1/analytics/*; ItemAnalytics.itemId joins to
@@ -1038,8 +1042,9 @@ each scoring near the bottom of its tier and correctly so:
 - **Combo enablers.** Vortex Web pulls a group into one spot; its value is in
   the follow-up (Ivy's ultimate + grasping vines + Alchemical Fire, Paradox
   bomb setups, Doorman dragging several enemies through a door). Its slow and
-  dash-denial ARE scored; the grouping is interaction value. A positive-synergy
-  table mirroring `lib/scoring/antiSynergy.ts` is the shape that fits.
+  dash-denial ARE scored; the grouping is interaction value. The item×item part
+  (Vortex Web + Alchemical Fire) is now in the positive-synergy table — see
+  below; the item×hero-ability part (Ivy, Paradox, Doorman) is not.
 - **Ability-dependent effects.** Echo Shard resets an imbued ability's
   cooldown, so it is worth whatever that ability is worth. It gets a generic
   floor; a real number needs the hero's ability list.
@@ -1047,6 +1052,55 @@ each scoring near the bottom of its tier and correctly so:
 All three are interaction value — the item-covariance layer scoped as Milestone
 F. **Do not close the gap by inflating per-item constants**: that trades a known
 underestimate for an unknown overestimate on every hero not running the combo.
+
+### Positive synergy (hand-authored pair table)
+
+`lib/engine/synergy.ts`'s `SYNERGY_RULES` is the mirror of `ANTI_SYNERGY_RULES`:
+unordered item pairs, consumed by `synergyTerm` in `basketSelect.ts` — the first
+term to read `state.picked`. When a candidate's partner is already in the
+basket **or already owned by the player** (`BasketContext.ownedItemNames`, fed
+from `BuildClient`'s build — owned items are never candidates, so without it the
+commonest case, "I own Heroic Aura, should I buy Mystic Shot?", was invisible),
+the candidate earns `SYNERGY_MAX_FRACTION` (0.10) of one slot's coverage.
+Relevance-gated like every adjustment term, and clamped so several partners
+cannot stack past one cap.
+
+The bonus is **flat**, like `categoryBonusTerm` and unlike the proc terms. So
+it can beat an item whose coverage gain is up to 0.10 of a slot larger, not
+just break exact ties. It still can't make an item worth buying when it covers
+nothing.
+
+This is the hand-authored half of interaction value, NOT Milestone F: it only
+encodes pairs confirmed from play, and it does not measure how much a pair is
+worth. Milestone F's covariance term is still the way to get real numbers.
+
+Current entries (class names verified live): Heroic Aura + Mystic Shot,
+Ricochet + Toxic Bullets, Vortex Web + Alchemical Fire. Two exclusions are
+deliberate: Tesla Bullets is only an optional third piece of the Ricochet
+build, and **Ricochet + Mystic Shot must never be added**, because Mystic Shot
+is not affected by Ricochet.
+
+Two limits you should know about:
+
+- **Greedy is myopic.** Only the SECOND item of a pair gets boosted. The first
+  pick earns nothing for a partner that might be picked later, so a pair whose
+  first half wouldn't be picked on its own merits is never completed.
+- **The approximation guarantee is weakened.** Synergy is supermodular, so once
+  this term is enabled the (1 − 1/e) guarantee holds only approximately. The
+  small cap is what keeps the deviation small. Don't raise the cap without
+  re-examining this.
+
+**Measured live (Graves, boon 15, 9,800 souls, pooled accuracy):** owning Heroic
+Aura gives Mystic Shot the full +5.00 synergy and moves it from 59th to 51st of
+all candidates on the first iteration, and from 18th to 15th of the gun items.
+It **still does not enter the basket.** That is the cap working as intended:
+the table says the pair exists, not how much it is worth. Closing the rest of
+that gap needs a measured pair value (Milestone F), not a bigger
+`SYNERGY_MAX_FRACTION`.
+
+Add an entry only from confirmed play knowledge, and verify its class name
+against the live API first. A wrong id fails silently, because the rule just
+never matches.
 
 **A low score is not automatically a bug.** Spirit Shielding scoring 55.5 at
 T2 — above the T4 vitality median — was flagged as a suspected over-score, but

@@ -14,7 +14,9 @@
 // deliberately over an exact knapsack/ILP solve: it is O(items × slots), it is
 // trivially deterministic, and — because coverage is submodular (diminishing
 // returns, see `coverageTerm`) — it carries the standard (1 − 1/e) worst-case
-// guarantee for budgeted maximum coverage. Exactness is not worth the
+// guarantee for budgeted maximum coverage (strictly, for the coverage term
+// alone: `synergyTerm` is supermodular, so the bound is approximate once it is
+// enabled; its small cap keeps the deviation small). Exactness is not worth the
 // determinism and explainability cost here.
 //
 // Design constraints (CLAUDE.md + scoring-engine-dev skill, non-negotiable):
@@ -41,6 +43,7 @@ import {
   isApproachingSignificantBonus,
 } from "../categoryBonuses";
 import type { ItemCategory } from "../items";
+import { findSynergyRules } from "./synergy";
 import type {
   BasketContext,
   BasketPick,
@@ -147,6 +150,17 @@ const ANALYTICS_MAX_FRACTION = 0.06;
  */
 const PROC_PLATFORM_MAX_FRACTION = 0.1;
 
+/**
+ * Hard ceiling on `synergyTerm`, as a fraction of one slot's coverage.
+ *
+ * The pair table is hand-authored and unmeasured, so it is bounded no higher
+ * than the measured proc-platform term (0.10) and below the game-native
+ * category bonus (0.15). The bonus is FLAT (like the category bonus, unlike
+ * the proc terms), so a relevant paired item can beat one with up to 0.10 of a
+ * slot more coverage gain — never a larger gap.
+ */
+export const SYNERGY_MAX_FRACTION = 0.1;
+
 /** Max categories named in a coverage `reason` before it is truncated. */
 const MAX_REASON_CATEGORIES = 3;
 
@@ -245,6 +259,8 @@ export function makeBasketContext(opts: {
   procPlatformFactor?: number;
   /** See BasketContext.hitReliabilityFactor. Omitted => the term is inert. */
   hitReliabilityFactor?: number;
+  /** See BasketContext.ownedItemNames. Omitted => synergy sees basket picks only. */
+  ownedItemNames?: ReadonlyMap<string, string>;
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -296,6 +312,7 @@ export function makeBasketContext(opts: {
       typeof opts.hitReliabilityFactor === "number" && Number.isFinite(opts.hitReliabilityFactor)
         ? opts.hitReliabilityFactor
         : undefined,
+    ownedItemNames: opts.ownedItemNames,
   };
 }
 
@@ -639,11 +656,65 @@ export const hitReliabilityTerm: MarginalTermFn = {
   },
 };
 
+/**
+ * Rewards completing a known item PAIR (see lib/engine/synergy.ts), the first
+ * term to read `state.picked`.
+ *
+ * Relevance-gated like the other adjustment terms: synergy is a reason to
+ * prefer one useful item, never to buy a useless one. Several partners cannot
+ * stack past one SYNERGY_MAX_FRACTION cap.
+ *
+ * Honest limits:
+ *  (a) Greedy is myopic — only the SECOND item of a pair is boosted. The first
+ *      earns nothing for its partner's possible future pick.
+ *  (b) Synergy is supermodular, so with this term enabled the (1 − 1/e)
+ *      guarantee in the file header no longer strictly holds; the bound keeps
+ *      the deviation small.
+ */
+export const synergyTerm: MarginalTermFn = {
+  termId: "synergy",
+
+  evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
+    // Partners count whether the basket picked them or the player already owns
+    // them — owned items never appear in `state.picked` (they are not candidates).
+    const partnerNames = new Map<string, string>(ctx.ownedItemNames ?? []);
+    for (const p of state.picked) partnerNames.set(p.itemId, p.name);
+
+    const rules = findSynergyRules(candidate.itemId, new Set(partnerNames.keys()));
+    if (rules.length === 0) return null;
+
+    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+
+    const scale = coverageScalePerSlot(ctx);
+    if (scale <= 0) return null;
+
+    let strength = 0;
+    for (const rule of rules) strength += rule.strength;
+
+    const value = Math.min(1, strength) * SYNERGY_MAX_FRACTION * scale;
+    if (!Number.isFinite(value) || value === 0) return null;
+
+    // Partner names in the same order as `rules` (partner id ascending).
+    const names: string[] = [];
+    for (const rule of rules) {
+      const partnerId = rule.itemIds[0] === candidate.itemId ? rule.itemIds[1] : rule.itemIds[0];
+      names.push(partnerNames.get(partnerId) ?? partnerId);
+    }
+
+    return {
+      termId: "synergy",
+      value,
+      reason: `+${value.toFixed(2)}: pairs with ${names.join(", ")}, already in your build or this basket — ${rules[0].reason}`,
+    };
+  },
+};
+
 export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
   coverageTerm,
   categoryBonusTerm,
   procPlatformTerm,
   hitReliabilityTerm,
+  synergyTerm,
   analyticsTerm,
 ];
 

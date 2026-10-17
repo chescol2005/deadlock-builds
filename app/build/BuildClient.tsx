@@ -466,6 +466,8 @@ export default function BuildClient({
         roster: heroRoster,
         gunAccuracyByHeroId,
       }),
+      // Lets synergyTerm credit a pair whose other half the player already owns.
+      ownedItemNames: new Map(buildItems.map((i) => [i.id, i.name])),
     });
 
     return constructBasket(candidates, ctx);

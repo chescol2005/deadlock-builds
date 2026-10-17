@@ -14,10 +14,14 @@ import {
   analyticsTerm,
   constructBasket,
   coverageTerm,
+  DEFAULT_BASKET_TERMS,
   hitReliabilityTerm,
   makeBasketContext,
   procPlatformTerm,
+  SYNERGY_MAX_FRACTION,
+  synergyTerm,
 } from "../basketSelect";
+import { findSynergyRules, SYNERGY_RULES } from "../synergy";
 import { estimateEffectValues } from "../effectEstimator";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
@@ -1758,6 +1762,196 @@ console.log("\n13. basketSelect: hit-reliability term (cooldown-gated procs)");
     coverage !== null && good !== null && Math.abs(good.value) < coverage.value,
     "the hit-reliability nudge stays small relative to one slot of coverage",
     `hit=${good?.value}, coverage=${coverage?.value}`,
+  );
+}
+
+console.log("\n14. ── Positive synergy ──");
+{
+  // Table integrity.
+  const pairKeys = new Set<string>();
+  let selfPair = false;
+  let duplicatePair = false;
+  let badStrength = false;
+  let badPrefix = false;
+  for (const rule of SYNERGY_RULES) {
+    const [a, b] = rule.itemIds;
+    if (a === b) selfPair = true;
+    const key = [a, b].sort().join("|");
+    if (pairKeys.has(key)) duplicatePair = true;
+    pairKeys.add(key);
+    if (!(rule.strength > 0 && rule.strength <= 1)) badStrength = true;
+    if (!a.startsWith("upgrade_") || !b.startsWith("upgrade_")) badPrefix = true;
+  }
+  assert(!selfPair, "no synergy rule pairs an item with itself");
+  assert(!duplicatePair, "no synergy pair is duplicated, in either order");
+  assert(!badStrength, "every synergy strength is in (0, 1]");
+  assert(!badPrefix, "every synergy item id is an upgrade_ class name");
+
+  // findSynergyRules symmetry.
+  const [sideA, sideB] = SYNERGY_RULES[0].itemIds;
+  const fromA = findSynergyRules(sideA, new Set([sideB]));
+  const fromB = findSynergyRules(sideB, new Set([sideA]));
+  assert(
+    fromA.length === 1 && fromB.length === 1 && fromA[0] === fromB[0],
+    "findSynergyRules finds the same rule from either side of the pair",
+  );
+  assert(
+    findSynergyRules(sideA, new Set<string>()).length === 0 &&
+      findSynergyRules(sideA, new Set(["unrelated_item"])).length === 0,
+    "findSynergyRules returns [] when the partner is not picked",
+  );
+
+  // Term behaviour.
+  const gunNeed = { ...zeroValues(), gunDamage: 1 };
+  const ctx = makeBasketContext({ needVector: gunNeed, soulBudget: 20000, maxItems: 4 });
+  const scale = SCORE_CATEGORIES.reduce((sum, cat) => sum + ctx.target[cat], 0) / ctx.maxItems;
+  const emptyState: BasketState = {
+    picked: [],
+    coverage: zeroValues(),
+    soulsPerCategory: { gun: 0, spirit: 0, vitality: 0 },
+    spent: 0,
+  };
+  const stateWith = (partner: ItemCandidate): BasketState => ({
+    ...emptyState,
+    picked: [partner],
+    coverage: { ...zeroValues(), ...partner.categoryValues },
+    spent: partner.cost,
+  });
+
+  const [idA, idB] = ["upgrade_aoe_root", "upgrade_thermal_detonator"];
+  const candA = { ...mkCandidate(idA, 8101, "gun", 1000, { gunDamage: 20 }), name: "Vortex Web" };
+  const candB = {
+    ...mkCandidate(idB, 8102, "gun", 1000, { gunDamage: 20 }),
+    name: "Alchemical Fire",
+  };
+
+  assert(
+    synergyTerm.evaluate(candB, emptyState, ctx) === null &&
+      synergyTerm.evaluate(
+        candB,
+        stateWith(mkCandidate("other_item", 8103, "gun", 500, {})),
+        ctx,
+      ) === null,
+    "synergyTerm returns null when no pair partner has been picked",
+  );
+
+  const bOnA = synergyTerm.evaluate(candB, stateWith(candA), ctx);
+  const aOnB = synergyTerm.evaluate(candA, stateWith(candB), ctx);
+  assert(
+    bOnA !== null && bOnA.value > 0 && aOnB !== null && aOnB.value > 0,
+    "synergyTerm is positive when the partner is picked, in BOTH orders of the pair",
+    `B|A=${bOnA?.value}, A|B=${aOnB?.value}`,
+  );
+
+  const zeroCov = { ...mkCandidate(idB, 8104, "gun", 1000, {}), name: "Alchemical Fire" };
+  assert(
+    synergyTerm.evaluate(zeroCov, stateWith(candA), ctx) === null,
+    "relevance gate: a paired candidate with zero coverage gain gets no synergy",
+  );
+  const satState: BasketState = { ...stateWith(candA), coverage: { ...ctx.target } };
+  assert(
+    synergyTerm.evaluate(candB, satState, ctx) === null,
+    "relevance gate: a paired candidate whose categories are already at target gets no synergy",
+  );
+
+  assert(
+    bOnA !== null &&
+      aOnB !== null &&
+      bOnA.value <= SYNERGY_MAX_FRACTION * scale + 1e-9 &&
+      aOnB.value <= SYNERGY_MAX_FRACTION * scale + 1e-9,
+    "synergy value never exceeds SYNERGY_MAX_FRACTION x per-slot scale",
+    `scale=${scale}, B|A=${bOnA?.value}, A|B=${aOnB?.value}`,
+  );
+  assert(
+    bOnA !== null && bOnA.reason.includes("Vortex Web"),
+    "synergy reason names the partner already in the basket",
+    `Got: ${bOnA?.reason}`,
+  );
+
+  // End to end: the bonus must flip a near-tie between partner and decoy.
+  // Target per slot 50 x 4 slots = 200 gunDamage; scale 50 => bonus 5.
+  // Anchor (thermal detonator) 100 is the unambiguous first pick. Second pick:
+  // decoy 32 vs partner 30 (decoy ahead by 2 < bonus 5).
+  const anchor = mkCandidate(idB, 8201, "gun", 1000, { gunDamage: 100 });
+  const partner = mkCandidate(idA, 8202, "gun", 1000, { gunDamage: 30 });
+  const decoy = mkCandidate("decoy_gun", 8203, "gun", 1000, { gunDamage: 32 });
+  const pool = [decoy, partner, anchor];
+  const without = constructBasket(
+    pool,
+    ctx,
+    DEFAULT_BASKET_TERMS.filter((t) => t.termId !== "synergy"),
+  );
+  const withSyn = constructBasket(pool, ctx, DEFAULT_BASKET_TERMS);
+  assert(
+    without.picks[0]?.item.itemId === idB && withSyn.picks[0]?.item.itemId === idB,
+    "e2e: the anchor is the unambiguous first pick with or without synergy",
+  );
+  assert(
+    without.picks[1]?.item.itemId === "decoy_gun",
+    "e2e: without the synergy term the slightly stronger decoy is picked second",
+    `Got: ${without.picks.map((p) => p.item.itemId).join(", ")}`,
+  );
+  assert(
+    withSyn.picks[1]?.item.itemId === idA &&
+      withSyn.picks[1].terms.some((t) => t.termId === "synergy"),
+    "e2e: with the default terms the synergy partner is picked second, via the synergy term",
+    `Got: ${withSyn.picks.map((p) => p.item.itemId).join(", ")}`,
+  );
+
+  // Owned partners (never in state.picked) also count.
+  const ownedCtx = makeBasketContext({
+    needVector: gunNeed,
+    soulBudget: 20000,
+    maxItems: 4,
+    ownedItemNames: new Map([[idB, "My Owned Fire"]]),
+  });
+  const ownedOnly = synergyTerm.evaluate(candA, emptyState, ownedCtx);
+  assert(
+    ownedOnly !== null && ownedOnly.value > 0 && ownedOnly.reason.includes("My Owned Fire"),
+    "an owned partner (state.picked empty) earns synergy and is named from ownedItemNames",
+    `Got: ${JSON.stringify(ownedOnly)}`,
+  );
+  assert(
+    synergyTerm.evaluate(candA, emptyState, ctx) === null,
+    "omitting ownedItemNames keeps behaviour unchanged: null with no picked partner",
+  );
+  const bothCtx = makeBasketContext({
+    needVector: gunNeed,
+    soulBudget: 20000,
+    maxItems: 4,
+    ownedItemNames: new Map([[idB, "Alchemical Fire"]]),
+  });
+  const both = synergyTerm.evaluate(candA, stateWith(candB), bothCtx);
+  assert(
+    both !== null && Math.abs(both.value - SYNERGY_MAX_FRACTION * scale) < 1e-9,
+    "a partner both owned AND picked counts once: value equals exactly one cap",
+    `Got: ${both?.value}`,
+  );
+
+  // E2E with an owned partner that is not a candidate: first pick flips.
+  const ownedPartner = mkCandidate(idA, 8301, "gun", 1000, { gunDamage: 30 });
+  const ownedDecoy = mkCandidate("decoy_gun_2", 8302, "gun", 1000, { gunDamage: 32 });
+  const ownedPool = [ownedDecoy, ownedPartner];
+  const noOwned = constructBasket(ownedPool, ctx);
+  const withOwned = constructBasket(
+    ownedPool,
+    makeBasketContext({
+      needVector: gunNeed,
+      soulBudget: 20000,
+      maxItems: 4,
+      ownedItemNames: new Map([[idB, "Alchemical Fire"]]),
+    }),
+  );
+  assert(
+    noOwned.picks[0]?.item.itemId === "decoy_gun_2",
+    "e2e owned: without ownedItemNames the slightly stronger decoy is picked first",
+    `Got: ${noOwned.picks.map((p) => p.item.itemId).join(", ")}`,
+  );
+  assert(
+    withOwned.picks[0]?.item.itemId === idA &&
+      withOwned.picks[0].terms.some((t) => t.termId === "synergy"),
+    "e2e owned: with an owned partner the paired candidate wins the FIRST pick via synergy",
+    `Got: ${withOwned.picks.map((p) => p.item.itemId).join(", ")}; decoy=${noOwned.picks[0]?.marginalValue}, partner=${withOwned.picks[0]?.marginalValue}`,
   );
 }
 
