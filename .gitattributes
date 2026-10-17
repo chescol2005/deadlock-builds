@@ -1,0 +1,15 @@
+# Normalize line endings to LF for all text files, regardless of each
+# contributor's core.autocrlf setting. Without this, Prettier (which writes
+# LF) and Windows checkouts (core.autocrlf=true converts to CRLF) disagree,
+# and every `prettier --write` run makes dozens of files show as "modified"
+# with zero real content change.
+* text=auto eol=lf
+
+# Binary assets — never touch line endings on these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
