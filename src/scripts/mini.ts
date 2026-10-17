@@ -261,6 +261,31 @@ async function run() {
     );
   }
 
+  // `SpiritPower` is a SECOND API name for the same stat as `TechPower`.
+  // Verified live: 19 items use TechPower, 6 use SpiritPower (Counterspell,
+  // Mystic Shot, Healing Nova, Alchemical Fire, Arcane Surge, Veil Walker),
+  // and NONE use both -- so summing both keys cannot double-count. Omitting
+  // SpiritPower silently dropped up to 20 spirit power per item here, while
+  // the engine's STAT_KEY_TO_SCORE already counted it: the two disagreed.
+  const mysticShot = items.find((i) => i.name === "Mystic Shot");
+  if (mysticShot) {
+    const msTotals = calculateStatTotals([mysticShot]);
+    assert(
+      msTotals.spiritPowerFlat > 0,
+      `Mystic Shot's SpiritPower key counts toward spirit totals: ${msTotals.spiritPowerFlat}`,
+    );
+  }
+
+  // Both names must be summed, and a hypothetical item carrying both must not
+  // be double-counted into one key -- they are the same stat, so one sum.
+  const dualKey = calculateStatTotals([
+    { ...(boundlessSpirit ?? items[0]), stats: { TechPower: 10, SpiritPower: 5 }, statScaling: {} },
+  ]);
+  assert(
+    dualKey.spiritPowerFlat === 15,
+    `TechPower + SpiritPower sum into one spirit total: ${dualKey.spiritPowerFlat}`,
+  );
+
   // BaseAttackDamagePercent is a percent stat — it must land in weaponDamagePercent,
   // not get conflated with the flat WeaponPower stat into weaponDamageFlat (bug fix:
   // these used to be combined into one field, which broke any multiplicative math

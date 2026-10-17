@@ -59,7 +59,17 @@ export type StatTotals = {
   healthRegen: number;
 };
 
-const SPIRIT_POWER_KEYS = ["TechPower"];
+// `SpiritPower` is a SECOND API name for the same stat as `TechPower`. Verified
+// live across all 173 shopable items: 19 use TechPower, 6 use SpiritPower
+// (Counterspell, Mystic Shot, Healing Nova, Alchemical Fire, Arcane Surge, Veil
+// Walker), and NONE use both — so summing both keys cannot double-count.
+//
+// Omitting it silently dropped up to 20 spirit power per item. The engine's
+// STAT_KEY_TO_SCORE was fixed for this (see CLAUDE.md's coverage audit) but
+// this module was not, so the two disagreed. It compounds on Mystic Shot,
+// which is both a SpiritPower item AND ETechPower-scaled: undercounting spirit
+// power here under-resolves that item's own scaling downstream.
+const SPIRIT_POWER_KEYS = ["TechPower", "SpiritPower"];
 const SPIRIT_POWER_PERCENT_KEYS = ["TechPowerPercent"];
 const HEALTH_BONUS_KEYS = ["BonusHealth"];
 const WEAPON_DAMAGE_KEYS = ["WeaponPower"];
