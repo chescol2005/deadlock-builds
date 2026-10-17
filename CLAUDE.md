@@ -49,10 +49,11 @@ A veteran can tune every parameter and share a fully-annotated build URL.
 ## Before Every Commit (mandatory, in this order)
 
 ```bash
-npx prettier --write .
+npx prettier --check .   # mirrors CI; fix with --write on the listed files only
 npx tsc --noEmit
-npx next build
-npm run mini
+npx eslint .             # 0 errors required
+npx next build           # judge by exit code, not log noise
+npm run mini             # read BOTH harness summary lines
 ```
 
 Kill dev server before finishing any session.
@@ -92,8 +93,10 @@ BuildState.heroId; // "heroId" not "herold"
 
 All game data: `https://api.deadlock-api.com/v1/assets` (unauthenticated)
 
-`https://assets.deadlock-api.com/v2/...` still works but 301-redirects here —
-call the canonical host directly, don't rely on the redirect.
+The old `https://assets.deadlock-api.com/v2/...` host is **gone**. It used to
+301-redirect here, but as of 2026-10-17 its DNS returns NXDOMAIN, so any
+reference to it is dead and should be rewritten to the host above. Match
+analytics live on the same host, under `/v1/analytics/*`.
 
 ```typescript
 GET / v1 / assets / items; // all items
@@ -1053,6 +1056,53 @@ All three are interaction value — the item-covariance layer scoped as Mileston
 F. **Do not close the gap by inflating per-item constants**: that trades a known
 underestimate for an unknown overestimate on every hero not running the combo.
 
+**A low score is not automatically a bug.** Spirit Shielding scoring 55.5 at
+T2 — above the T4 vitality median — was flagged as a suspected over-score, but
+it is correct: it is a genuinely strong item on low-health heroes, and the model
+already reflects that, ranking it 10th of 54 vitality items for the roster's
+squishiest hero versus 22nd for its tankiest. Check whether a flagged outlier
+is actually wrong before retuning toward it.
+
+**Enemy resist reduction is offensive value stored as a negative.**
+`BulletArmorReduction`, `MagicResistReduction`, `TechArmorDamageReduction` and
+`BulletResistReduction` lower the TARGET's stat. Mapping them in
+`STAT_KEY_TO_SCORE` would subtract from the buyer's score, exactly inverting
+their worth — which is why they are sign-corrected in the estimator instead.
+**Check the sign convention before mapping any new key.**
+
+**Watch the scale when mapping a percent stat.** `StaminaCooldownReduction`
+(12-18) was first weighted like a ones-scale flat stat, putting Stamina Mastery
+at mobility 93 against Sprint Boots' 8.25 — an 11x distortion. Calibrate a new
+key against an existing item in the same category before trusting it.
+
+**Sentinel values are not debuffs.** `AbilityCooldownBetweenCharge` is `-1` on
+156/156 live items, `ChannelMoveSpeed` is `-1` on 155/156, and `AbilityCharges`
+is `0` on 156/156 — they mean "not applicable". They were previously mapped and
+scored, charging a phantom −3 utility and −3 mobility to EVERY item and
+silently understating the real utility/mobility of any item that had some
+(Guardian Ward read 5.3 mobility instead of 8.3). They are now deliberately
+excluded, with a note in `itemAdapter.ts`. **Check a key's value distribution
+across all items before mapping it** — a constant value across the whole
+catalogue is a sentinel, not a stat.
+
+**`MIN_DEFENSIVE_NEED` exists for the same reason as `MIN_GUN_FACTOR`.** Before
+it, the roster's tankiest hero derived exactly 0.00/0.00 and would never have
+been offered a single vitality item — zero is unreachable downstream, not
+merely low. Being naturally durable lowers the priority, never to nil. **Any
+new per-hero signal added to this module needs the same floor — it is the
+recurring bug class here.**
+
+**Live validation (real API data).** Lady Geist's kit is 100% spirit-scaling
+(Essence Bomb 1.22, Malice 0.558, Life Drain 0.3225, zero weapon scaling) AND
+her gun gains +1.00 damage/boon, ranking 7th of 38 for DPS gained from boons
+— so she correctly derives a need for BOTH (spirit 2.00, gun 1.07). Gun
+quality spans 6.3× across the roster, and the derivation separates it
+cleanly: Drifter (best gun) 2.00, Geist 1.07, Infernus 0.71, Graves (worst)
+0.65 — note Infernus and Geist are both pure-spirit heroes, separated only by
+gun quality. Her `moveSpeed` 6.3 is below roster average so mobility reads
+high (1.60); `maxHealth` 880 is above average so tankiness reads low (0.15)
+under the compensating interpretation.
+
 ### Positive synergy (hand-authored pair table)
 
 `lib/engine/synergy.ts`'s `SYNERGY_RULES` is the mirror of `ANTI_SYNERGY_RULES`:
@@ -1102,53 +1152,6 @@ Add an entry only from confirmed play knowledge, and verify its class name
 against the live API first. A wrong id fails silently, because the rule just
 never matches.
 
-**A low score is not automatically a bug.** Spirit Shielding scoring 55.5 at
-T2 — above the T4 vitality median — was flagged as a suspected over-score, but
-it is correct: it is a genuinely strong item on low-health heroes, and the model
-already reflects that, ranking it 10th of 54 vitality items for the roster's
-squishiest hero versus 22nd for its tankiest. Check whether a flagged outlier
-is actually wrong before retuning toward it.
-
-**Enemy resist reduction is offensive value stored as a negative.**
-`BulletArmorReduction`, `MagicResistReduction`, `TechArmorDamageReduction` and
-`BulletResistReduction` lower the TARGET's stat. Mapping them in
-`STAT_KEY_TO_SCORE` would subtract from the buyer's score, exactly inverting
-their worth — which is why they are sign-corrected in the estimator instead.
-**Check the sign convention before mapping any new key.**
-
-**Watch the scale when mapping a percent stat.** `StaminaCooldownReduction`
-(12-18) was first weighted like a ones-scale flat stat, putting Stamina Mastery
-at mobility 93 against Sprint Boots' 8.25 — an 11x distortion. Calibrate a new
-key against an existing item in the same category before trusting it.
-
-**Sentinel values are not debuffs.** `AbilityCooldownBetweenCharge` is `-1` on
-156/156 live items, `ChannelMoveSpeed` is `-1` on 155/156, and `AbilityCharges`
-is `0` on 156/156 — they mean "not applicable". They were previously mapped and
-scored, charging a phantom −3 utility and −3 mobility to EVERY item and
-silently understating the real utility/mobility of any item that had some
-(Guardian Ward read 5.3 mobility instead of 8.3). They are now deliberately
-excluded, with a note in `itemAdapter.ts`. **Check a key's value distribution
-across all items before mapping it** — a constant value across the whole
-catalogue is a sentinel, not a stat.
-
-**`MIN_DEFENSIVE_NEED` exists for the same reason as `MIN_GUN_FACTOR`.** Before
-it, the roster's tankiest hero derived exactly 0.00/0.00 and would never have
-been offered a single vitality item — zero is unreachable downstream, not
-merely low. Being naturally durable lowers the priority, never to nil. **Any
-new per-hero signal added to this module needs the same floor — it is the
-recurring bug class here.**
-
-**Live validation (real API data).** Lady Geist's kit is 100% spirit-scaling
-(Essence Bomb 1.22, Malice 0.558, Life Drain 0.3225, zero weapon scaling) AND
-her gun gains +1.00 damage/boon, ranking 7th of 38 for DPS gained from boons
-— so she correctly derives a need for BOTH (spirit 2.00, gun 1.07). Gun
-quality spans 6.3× across the roster, and the derivation separates it
-cleanly: Drifter (best gun) 2.00, Geist 1.07, Infernus 0.71, Graves (worst)
-0.65 — note Infernus and Geist are both pure-spirit heroes, separated only by
-gun quality. Her `moveSpeed` 6.3 is below roster average so mobility reads
-high (1.60); `maxHealth` 880 is above average so tankiness reads low (0.15)
-under the compensating interpretation.
-
 ---
 
 ## Common Bugs to Check
@@ -1157,7 +1160,11 @@ under the compensating interpretation.
 2. Item identifier: `item.id` not `item.classname`
 3. Category value: `"gun"` not `"weapon"`
 4. Spirit scaling: check BOTH `class_name` and `scaleType`
-5. Prettier: run on ALL files before committing or CI fails
+5. Prettier: CI checks formatting on ALL files — run `prettier --check .`, `--write` only changed files (never bare `--write .`). If `--check` flags dozens
+   of files you never touched on Windows, it's CRLF from a checkout that predates
+   `.gitattributes`. `prettier --check --end-of-line auto .` passing confirms
+   that's all it is. Fix by re-checking-out those files with a clean tree. Do NOT
+   `--write` them.
 6. Dev server lock: `rm -rf .next` to clear Turbopack lock
 7. gh CLI labels: `--field "labels[]=value"` syntax
 8. Hydration: never read localStorage during SSR
@@ -1172,7 +1179,10 @@ under the compensating interpretation.
 
 ## CI Pipeline
 
-GitHub Actions runs on every push:
+GitHub Actions (`.github/workflows/ci.yml`) runs on pull requests to `main`,
+pushes to `main`, and manual dispatch — NOT on every push to a feature branch.
+It ignores `**/*.md` and `docs/**`, so a docs-only change never triggers CI: run
+the gate locally for those.
 
 1. Format (Prettier) — fails if any file not formatted
 2. Typecheck (tsc --noEmit)

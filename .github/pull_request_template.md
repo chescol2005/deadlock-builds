@@ -18,7 +18,7 @@
 
 - [ ] No `any` introduced (prefer `unknown` + narrowing)
 - [ ] Types updated where needed (no silent shape drift)
-- [ ] Prettier clean (`npx prettier --write .`)
+- [ ] Prettier clean (`npx prettier --check .`; `--write` only the files you changed)
 - [ ] Lint + Typecheck + Build pass locally
       (`npm run lint && npx tsc --noEmit && npm run build`)
 - [ ] Any new scoring/engine logic has mini.ts fixture coverage

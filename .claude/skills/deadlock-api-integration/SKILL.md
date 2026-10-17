@@ -2,14 +2,14 @@
 name: deadlock-api-integration
 description: >
   Fetch, normalize, and cache game data from the Deadlock assets API
-  (assets.deadlock-api.com) for Deadlock Foundry. Use this skill whenever
+  (api.deadlock-api.com/v1/assets) for Deadlock Foundry. Use this skill whenever
   touching lib/api/deadlockApi.ts, lib/itemNormalizer.ts, lib/itemStore.ts,
   or lib/heroStore.ts, or when adding/reading any API field, mapping a raw
   API shape to a normalized type, resolving item icons, deriving item tags,
   reading spirit scaling coefficients, or debugging why an item/hero shows
   the wrong image, category, cost, or stat. Also use when the user says
   "fetch items", "normalize", "the API changed", "wrong icon", "item shape",
-  or references any assets.deadlock-api.com endpoint. Always consult this
+  or references any api.deadlock-api.com endpoint. Always consult this
   skill before trusting a field name — raw API field mistakes are the #1
   bug source in this project.
 ---
@@ -36,14 +36,29 @@ has raw field names.
 
 ## Endpoints (unauthenticated)
 
-Base: `https://assets.deadlock-api.com`
+Base: `https://api.deadlock-api.com` (all paths verified 200 on 2026-10-17).
+
+> `assets.deadlock-api.com` no longer exists (DNS NXDOMAIN, no redirect).
+> Never use it or `/v2/...` paths; old docs mentioning them are stale.
 
 ```
-GET /v2/items                        // all items (raw UpgradeV2Raw[])
-GET /v2/items/by-slot-type/{slot}    // slot = weapon | spirit | vitality
-GET /v2/heroes/{id}                  // hero starting_stats + level upgrades
-GET /v2/items/by-hero-id/{id}        // hero ability items (signature/ultimate)
+GET /v1/assets/items                      // all items (raw UpgradeV2Raw[])
+GET /v1/assets/items/by-slot-type/{slot}  // slot = weapon | spirit | vitality
+GET /v1/assets/heroes/{id}                // hero starting_stats + level upgrades
+GET /v1/assets/items/by-hero-id/{id}      // hero ability items (signature/ultimate)
+GET /v1/assets/items/{class_name}         // one item; used for a hero's weapon
+GET /v1/assets/ranks                      // rank tier names (never hardcode)
+GET /v1/analytics/hero-stats              // per-hero win rate, shots hit/missed
+GET /v1/analytics/hero-stats?bucket=avg_badge  // same, partitioned by rank
+GET /v1/analytics/item-stats              // per-item { matches, wins, winRate }
 ```
+
+Analytics wrappers live in `lib/api/analyticsApi.ts` (cached via
+`lib/analyticsStore.ts`, fail-open). **`ItemAnalytics.itemId` joins to
+`Item.numericId`, NOT `Item.id`** (the class_name).
+
+**Verify with curl, not WebFetch.** WebFetch summarizes and can lose exact
+field names. Use `curl -s URL | node -e '...'` to inspect raw JSON.
 
 Fetch wrappers already exist — reuse them, don't re-implement:
 `fetchAllItems()`, `fetchHeroStats(id)`, `fetchHeroAbilityItems(id)` in
@@ -113,6 +128,29 @@ Tag derivation (`deriveTags`) keys off slot + property presence: `weapon` +
 `WeaponPower` → `dps`; `vitality` → `tankiness` (+`sustain` if Regen/Lifesteal);
 `spirit` + `TechPower` → `utility`; move-speed → `mobility`; charges/actives →
 `burst`/`utility`. Empty tag set falls back to `["utility"]`.
+
+---
+
+## `weapon_info` — lives on the weapon item, not the hero
+
+Bullet/reload/falloff stats are NOT on the hero's `starting_stats`. Fetch the
+item named by `hero.items.weapon_primary` (`/v1/assets/items/{class_name}`) and
+read its `weapon_info` (see `WeaponItemRaw` in `lib/api/deadlockApi.ts`).
+
+- `bullets_per_second` already includes pellets — do NOT multiply by `bullets`.
+- Falloff ranges arrive in source units; `fetchHeroStats` converts to **metres**
+  (÷39.37) exactly once. Consumers must not divide again.
+- `damage_per_second_with_reload` feeds `HeroBaseStats.dpsWithReload`.
+- Field meaning is NOT uniform across weapons (Graves has a hard cutoff, not
+  falloff). See CLAUDE.md "Range falloff" — don't re-derive it here.
+
+## Item value scaling — `value` is only the base
+
+`properties[key].scale_function.stat_scale` is Valve's scaling coefficient
+(e.g. Mystic Shot `ProcBonusMagicDamage` = `40 + 0.9 x spirit`). It is captured
+by `lib/itemNormalizer.ts` into `Item.statScaling`; `parseStats` `value` alone
+understates scaled items. Only the single-stat form carries `stat_scale`;
+`scale_function_multi_stats` has none. Preserve sign (negative = enemy debuff).
 
 ---
 

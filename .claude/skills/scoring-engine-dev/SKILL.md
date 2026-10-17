@@ -4,12 +4,16 @@ description: >
   Author and modify the deterministic scoring engine for Deadlock Foundry.
   Use this skill whenever touching lib/scoring/scoreItems.ts,
   lib/scoring/goalWeights.ts, lib/scoring/antiSynergy.ts, lib/categoryBonuses.ts,
-  lib/engine/engine.ts, or lib/engine/stages/*. Also use when adding a new
-  build goal or item tag, changing tag weights, adding a scoring stage,
+  lib/engine/engine.ts, lib/engine/stages/*, lib/engine/basketSelect.ts,
+  lib/engine/heroNeed.ts, lib/engine/itemAdapter.ts,
+  lib/engine/effectEstimator.ts, lib/engine/synergy.ts, or
+  lib/engine/types.ts. Also use when adding a new build goal or item tag,
+  changing tag weights, adding a scoring stage or basket marginal term,
   adjusting the investment/category bonus, or debugging why item ranking or
   suggestions look wrong or non-deterministic. Trigger on "scoring", "score
   items", "goal weights", "anti-synergy", "ranking", "suggested items",
-  "engine stage", or "why is this item ranked here". Read this BEFORE writing
+  "engine stage", "basket", "need vector", "marginal term", "synergy", "hero
+  need", or "why is this item ranked here". Read this BEFORE writing
   scoring code — the architecture rules here are non-negotiable, and any
   scoring change must be paired with a fixture via the fixture-driven-dev skill.
 ---
@@ -34,16 +38,26 @@ These come straight from CLAUDE.md and are not up for debate:
 
 ---
 
-## Two scoring surfaces — know which you're in
+## Three scoring surfaces — know which you're in
 
-- **`lib/scoring/scoreItems.ts`** — the shipped ranker. `ScoredItem[]` with a
-  per-tag `scoreBreakdown` and a human `reason`. Tag-weight based.
-- **`lib/engine/`** — a staged pipeline (`ScoringStage[]`, `EngineInput` →
-  `EngineOutput`) with `SCORE_CATEGORIES` and `IntentWeights`. Each stage
-  implements `score(input, candidate): StageScore`.
+- **`lib/scoring/scoreItems.ts`** — the shipped independent ranker.
+  `ScoredItem[]` with a per-tag `scoreBreakdown` and a human `reason`.
+  Tag-weight based.
+- **`lib/engine/engine.ts` + `stages/*`** — a staged pipeline
+  (`ScoringStage[]`, `EngineInput` → `EngineOutput`) with `SCORE_CATEGORIES`
+  and `IntentWeights`. Each stage implements `score(input, candidate): StageScore`.
+- **Basket selection** — `constructBasket()` in `lib/engine/basketSelect.ts`:
+  greedy joint selection of a SET of items against a hero need vector
+  (`heroNeed.ts`), with `Item` → `ItemCandidate` via `itemAdapter.ts` /
+  `effectEstimator.ts`. Marginal value is a sum of pluggable `MarginalTermFn`
+  terms. Wired into `app/build/BuildClient.tsx` through `HeroBasketSuggestion`.
 
-Both must obey the rules above. When adding logic, put it in the surface that
-already owns that concept; don't duplicate a weight table across both.
+All must obey the rules above. When adding logic, put it in the surface that
+already owns that concept; don't duplicate a weight table across them.
+
+**Fixtures:** `lib/scoring/` is covered by `src/scripts/mini.ts`; `lib/engine/`
+by a SEPARATE harness, `lib/engine/__fixtures__/mini.ts`. `npm run mini` chains
+both — read the whole output, since a failure in the first masks the second.
 
 ---
 
@@ -138,13 +152,87 @@ everything here — never calls the coach. New conflict pairs need a fixture:
 
 ---
 
+## Adding a basket term (MarginalTermFn)
+
+Terms live in `basketSelect.ts` and are summed by the greedy loop. Checklist,
+each item with the existing term that shows it:
+
+- [ ] **Bounded** as a fraction of one slot: `value = ... * X_MAX_FRACTION *
+coverageScalePerSlot(ctx)` with a named `*_MAX_FRACTION` constant whose
+      doc comment places it relative to the others (category bonus 0.15,
+      synergy 0.10, proc-platform 0.10, analytics 0.06). See `analyticsTerm`.
+- [ ] **Relevance-gated:** `if (computeCoverageGain(...).total <= 0) return null`
+      so a bonus can never make a useless item worth buying. See `synergyTerm`.
+- [ ] **Inert when its input is absent:** the input is an optional
+      `BasketContext` field, sanitized in `makeBasketContext` (non-finite becomes
+      `undefined`), and `evaluate` returns null without it. See
+      `procPlatformTerm` / `hitReliabilityTerm`.
+- [ ] **Differential signals are neutral at roster average:** factor 1 gives
+      `delta === 0` and null, contributing nothing. See `procPlatformTerm`.
+- [ ] **State FLAT or SCALED, and say honestly what it can override.** A flat
+      bonus (`categoryBonusTerm`, `synergyTerm`) can beat an item with up to
+      that fraction of a slot MORE coverage, not merely break ties. A scaled
+      one (`procPlatformTerm`) is bounded by `delta * share * fraction`.
+- [ ] **Inputs come from the hero and the ALREADY-OWNED build, never from other
+      candidates** (circular selection). Owned items are not candidates and
+      never appear in `state.picked`, so anything depending on them must come
+      through ctx; see `ownedItemNames` in `synergyTerm`.
+- [ ] **Registered in `DEFAULT_BASKET_TERMS`**, and the production call site in
+      `app/build/BuildClient.tsx` checked: this changes live baskets.
+- [ ] **Reason string names the concrete cause** (numbers, partner names, the
+      mechanism) and is deterministic: no `toLocaleString`, no unsorted iteration.
+- [ ] Engine fixture covers: fires, inert when absent, neutral at average,
+      relevance gate, and the cap.
+
+---
+
+## Recurring bug classes in lib/engine
+
+Each points to the CLAUDE.md "Milestone E Design Decisions" heading that
+explains it. Do not re-derive them.
+
+- **Every per-hero signal needs a floor above zero** (`MIN_GUN_FACTOR`,
+  `MIN_DEFENSIVE_NEED`); zero is unreachable behind the relevance gate. CLAUDE.md —
+  bold paragraph "Gun need is an INDEPENDENT signal" (under "Milestone E Design Decisions")
+  and heading "Item scoring coverage audit".
+- **Missing data is not zero, and "unknown" is not "inapplicable".** See "Gun
+  accuracy (rank-aware)".
+- **Sentinel values constant across the whole catalogue are not stats.** Check
+  a key's distribution before mapping it. CLAUDE.md — heading "Item scoring coverage audit".
+- **Enemy-debuff keys are stored negative**; check the sign convention before
+  adding to `STAT_KEY_TO_SCORE`. CLAUDE.md — bold paragraph "Enemy resist reduction is
+  offensive value stored as a negative" (under "Non-substitutable categories").
+- **Duplicate stat keys** (`SpiritPower`/`TechPower`) must be fixed in EVERY
+  module that reads them. See "Item values are NOT flat".
+- **Calibrate a new percent stat** against an existing item in the same
+  category. CLAUDE.md — bold paragraph "Watch the scale when mapping a percent stat"
+  (under "Non-substitutable categories").
+- **Don't inflate per-item constants to fix pair/context value**; that is
+  Milestone F. CLAUDE.md — heading `A "proc" is not always per-bullet — check for a cooldown`
+  and bold paragraph "Some item value is CONTEXTUAL" (under "Non-substitutable categories").
+
+---
+
+## Live sanity check
+
+After a behaviour change, do a one-time check against real API data: write a
+throwaway `src/scripts/_tmp*.ts` that imports and calls the lib functions
+(never reimplements them), run it with `npx tsx`, and delete it immediately.
+Fixtures stay hermetic, with no live calls inside them. If the result matters
+(rank moves, derived values), record it in CLAUDE.md with the numbers.
+
+---
+
 ## Before you're done (mandatory)
 
 Any scoring change requires a regression fixture. Hand off to the
 **fixture-driven-dev** skill:
 
 - [ ] Added/updated a fixture case for the new behavior (don't remove existing cases).
-- [ ] `npm run mini` passes all fixtures.
+- [ ] Fixture is in the right harness: `src/scripts/mini.ts` for `lib/scoring/`,
+      `lib/engine/__fixtures__/mini.ts` for `lib/engine/`.
+- [ ] `npm run mini` passes BOTH harnesses (read the full output, not just the
+      exit code).
 - [ ] No import from `lib/coach/`; no AI logic added.
 - [ ] Scoring changes are in their own PR, separate from any AI-layer change.
 - [ ] `npx tsc --noEmit` clean (zero `any`).
