@@ -142,7 +142,7 @@ read its `weapon_info` (see `WeaponItemRaw` in `lib/api/deadlockApi.ts`).
   (÷39.37) exactly once. Consumers must not divide again.
 - `damage_per_second_with_reload` feeds `HeroBaseStats.dpsWithReload`.
 - Field meaning is NOT uniform across weapons (Graves has a hard cutoff, not
-  falloff). See CLAUDE.md "Range falloff" — don't re-derive it here.
+  falloff). See the scoring-engine-dev skill's engine-design-notes.md "Range falloff" — don't re-derive it here.
 
 ## Item value scaling — `value` is only the base
 

@@ -36,6 +36,11 @@ These come straight from CLAUDE.md and are not up for debate:
 
 > Paths: real tree is `lib/…` (no `src/`), despite CLAUDE.md examples.
 
+> **Engine design record:** [engine-design-notes.md](engine-design-notes.md),
+> next to this file. It is the full Milestone E-onward design history (moved out
+> of CLAUDE.md). Read the section for the code you are touching before changing
+> anything in `lib/engine/`.
+
 ---
 
 ## Three scoring surfaces — know which you're in
@@ -178,7 +183,8 @@ coverageScalePerSlot(ctx)` with a named `*_MAX_FRACTION` constant whose
       never appear in `state.picked`, so anything depending on them must come
       through ctx; see `ownedItemNames` in `synergyTerm`.
 - [ ] **Registered in `DEFAULT_BASKET_TERMS`**, and the production call site in
-      `app/build/BuildClient.tsx` checked: this changes live baskets.
+      `app/build/BuildClient.tsx` checked: this changes live baskets. A new ctx
+      input must be passed in `src/scripts/basketProbe.ts` too.
 - [ ] **Reason string names the concrete cause** (numbers, partner names, the
       mechanism) and is deterministic: no `toLocaleString`, no unsorted iteration.
 - [ ] Engine fixture covers: fires, inert when absent, neutral at average,
@@ -188,38 +194,50 @@ coverageScalePerSlot(ctx)` with a named `*_MAX_FRACTION` constant whose
 
 ## Recurring bug classes in lib/engine
 
-Each points to the CLAUDE.md "Milestone E Design Decisions" heading that
-explains it. Do not re-derive them.
+Each points to the section of [engine-design-notes.md](engine-design-notes.md)
+(this skill's reference file, moved out of CLAUDE.md) that explains it. Do not
+re-derive them.
 
 - **Every per-hero signal needs a floor above zero** (`MIN_GUN_FACTOR`,
-  `MIN_DEFENSIVE_NEED`); zero is unreachable behind the relevance gate. CLAUDE.md —
-  bold paragraph "Gun need is an INDEPENDENT signal" (under "Milestone E Design Decisions")
-  and heading "Item scoring coverage audit".
+  `MIN_DEFENSIVE_NEED`); zero is unreachable behind the relevance gate. Notes —
+  bold paragraph "Gun need is an INDEPENDENT signal" (under "Origin and architecture")
+  and section "Item scoring coverage audit".
 - **Missing data is not zero, and "unknown" is not "inapplicable".** See "Gun
   accuracy (rank-aware)".
 - **Sentinel values constant across the whole catalogue are not stats.** Check
-  a key's distribution before mapping it. CLAUDE.md — heading "Item scoring coverage audit".
+  a key's distribution before mapping it. Notes — section "Item scoring coverage audit".
 - **Enemy-debuff keys are stored negative**; check the sign convention before
-  adding to `STAT_KEY_TO_SCORE`. CLAUDE.md — bold paragraph "Enemy resist reduction is
+  adding to `STAT_KEY_TO_SCORE`. Notes — bold paragraph "Enemy resist reduction is
   offensive value stored as a negative" (under "Non-substitutable categories").
 - **Duplicate stat keys** (`SpiritPower`/`TechPower`) must be fixed in EVERY
   module that reads them. See "Item values are NOT flat".
 - **Calibrate a new percent stat** against an existing item in the same
-  category. CLAUDE.md — bold paragraph "Watch the scale when mapping a percent stat"
+  category. Notes — bold paragraph "Watch the scale when mapping a percent stat"
   (under "Non-substitutable categories").
 - **Don't inflate per-item constants to fix pair/context value**; that is
-  Milestone F. CLAUDE.md — heading `A "proc" is not always per-bullet — check for a cooldown`
+  Milestone F. Notes — section `A "proc" is not always per-bullet — check for a cooldown`
   and bold paragraph "Some item value is CONTEXTUAL" (under "Non-substitutable categories").
 
 ---
 
 ## Live sanity check
 
-After a behaviour change, do a one-time check against real API data: write a
-throwaway `src/scripts/_tmp*.ts` that imports and calls the lib functions
-(never reimplements them), run it with `npx tsx`, and delete it immediately.
-Fixtures stay hermetic, with no live calls inside them. If the result matters
-(rank moves, derived values), record it in CLAUDE.md with the numbers.
+After a behaviour change, check it against real API data with the probe:
+
+```bash
+npm run probe -- graves --owned "heroic aura" --boon 15 --item "mystic shot"
+npm run probe -- --help   # all options: --owned, --boon, --rank, --item, --top
+```
+
+`src/scripts/basketProbe.ts` mirrors `BuildClient`'s `heroBasket` useMemo
+(sections marked `MIRRORS BuildClient`) and prints the need vector, the basket
+with every term, the first-pick ranking, and any `--item`'s rank and term
+reasons. **If you change that pipeline in `BuildClient.tsx`, change the probe
+in the same PR.** Only for a check the probe can't express, write a throwaway
+`src/scripts/_tmp*.ts` that calls the lib functions (never reimplements them)
+and delete it after. Fixtures stay hermetic, with no live calls inside them. If the result matters
+(rank moves, derived values), record it in engine-design-notes.md with the
+numbers.
 
 ---
 

@@ -10,6 +10,7 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "mini": "npx tsx src/scripts/mini.ts && npx tsx lib/engine/__fixtures__/mini.ts",
+    "probe": "npx tsx src/scripts/basketProbe.ts",
     "sync-boon-data": "npx tsx src/scripts/syncBoonData.ts"
   },
   "dependencies": {

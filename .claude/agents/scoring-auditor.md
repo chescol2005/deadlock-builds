@@ -59,8 +59,9 @@ named files.
 12. **Per-hero signal floors** — every per-hero signal has a non-zero floor
     (`MIN_GUN_FACTOR`, `MIN_DEFENSIVE_NEED` pattern); zero is unreachable
     behind the relevance gate.
-13. **Docs match code** — doc comments and CLAUDE.md claims must describe what
-    the code does. Flag overstatement (e.g. claiming a flat bonus "can never
+13. **Docs match code** — doc comments, CLAUDE.md, and
+    `.claude/skills/scoring-engine-dev/engine-design-notes.md` must describe
+    what the code does. Flag overstatement (e.g. claiming a flat bonus "can never
     override coverage" when it can beat up to its fraction of a slot).
 14. **Production call sites** — check `constructBasket` / `scoreItems` callers
     in `app/` for live behaviour change, and for inputs the module cannot see
