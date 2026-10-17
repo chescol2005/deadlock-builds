@@ -307,7 +307,8 @@ const SCALE_TYPE_TO_CONTEXT: Readonly<Record<string, keyof ItemValuationContext>
  * Sign is preserved deliberately: `Alchemical Fire`'s `BulletArmorReduction` is
  * -7 scaling at -0.055, so scaling makes the shred STRONGER (more negative).
  * Clamping to positive here would silently invert enemy-debuff items — see the
- * sign-convention warning in CLAUDE.md.
+ * sign-convention warning in
+ * .claude/skills/scoring-engine-dev/engine-design-notes.md.
  */
 export function resolveScaledStats(item: Item, ctx?: ItemValuationContext): ItemStats {
   if (!ctx) return item.stats;

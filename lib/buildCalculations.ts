@@ -65,7 +65,8 @@ export type StatTotals = {
 // Walker), and NONE use both — so summing both keys cannot double-count.
 //
 // Omitting it silently dropped up to 20 spirit power per item. The engine's
-// STAT_KEY_TO_SCORE was fixed for this (see CLAUDE.md's coverage audit) but
+// STAT_KEY_TO_SCORE was fixed for this (see the coverage audit in
+// .claude/skills/scoring-engine-dev/engine-design-notes.md) but
 // this module was not, so the two disagreed. It compounds on Mystic Shot,
 // which is both a SpiritPower item AND ETechPower-scaled: undercounting spirit
 // power here under-resolves that item's own scaling downstream.

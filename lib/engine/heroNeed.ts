@@ -406,7 +406,8 @@ function effectiveGunDps(
  * shotgun reads high here. That is right for per-bullet procs (more pellets =
  * more proc rolls) and wrong for per-SHOT build-ups like Toxic Bullets'
  * `BuildUpPerShot`. Separating them needs `bullets`, which is captured in
- * WeaponItemRaw but not surfaced onto HeroBaseStats — see CLAUDE.md.
+ * WeaponItemRaw but not surfaced onto HeroBaseStats — see
+ * .claude/skills/scoring-engine-dev/engine-design-notes.md.
  */
 export function deriveProcPlatformFactor(input: {
   baseStats: HeroBaseStats;
