@@ -224,8 +224,9 @@ manual review, not a fixture guarantee.
 
 ## Key Files Reference
 
-Actual tree root is `lib/` and `app/` (no `src/` prefix), except the fixture
-runner which lives at `src/scripts/mini.ts` — that's the one real exception.
+Actual tree root is `lib/` and `app/` (no `src/` prefix), except `src/scripts/`:
+the fixture runner `mini.ts`, `basketProbe.ts` (live basket check), and
+`syncBoonData.ts`.
 
 ```
 lib/items.ts                  — Item, ItemAssignment, ItemPhase, BuildCategory types
@@ -514,6 +515,12 @@ The five rules that bite most often (details in the notes):
 - Item value from the already-owned build only, never from other candidates.
 - Pair and context value is Milestone F: do not inflate per-item constants to
   fake it.
+
+**Live check:** to see what the basket picks for a real hero, run
+`npm run probe -- <hero> [--owned a,b] [--boon N] [--rank T] [--item x]`
+(`src/scripts/basketProbe.ts`, `--help` for details). It mirrors
+`BuildClient`'s `heroBasket` pipeline on live API data, so don't write a
+throwaway script for this — and if that pipeline changes, update the probe.
 
 ---
 

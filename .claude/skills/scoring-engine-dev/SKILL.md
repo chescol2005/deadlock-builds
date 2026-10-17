@@ -183,7 +183,8 @@ coverageScalePerSlot(ctx)` with a named `*_MAX_FRACTION` constant whose
       never appear in `state.picked`, so anything depending on them must come
       through ctx; see `ownedItemNames` in `synergyTerm`.
 - [ ] **Registered in `DEFAULT_BASKET_TERMS`**, and the production call site in
-      `app/build/BuildClient.tsx` checked: this changes live baskets.
+      `app/build/BuildClient.tsx` checked: this changes live baskets. A new ctx
+      input must be passed in `src/scripts/basketProbe.ts` too.
 - [ ] **Reason string names the concrete cause** (numbers, partner names, the
       mechanism) and is deterministic: no `toLocaleString`, no unsorted iteration.
 - [ ] Engine fixture covers: fires, inert when absent, neutral at average,
@@ -221,10 +222,20 @@ re-derive them.
 
 ## Live sanity check
 
-After a behaviour change, do a one-time check against real API data: write a
-throwaway `src/scripts/_tmp*.ts` that imports and calls the lib functions
-(never reimplements them), run it with `npx tsx`, and delete it immediately.
-Fixtures stay hermetic, with no live calls inside them. If the result matters
+After a behaviour change, check it against real API data with the probe:
+
+```bash
+npm run probe -- graves --owned "heroic aura" --boon 15 --item "mystic shot"
+npm run probe -- --help   # all options: --owned, --boon, --rank, --item, --top
+```
+
+`src/scripts/basketProbe.ts` mirrors `BuildClient`'s `heroBasket` useMemo
+(sections marked `MIRRORS BuildClient`) and prints the need vector, the basket
+with every term, the first-pick ranking, and any `--item`'s rank and term
+reasons. **If you change that pipeline in `BuildClient.tsx`, change the probe
+in the same PR.** Only for a check the probe can't express, write a throwaway
+`src/scripts/_tmp*.ts` that calls the lib functions (never reimplements them)
+and delete it after. Fixtures stay hermetic, with no live calls inside them. If the result matters
 (rank moves, derived values), record it in engine-design-notes.md with the
 numbers.
 

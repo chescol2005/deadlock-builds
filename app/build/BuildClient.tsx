@@ -410,6 +410,9 @@ export default function BuildClient({
   // build already commits, so the basket answers "what should I buy at this
   // point in the game?" and grows as the boon slider moves. No invented
   // budget: BOON_THRESHOLDS[0] is the real 600 starting souls.
+  //
+  // src/scripts/basketProbe.ts mirrors this pipeline for live checks — change
+  // both together.
   const heroBasket = useMemo(() => {
     if (!heroBaseStats || heroAbilities.length === 0 || allItems.length === 0) return null;
 
