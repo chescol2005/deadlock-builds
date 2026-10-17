@@ -34,7 +34,7 @@ The two audiences are always present:
 - Components: `src/app/guide/[topic]/components/` — co-located with the page
 - **Zero imports from `src/lib/scoring/`** — guide pages never touch scoring
 - **Zero imports from `src/lib/coach/`** — guide pages are static, not AI-driven
-- `mini.ts` must still pass — guide pages add no scoring logic so all 50
+- `mini.ts` must still pass — guide pages add no scoring logic so existing
   fixtures should be unaffected; run it anyway before every PR
 
 ---
@@ -44,10 +44,12 @@ The two audiences are always present:
 Always verify game mechanic values from these sources, in priority order:
 
 1. **deadlock.wiki** — soul values, spawn timers, boon thresholds, ability data
-2. **`assets.deadlock-api.com/v2/misc-entities`** — breakable/spawner timings
-3. **`assets.deadlock-api.com/v2/generic-data`** — item prices, new_player_metrics
-4. **`assets.deadlock-api.com/v2/npc-units`** — NPC combat stats (not soul values)
-5. **`assets.deadlock-api.com/v1/map`** — minimap image URLs, objective positions
+2. **`api.deadlock-api.com/v1/assets/misc-entities`** — breakable/spawner timings
+3. **`api.deadlock-api.com/v1/assets/generic-data`** — item prices, new_player_metrics
+4. **`api.deadlock-api.com/v1/assets/npc-units`** — NPC combat stats (not soul values)
+5. **`api.deadlock-api.com/v1/assets/map`** — minimap image URLs, objective positions
+
+(The old `assets.deadlock-api.com` host is gone; the paths above return 200.)
 
 **Soul value formulas** (verified May 2026, deadlock.wiki):
 
@@ -335,7 +337,7 @@ Before marking any guide page task complete:
 - [ ] No TypeScript errors (`npx tsc --noEmit`)
 - [ ] No imports from `src/lib/scoring/` or `src/lib/coach/`
 - [ ] Prettier run before commit (`npx prettier --write src/`)
-- [ ] `npm run mini` passes all 50 fixtures (guide pages don't touch scoring)
+- [ ] `npm run mini` passes (read both harness summary lines)
 - [ ] Paste mini.ts output in PR body
 
 ---

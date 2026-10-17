@@ -49,10 +49,11 @@ A veteran can tune every parameter and share a fully-annotated build URL.
 ## Before Every Commit (mandatory, in this order)
 
 ```bash
-npx prettier --write .
+npx prettier --check .   # mirrors CI; fix with --write on the listed files only
 npx tsc --noEmit
-npx next build
-npm run mini
+npx eslint .             # 0 errors required
+npx next build           # judge by exit code, not log noise
+npm run mini             # read BOTH harness summary lines
 ```
 
 Kill dev server before finishing any session.
@@ -92,8 +93,10 @@ BuildState.heroId; // "heroId" not "herold"
 
 All game data: `https://api.deadlock-api.com/v1/assets` (unauthenticated)
 
-`https://assets.deadlock-api.com/v2/...` still works but 301-redirects here —
-call the canonical host directly, don't rely on the redirect.
+The old `https://assets.deadlock-api.com/v2/...` host is **gone**. It used to
+301-redirect here, but as of 2026-10-17 its DNS returns NXDOMAIN, so any
+reference to it is dead and should be rewritten to the host above. Match
+analytics live on the same host, under `/v1/analytics/*`.
 
 ```typescript
 GET / v1 / assets / items; // all items
@@ -270,9 +273,13 @@ lib/engine/                   — staged-pipeline scoring surface (WIP, parallel
                                 INDEPENDENT signals, not one split budget
   itemAdapter.ts              — toItemCandidate(), toItemCandidates() — Item bridge
   basketSelect.ts             — constructBasket(), makeBasketContext(),
-                                coverageTerm/categoryBonusTerm/analyticsTerm.
+                                coverageTerm/categoryBonusTerm/procPlatformTerm/
+                                hitReliabilityTerm/synergyTerm/analyticsTerm.
                                 Add a Milestone F covariance term as one more
                                 MarginalTermFn — no change to the greedy loop
+  synergy.ts                  — SYNERGY_RULES: hand-authored positive item-pair
+                                table, consumed by synergyTerm (see "Positive
+                                synergy" below)
 lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cached,
                                 fail-open match-analytics (win rate, matches) from
                                 /v1/analytics/*; ItemAnalytics.itemId joins to
@@ -1038,8 +1045,9 @@ each scoring near the bottom of its tier and correctly so:
 - **Combo enablers.** Vortex Web pulls a group into one spot; its value is in
   the follow-up (Ivy's ultimate + grasping vines + Alchemical Fire, Paradox
   bomb setups, Doorman dragging several enemies through a door). Its slow and
-  dash-denial ARE scored; the grouping is interaction value. A positive-synergy
-  table mirroring `lib/scoring/antiSynergy.ts` is the shape that fits.
+  dash-denial ARE scored; the grouping is interaction value. The item×item part
+  (Vortex Web + Alchemical Fire) is now in the positive-synergy table — see
+  below; the item×hero-ability part (Ivy, Paradox, Doorman) is not.
 - **Ability-dependent effects.** Echo Shard resets an imbued ability's
   cooldown, so it is worth whatever that ability is worth. It gets a generic
   floor; a real number needs the hero's ability list.
@@ -1095,6 +1103,55 @@ gun quality. Her `moveSpeed` 6.3 is below roster average so mobility reads
 high (1.60); `maxHealth` 880 is above average so tankiness reads low (0.15)
 under the compensating interpretation.
 
+### Positive synergy (hand-authored pair table)
+
+`lib/engine/synergy.ts`'s `SYNERGY_RULES` is the mirror of `ANTI_SYNERGY_RULES`:
+unordered item pairs, consumed by `synergyTerm` in `basketSelect.ts` — the first
+term to read `state.picked`. When a candidate's partner is already in the
+basket **or already owned by the player** (`BasketContext.ownedItemNames`, fed
+from `BuildClient`'s build — owned items are never candidates, so without it the
+commonest case, "I own Heroic Aura, should I buy Mystic Shot?", was invisible),
+the candidate earns `SYNERGY_MAX_FRACTION` (0.10) of one slot's coverage.
+Relevance-gated like every adjustment term, and clamped so several partners
+cannot stack past one cap.
+
+The bonus is **flat**, like `categoryBonusTerm` and unlike the proc terms. So
+it can beat an item whose coverage gain is up to 0.10 of a slot larger, not
+just break exact ties. It still can't make an item worth buying when it covers
+nothing.
+
+This is the hand-authored half of interaction value, NOT Milestone F: it only
+encodes pairs confirmed from play, and it does not measure how much a pair is
+worth. Milestone F's covariance term is still the way to get real numbers.
+
+Current entries (class names verified live): Heroic Aura + Mystic Shot,
+Ricochet + Toxic Bullets, Vortex Web + Alchemical Fire. Two exclusions are
+deliberate: Tesla Bullets is only an optional third piece of the Ricochet
+build, and **Ricochet + Mystic Shot must never be added**, because Mystic Shot
+is not affected by Ricochet.
+
+Two limits you should know about:
+
+- **Greedy is myopic.** Only the SECOND item of a pair gets boosted. The first
+  pick earns nothing for a partner that might be picked later, so a pair whose
+  first half wouldn't be picked on its own merits is never completed.
+- **The approximation guarantee is weakened.** Synergy is supermodular, so once
+  this term is enabled the (1 − 1/e) guarantee holds only approximately. The
+  small cap is what keeps the deviation small. Don't raise the cap without
+  re-examining this.
+
+**Measured live (Graves, boon 15, 9,800 souls, pooled accuracy):** owning Heroic
+Aura gives Mystic Shot the full +5.00 synergy and moves it from 59th to 51st of
+all candidates on the first iteration, and from 18th to 15th of the gun items.
+It **still does not enter the basket.** That is the cap working as intended:
+the table says the pair exists, not how much it is worth. Closing the rest of
+that gap needs a measured pair value (Milestone F), not a bigger
+`SYNERGY_MAX_FRACTION`.
+
+Add an entry only from confirmed play knowledge, and verify its class name
+against the live API first. A wrong id fails silently, because the rule just
+never matches.
+
 ---
 
 ## Common Bugs to Check
@@ -1103,7 +1160,11 @@ under the compensating interpretation.
 2. Item identifier: `item.id` not `item.classname`
 3. Category value: `"gun"` not `"weapon"`
 4. Spirit scaling: check BOTH `class_name` and `scaleType`
-5. Prettier: run on ALL files before committing or CI fails
+5. Prettier: CI checks formatting on ALL files — run `prettier --check .`, `--write` only changed files (never bare `--write .`). If `--check` flags dozens
+   of files you never touched on Windows, it's CRLF from a checkout that predates
+   `.gitattributes`. `prettier --check --end-of-line auto .` passing confirms
+   that's all it is. Fix by re-checking-out those files with a clean tree. Do NOT
+   `--write` them.
 6. Dev server lock: `rm -rf .next` to clear Turbopack lock
 7. gh CLI labels: `--field "labels[]=value"` syntax
 8. Hydration: never read localStorage during SSR
@@ -1118,7 +1179,10 @@ under the compensating interpretation.
 
 ## CI Pipeline
 
-GitHub Actions runs on every push:
+GitHub Actions (`.github/workflows/ci.yml`) runs on pull requests to `main`,
+pushes to `main`, and manual dispatch — NOT on every push to a feature branch.
+It ignores `**/*.md` and `docs/**`, so a docs-only change never triggers CI: run
+the gate locally for those.
 
 1. Format (Prettier) — fails if any file not formatted
 2. Typecheck (tsc --noEmit)

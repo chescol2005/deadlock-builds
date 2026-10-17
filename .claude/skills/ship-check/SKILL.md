@@ -5,7 +5,7 @@ description: >
   a mergeable PR. Use this skill before any commit, before opening or updating
   a pull request, or whenever the user asks "is this ready", "can I commit",
   "open a PR", "prep for merge", or "did CI pass". It centralizes the required
-  ordered checks (prettier, tsc, next build, mini.ts), the explicit-staging and
+  ordered checks (prettier, tsc, eslint, next build, mini), the explicit-staging and
   dev-server rules, the PR body requirements (mini output), gh label syntax, and
   the CI mirror. Always run this gate before marking any coding task complete.
 ---
@@ -23,15 +23,28 @@ other skill's checklist defers here.
 ## The Gate — run in THIS order, all must pass
 
 ```bash
-npx prettier --write .     # 1. format everything (CI fails on any unformatted file)
+npx prettier --check .     # 1. mirrors CI's format check
 npx tsc --noEmit           # 2. typecheck — zero errors, zero `any`
-npx next build             # 3. production build must succeed
-npm run mini               # 4. 50-case fixture regression (final gate)
+npx eslint .               # 3. lint — 0 errors (2 pre-existing warnings are known)
+npx next build             # 4. production build — judge by EXIT CODE
+npm run mini               # 5. fixtures — final gate
 ```
 
+Notes:
+
+- **Prettier:** if `--check` lists files, run `npx prettier --write <those files>`
+  only. **Never bare `prettier --write .`** — it once rewrote ~85 unrelated
+  files with line-ending noise. (`.gitattributes` now pins `eol=lf`, but the
+  rule stays.)
+- **Build noise:** "Dynamic server usage … no-store fetch" and "items over 2MB
+  can not be cached" are expected, not failures.
+- **Mini:** `npm run mini` chains two harnesses with `&&`, each with its own
+  summary line (`=== N passed, 0 failed ===` and `N passed, 0 failed`). A
+  failure in the first hides the second, so read BOTH lines. Counts change
+  constantly — never hardcode them.
+
 If any step fails, **stop and fix the root cause** — never skip a step, never
-commit around a red gate. Order matters: prettier first so the later steps run
-on formatted code.
+commit around a red gate.
 
 ---
 
@@ -40,11 +53,10 @@ on formatted code.
 - **Never `git add .`** — stage files explicitly by path.
 - Branch first if on `main`/`master`; do not commit to the default branch.
 - Commit and push only when the user asks.
-- End every commit message with:
-
-  ```
-  Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
-  ```
+- End every commit message with the `Co-Authored-By` attribution line the
+  session supplies for the model running (do not hardcode a model name here).
+- Throwaway verification scripts (`src/scripts/_tmp*.ts`) must be deleted before
+  commit; `git status --porcelain` should show none, and none may be staged.
 
 - Kill the dev server before finishing a session.
 - Turbopack dev-lock stuck? Clear it: `rm -rf .next` (POSIX) /
@@ -74,27 +86,21 @@ on formatted code.
 
 ## CI mirror — local must equal remote
 
-GitHub Actions runs on every push, in this order. Your local gate above covers
-1–2 and 4–5; run lint (3) too before pushing:
-
-1. Format (Prettier) — fails if any file unformatted
-2. Typecheck (`tsc --noEmit`)
-3. Lint (`npx eslint .`)
-4. Build (`next build`)
-5. Fixture (`mini.ts` — 50 regression cases)
-
-All five must be green. Running them locally first avoids red-CI churn.
+GitHub Actions runs on pull requests to main, pushes to main, and `workflow_dispatch`.
+It skips `**/*.md` and `docs/**` paths, so docs-only changes never trigger CI (run the
+gate locally). The gate above runs the same five steps in the same order. All must be
+green; running them locally first avoids red-CI churn.
 
 ---
 
 ## Final checklist
 
-- [ ] `prettier --write .` → clean
+- [ ] `prettier --check .` → clean (changed files only were `--write`n)
 - [ ] `tsc --noEmit` → zero errors
-- [ ] `eslint .` → clean
-- [ ] `next build` → succeeds
-- [ ] `npm run mini` → all 50 fixtures pass, output captured
-- [ ] Files staged explicitly (no `git add .`)
+- [ ] `eslint .` → 0 errors
+- [ ] `next build` → exit code 0
+- [ ] `npm run mini` → both harness summaries show 0 failed, output captured
+- [ ] Files staged explicitly (no `git add .`), no `_tmp*` scripts
 - [ ] On a feature branch, not `main`
 - [ ] PR body includes mini output; scoring/AI changes not mixed
 - [ ] Dev server killed

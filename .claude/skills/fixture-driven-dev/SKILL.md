@@ -16,16 +16,48 @@ description: >
 
 ## What mini.ts Is
 
-`src/scripts/mini.ts` is the project's regression harness. It runs
-50 deterministic fixture cases against the core lib functions and
-prints a pass/fail summary. It is the final gate before any merge.
+`npm run mini` is the project's regression harness. It runs deterministic
+fixtures against the core lib functions and prints pass/fail summaries. It is
+the final gate before any merge. Fixture counts change constantly — never
+hardcode one; read the summary lines.
 
 ```bash
 npm run mini          # standard run
-npx ts-node src/scripts/mini.ts   # direct run if npm script missing
+npx tsx src/scripts/mini.ts       # first harness only
+npx tsx lib/engine/__fixtures__/mini.ts   # engine harness only
 ```
 
 Output must be pasted in the PR body before merge. Every PR.
+
+---
+
+## Two harnesses
+
+`npm run mini` = `npx tsx src/scripts/mini.ts && npx tsx lib/engine/__fixtures__/mini.ts`.
+
+| Harness                           | Covers                                                                            |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| `src/scripts/mini.ts`             | `lib/scoring`, build utils/calculations/serializer, boons, normalizer, guide data |
+| `lib/engine/__fixtures__/mini.ts` | `lib/engine` (hero need, basket selection, effect estimator, item adapter)        |
+
+New fixtures go in the harness that covers the code you changed. Each prints its
+own summary (`=== N passed, 0 failed ===` and `N passed, 0 failed`). Because of
+`&&`, a failure in the first hides the second — **read BOTH summary lines**,
+not just the exit code. The first harness loads live item data via
+`getItems()`; the engine harness must not touch the network.
+
+### Engine fixture conventions
+
+- **Hermetic.** No live API calls; pass synthetic inputs (e.g. a synthetic
+  `Map<number, ItemAnalytics>`, never `getItemAnalytics()`).
+- **One `HeroBaseStats` literal: `mkHero()`.** When adding a field to
+  `HeroBaseStats`, default it in `mkHero()` to a value meaning "no adjustment",
+  so existing fixtures that spread-override other fields
+  (`{ ...mkHero(...), bulletDamage }`) are not silently changed.
+- **Behaviour-flip fixtures run with and without the term**, e.g.
+  `DEFAULT_BASKET_TERMS.filter((t) => t.termId !== "x")`, with the numbers
+  worked out beforehand so the flip is real, not coincidental.
+- **No debug console output** left in fixtures beyond the pass/fail lines.
 
 ---
 
@@ -146,7 +178,7 @@ const MOCK_GUN_T3_UPGRADES_T1: Item = {
 
 ## Coverage Requirements
 
-The 50 fixture cases must cover these areas. When adding new cases,
+The fixture cases must cover these areas. When adding new cases,
 fill gaps in this coverage map first:
 
 ### buildUtils.ts (target: 12 cases)
@@ -191,7 +223,7 @@ fill gaps in this coverage map first:
 ### boonSystem.ts (target: 8 cases)
 
 - [ ] `getBoonThreshold(0)` returns boonLevel 1 (not 0)
-- [ ] `getBoonThreshold` — ultimate unlock at boon level 7
+- [ ] `getBoonThreshold` — ultimate unlock at boon level 8, 3,800 souls
 - [ ] Soul cost at each ability tier (600 / 1200 / 2100)
 - [ ] `getAbilityPointsAtSouls` — below first threshold = 0
 - [ ] `getAbilityPointsAtSouls` — at exact threshold
@@ -216,7 +248,7 @@ fill gaps in this coverage map first:
 
 1. Identify which coverage bucket the new case falls into
 2. Write the case using the canonical mock objects
-3. Add it to the cases array in `mini.ts` — **do not remove existing cases**
+3. Add it to the matching harness (`mini.ts`) — **do not remove existing cases**
 4. Run `npm run mini` and confirm your new case passes
 5. If a previously passing case now fails, **stop and diagnose**
    before continuing — never comment out a failing fixture
@@ -250,12 +282,8 @@ When a fixture fails, follow this order:
 
 Before opening any PR:
 
-```bash
-npx prettier --write .
-npx tsc --noEmit
-npx next build
-npm run mini
-```
+Run the full gate in `ship-check` (prettier --check, tsc, eslint, next build,
+mini). Never bare `prettier --write .` — `--write` only changed files.
 
-Paste the full mini.ts terminal output in the PR body.
+Paste the full `npm run mini` terminal output (both harnesses) in the PR body.
 If any fixture fails, the PR must not be merged.

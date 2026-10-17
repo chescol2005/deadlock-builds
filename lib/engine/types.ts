@@ -176,6 +176,13 @@ export interface BasketContext {
    * Omitted, the hit-reliability term is inert.
    */
   hitReliabilityFactor?: number;
+  /**
+   * Items the player ALREADY OWNS, itemId -> display name. They are excluded
+   * from the candidates, so without this `synergyTerm` could only see pairs
+   * completed inside the basket and would miss the common case: owning Heroic
+   * Aura and being offered Mystic Shot. Omitted => only basket picks count.
+   */
+  ownedItemNames?: ReadonlyMap<string, string>;
 }
 
 /**

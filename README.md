@@ -96,7 +96,7 @@ But focused on clarity, speed, and actionable feedback.
 ## Static Data (Cached with ISR)
 
 Heroes
-https://assets.deadlock-api.com/v2/heroes
+https://api.deadlock-api.com/v1/assets/heroes
 Items (planned)
 Abilities (planned)
 
