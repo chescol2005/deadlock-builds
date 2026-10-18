@@ -6,7 +6,8 @@ description: >
   lib/scoring/goalWeights.ts, lib/scoring/antiSynergy.ts, lib/categoryBonuses.ts,
   lib/engine/engine.ts, lib/engine/stages/*, lib/engine/basketSelect.ts,
   lib/engine/heroNeed.ts, lib/engine/itemAdapter.ts,
-  lib/engine/effectEstimator.ts, lib/engine/synergy.ts, or
+  lib/engine/effectEstimator.ts, lib/engine/synergy.ts,
+  lib/engine/pairLift.ts, lib/engine/data/pairLiftTable.json, or
   lib/engine/types.ts. Also use when adding a new build goal or item tag,
   changing tag weights, adding a scoring stage or basket marginal term,
   adjusting the investment/category bonus, or debugging why item ranking or
@@ -231,7 +232,9 @@ npm run probe -- --help   # all options: --owned, --boon, --rank, --item, --top
 
 For measured item-pair win-rate interaction (Milestone F), use
 `npm run pair-probe -- <hero> [--pair a,b]`; method and caveats are in the
-notes' "Milestone F spike" section.
+notes' "Milestone F spike" section. The committed all-hero table is
+regenerated with `npm run fit-pairs` (see the notes' "Pair lift table"). Never
+hand-edit `pairLiftTable.json`.
 
 `src/scripts/basketProbe.ts` mirrors `BuildClient`'s `heroBasket` useMemo
 (sections marked `MIRRORS BuildClient`) and prints the need vector, the basket
