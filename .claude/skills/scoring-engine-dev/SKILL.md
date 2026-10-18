@@ -229,6 +229,10 @@ npm run probe -- graves --owned "heroic aura" --boon 15 --item "mystic shot"
 npm run probe -- --help   # all options: --owned, --boon, --rank, --item, --top
 ```
 
+For measured item-pair win-rate interaction (Milestone F), use
+`npm run pair-probe -- <hero> [--pair a,b]`; method and caveats are in the
+notes' "Milestone F spike" section.
+
 `src/scripts/basketProbe.ts` mirrors `BuildClient`'s `heroBasket` useMemo
 (sections marked `MIRRORS BuildClient`) and prints the need vector, the basket
 with every term, the first-pick ranking, and any `--item`'s rank and term
