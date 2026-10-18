@@ -551,8 +551,9 @@ throwaway script for this — and if that pipeline changes, update the probe.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on pull requests to `main`,
 pushes to `main`, and manual dispatch — NOT on every push to a feature branch.
-It ignores `**/*.md` and `docs/**`, so a docs-only change never triggers CI: run
-the gate locally for those.
+It runs on every PR, docs-only included: `ci` is a required status check in the
+`main` ruleset, so a PR that skips the workflow can never merge. Do not re-add
+`paths-ignore` to `ci.yml`.
 
 1. Format (Prettier) — fails if any file not formatted
 2. Typecheck (tsc --noEmit)

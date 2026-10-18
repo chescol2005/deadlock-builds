@@ -87,8 +87,8 @@ commit around a red gate.
 ## CI mirror — local must equal remote
 
 GitHub Actions runs on pull requests to main, pushes to main, and `workflow_dispatch`.
-It skips `**/*.md` and `docs/**` paths, so docs-only changes never trigger CI (run the
-gate locally). The gate above runs the same five steps in the same order. All must be
+It runs on every PR, docs-only included (`ci` is a required check on `main`, so a
+skipped run would block the merge — never re-add `paths-ignore`). The gate above runs the same five steps in the same order. All must be
 green; running them locally first avoids red-CI churn.
 
 ---

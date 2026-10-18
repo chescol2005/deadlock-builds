@@ -1,17 +1,14 @@
 name: CI
 
+# No paths-ignore: `ci` is a REQUIRED status check in the main ruleset, so a
+# PR that skipped this workflow (e.g. docs-only) could never merge. The run is
+# ~1 minute, and Prettier checks .md files too.
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
 
   push:
     branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
 
   workflow_dispatch:
 
