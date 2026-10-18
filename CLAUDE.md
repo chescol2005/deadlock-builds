@@ -225,7 +225,8 @@ manual review, not a fixture guarantee.
 ## Key Files Reference
 
 Actual tree root is `lib/` and `app/` (no `src/` prefix), except `src/scripts/`:
-the fixture runner `mini.ts`, `basketProbe.ts` (live basket check), and
+the fixture runner `mini.ts`, `basketProbe.ts` (live basket check),
+`pairProbe.ts` (measured item-pair interaction, Milestone F), and
 `syncBoonData.ts`.
 
 ```
@@ -469,7 +470,7 @@ the basket's soul budget is `boonSouls − cost of owned items`.
 | C         | ✅ Closed | New player UX: shared Tooltip/AudienceTabs, simplified/advanced toggle, difficulty/archetype tags, Fixture 9                         |
 | D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                           |
 | E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` (additive to `SuggestedItemsPanel`) — see engine-design-notes.md |
-| F         | ⏸ Queued  | Item-pair covariance term from `/v1/matches/{id}/metadata`, fitted offline — full scope in engine-design-notes.md                    |
+| F         | 🚧 Active | Measured item-pair term from `item-permutation-stats`; spike done (`npm run pair-probe`) — see engine-design-notes.md                |
 | G         | ⏸ Queued  | Need-vector enrichment (stretch) — full scope in engine-design-notes.md                                                              |
 | M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                         |
 

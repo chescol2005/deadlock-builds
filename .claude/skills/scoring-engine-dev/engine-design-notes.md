@@ -702,18 +702,113 @@ Add an entry only from confirmed play knowledge, and verify its class name
 against the live API first. A wrong id fails silently, because the rule just
 never matches.
 
+## Milestone F spike: measured item-pair interaction (2026-10-18)
+
+Tool: `npm run pair-probe -- <hero> [--rank T] [--pair a,b]`
+(`src/scripts/pairProbe.ts`). Read-only. Nothing it computes feeds the engine.
+
+**Data source: no match ingestion needed.** `/v1/analytics/item-permutation-stats?comb_size=2&hero_id=N`
+returns pre-aggregated pair wins/losses per hero, with the same filters as
+`item-stats` and `hero-stats` (time window, badge, final net worth). A
+`data-verifier` pass read the server SQL
+(github.com/deadlock-api/deadlock-api,
+`api/src/routes/v1/analytics/item_permutation_stats.rs`) and established:
+
+- **Pairs are ORDERED by purchase** (`[bought first, bought second]`), so an
+  unordered pair can be two rows. Sum both orders. Fetch with `min_matches=1`:
+  the default floor of 20 applies per ordered row and silently drops the rarer
+  order.
+- **"Owned" means ever purchased in that match.** Sold items and consumed
+  components count. Component → upgrade pairs (Improved Spirit + Soaring
+  Spirit) are therefore mechanical, not synergy, and must be dropped through the
+  transitive `componentItems` closure.
+- **`item-stats` counts purchases, pairs count player-matches.** A rebuy
+  counts twice in singles. This is a small mismatch: a derived 2x2 cell that
+  goes out of range is skipped, not guessed.
+- **Pin `min_unix_timestamp`/`max_unix_timestamp` explicitly on every call.**
+  The default "30 days ago" moves between calls (about 0.1% drift).
+- `item-stats`' own `bucket=net_worth_by_*` is net worth AT PURCHASE, which is
+  not the same as the `min_networth`/`max_networth` filter (FINAL net worth).
+  Only the filter exists on the pair endpoint, so stratify with the filter.
+- Size: about 1.4 MB and 19k ordered rows per hero per stratum. That suits an
+  offline fitter, not a page load.
+
+**Method.** For each pair, a 2x2 table of this hero's players (has A) x (has
+B), with "neither" taken from `hero-stats`. The interaction is the log odds
+ratio `logit(AB) − logit(A only) − logit(B only) + logit(neither)`, which is
+zero when the pair is exactly what its two items predict on their own. It is
+computed raw and within six final-net-worth bands (pooled by inverse variance).
+It is then shrunk toward 0 (empirical Bayes, method of moments). Finally each
+item's mean effect across all its pairs is removed (`pairOnly`).
+
+**Results (30 days, all ranks, pairs with ≥ 500 co-owning matches).**
+
+|                               | Graves        | Haze          | Infernus      |
+| ----------------------------- | ------------- | ------------- | ------------- |
+| pairs ranked                  | 6,207         | 5,772         | 5,313         |
+| raw vs banded correlation     | 0.81          | 0.61          | 0.55          |
+| sign flips when banded        | 19%           | 28%           | 28%           |
+| banded \|z\| > 3              | 1,074         | 1,004         | 703           |
+| tau (real spread) / median se | 0.074 / 0.044 | 0.074 / 0.043 | 0.069 / 0.053 |
+
+**Findings.**
+
+1. **There is real pair structure.** Spread beyond sampling noise (tau) is
+   about 0.07 log odds on every hero, and roughly a sixth of pairs sit at |z| > 3. Strong pairs move win rate by about 4–8 points after shrinkage.
+2. **The wealth confound is large and must be controlled.** Banding by final
+   net worth flips the sign of a fifth to a quarter of pairs. On Infernus,
+   Ricochet with Toxic Bullets goes from +0.319 raw to +0.115 banded. A raw pair
+   win rate is not usable.
+3. **Item-wide effects are small.** The largest is Warp Stone at −0.06 on
+   Graves. Removing them barely changes the top pairs, so the top results are
+   pair-specific rather than one item bought in a bad game state.
+4. **Pair value is hero-specific.** Ricochet + Toxic Bullets measures +0.115 ±
+   0.012 on Infernus (about +2.8 points) but 0.000 on Graves and Haze, with
+   tight se. A hero-agnostic constant like `SYNERGY_RULES`' `strength: 1` cannot
+   express this.
+5. **Hand table check.** Mystic Shot + Heroic Aura on Graves is −0.001 ± 0.009
+   banded: no measurable interaction beyond the two items' separate value
+   (`pairOnly` +0.04). Ricochet + Toxic Bullets: see 4. Vortex Web + Alchemical
+   Fire is almost never co-bought on these three heroes (5–110 matches), so it
+   is untested here.
+6. **Residual confound this endpoint cannot remove: enemy composition.**
+   Graves' top positives are Spirit Resilience / Healbane / Cursed Relic in
+   combination, which reads as "both items answer the same enemy team" rather
+   than one item amplifying the other. The pair endpoint has no enemy-hero
+   filter, and the engine has no enemy input (`matchContext` is unbuilt).
+   Purchase timing (an item bought then sold still counts) is a second residual
+   confound.
+
+**Decision for the rest of F.** Measured pair lift is usable as a basket term
+only with these guardrails: per hero; net-worth banded; shrunk; component
+chains dropped; item-wide effects removed; and capped low, because finding 6
+means part of any positive lift is context, not mechanism. The term's reason
+string must say what was measured ("players on this hero who built both won X
+points more than the two items predict"), never "synergy". Ship it as a static,
+committed per-hero table generated by an offline fitter: the data cost of
+about 21 calls and 7 MB per hero rules out a page-load fetch. Refresh it on the
+data-verification cadence. `SYNERGY_RULES` stays until the measured term lands.
+Whether it is then replaced, kept as a fallback for pairs without data, or
+narrowed to mechanism-only rules is decided in that PR with the fitted table in
+hand.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
-**F — item-combination / covariance layer (queued).** Single-item empirical
+**F — item-combination / covariance layer (in progress).** Single-item empirical
 win rate is already handled in Milestone E via `lib/analyticsStore.ts`
-(`ItemAnalytics.winRate`); F is specifically pairwise/combination correlation,
-which needs per-match granularity. Ingest match-level data from
-`/v1/matches/{id}/metadata` (item builds, purchase timing, death events,
-win/loss — confirmed available and unauthenticated via a `data-verifier` spike)
-into a category×feature design matrix, produce a static regression coefficient
-table offline, and wire it into `constructBasket()` as one more
-`MarginalTermFn`. Depends on Milestone E's interfaces, not its completion. It is
-the measured counterpart to the hand-authored synergy table above.
+(`ItemAnalytics.winRate`). F is specifically pairwise correlation. The original
+plan (ingest `/v1/matches/{id}/metadata` and regress offline) is superseded: the
+pre-aggregated pair endpoint above gives the same per-hero counts without
+ingestion. See "Milestone F spike" for the method, results and guardrails.
+Remaining work:
+
+1. An offline fitter producing a committed per-hero pair table.
+2. A pure lift function with fixtures.
+3. A `pairTerm` `MarginalTermFn` in `constructBasket()`, passed through
+   `page.tsx`, `BuildClient` and `basketProbe.ts`.
+4. Optionally, a pair reason in `HeroBasketSuggestion`.
+
+It is the measured counterpart to the hand-authored synergy table above.
 
 **G — need-vector enrichment (queued, stretch).** Parse
 `HeroAbility.upgrades[].statChanges` free text for a real sustain/lifesteal
