@@ -21,6 +21,28 @@ import {
   SYNERGY_MAX_FRACTION,
   synergyTerm,
 } from "../basketSelect";
+import pairLiftTableJson from "../data/pairLiftTable.json";
+import {
+  componentClosure,
+  estimateTau2,
+  fitHeroPairs,
+  MIN_GROUP_MATCHES,
+  pairInteraction,
+  pairLiftFor,
+  pairLiftKey,
+  pairStatKey,
+  poolInteractions,
+  removeItemEffects,
+  shrinkTowardZero,
+} from "../pairLift";
+import type {
+  FitItem,
+  PairInteraction,
+  PairLiftEntry,
+  PairLiftTable,
+  PairStratum,
+  WinCell,
+} from "../pairLift";
 import { findSynergyRules, SYNERGY_RULES } from "../synergy";
 import { estimateEffectValues } from "../effectEstimator";
 import { recommendItems } from "../engine";
@@ -1952,6 +1974,564 @@ console.log("\n14. ── Positive synergy ──");
       withOwned.picks[0].terms.some((t) => t.termId === "synergy"),
     "e2e owned: with an owned partner the paired candidate wins the FIRST pick via synergy",
     `Got: ${withOwned.picks.map((p) => p.item.itemId).join(", ")}; decoy=${noOwned.picks[0]?.marginalValue}, partner=${withOwned.picks[0]?.marginalValue}`,
+  );
+}
+
+// ── Milestone F: pairLift ────────────────────────────────────────────────────
+console.log("\n15. Milestone F — pairLift");
+{
+  const EPS = 1e-9;
+  const near = (x: number, y: number, eps = EPS) => Math.abs(x - y) <= eps;
+  const lg = (c: WinCell) => Math.log((c.wins + 0.5) / (c.matches - c.wins + 0.5));
+
+  // Build a stratum for items 1 and 2 from the four disjoint 2x2 groups.
+  function stratumFromGroups(g: { ab: WinCell; aOnly: WinCell; bOnly: WinCell; none: WinCell }) {
+    const sum = (...cs: WinCell[]): WinCell => ({
+      wins: cs.reduce((s, c) => s + c.wins, 0),
+      matches: cs.reduce((s, c) => s + c.matches, 0),
+    });
+    const st: PairStratum = {
+      hero: sum(g.ab, g.aOnly, g.bOnly, g.none),
+      singles: new Map<number, WinCell>([
+        [1, sum(g.ab, g.aOnly)],
+        [2, sum(g.ab, g.bOnly)],
+      ]),
+      pairs: new Map<string, WinCell>([[pairStatKey(1, 2), g.ab]]),
+    };
+    return st;
+  }
+
+  // Odds: none 1, A 3, B 3, AB 9 (with the +0.5 correction: w = k*l + (k-1)/2).
+  const additiveGroups = {
+    ab: { wins: 904, matches: 1004 },
+    aOnly: { wins: 301, matches: 401 },
+    bOnly: { wins: 301, matches: 401 },
+    none: { wins: 100, matches: 200 },
+  };
+  const additive = stratumFromGroups(additiveGroups);
+
+  // 1a. additive pair
+  const addI = pairInteraction(additive, 1, 2);
+  assert(
+    addI !== null && near(addI.logOr, 0),
+    "pairInteraction: exactly additive pair gives logOr ~ 0",
+    `Got: ${addI?.logOr}`,
+  );
+
+  // 1a'. same formula by hand for a non-additive pair
+  const handGroups = {
+    ab: { wins: 60, matches: 100 },
+    aOnly: { wins: 70, matches: 150 },
+    bOnly: { wins: 40, matches: 90 },
+    none: { wins: 120, matches: 300 },
+  };
+  const handI = pairInteraction(stratumFromGroups(handGroups), 1, 2);
+  const handLogOr =
+    lg(handGroups.ab) - lg(handGroups.aOnly) - lg(handGroups.bOnly) + lg(handGroups.none);
+  const handVar = [handGroups.ab, handGroups.aOnly, handGroups.bOnly, handGroups.none].reduce(
+    (s, c) => s + 1 / (c.wins + 0.5) + 1 / (c.matches - c.wins + 0.5),
+    0,
+  );
+  assert(
+    handI !== null && near(handI.logOr, handLogOr) && near(handI.variance, handVar),
+    "pairInteraction: logOr and variance match the hand-computed formula",
+    `Got: ${handI?.logOr}/${handI?.variance}, expected ${handLogOr}/${handVar}`,
+  );
+  assert(
+    handI !== null && handI.pairMatches === 100 && near(handI.wrPair, 0.6),
+    "pairInteraction: pairMatches and wrPair come from the AB cell",
+  );
+
+  // 1b. sign
+  const synergyI = pairInteraction(
+    stratumFromGroups({
+      ab: { wins: 900, matches: 1000 },
+      aOnly: { wins: 500, matches: 1000 },
+      bOnly: { wins: 500, matches: 1000 },
+      none: { wins: 500, matches: 1000 },
+    }),
+    1,
+    2,
+  );
+  const antiI = pairInteraction(
+    stratumFromGroups({
+      ab: { wins: 100, matches: 1000 },
+      aOnly: { wins: 500, matches: 1000 },
+      bOnly: { wins: 500, matches: 1000 },
+      none: { wins: 500, matches: 1000 },
+    }),
+    1,
+    2,
+  );
+  assert(
+    synergyI !== null && synergyI.logOr > 0,
+    "pairInteraction: AB winning far above additive gives logOr > 0",
+  );
+  assert(
+    antiI !== null && antiI.logOr < 0,
+    "pairInteraction: AB winning far below additive gives logOr < 0",
+  );
+
+  // 1c. null cases
+  assert(
+    pairInteraction(
+      stratumFromGroups({ ...additiveGroups, ab: { wins: 8, matches: 10 } }),
+      1,
+      2,
+    ) === null,
+    "pairInteraction: null when the AB group has < MIN_GROUP_MATCHES",
+  );
+  assert(
+    pairInteraction(
+      stratumFromGroups({ ...additiveGroups, none: { wins: 5, matches: MIN_GROUP_MATCHES - 1 } }),
+      1,
+      2,
+    ) === null,
+    "pairInteraction: null when the neither group has < MIN_GROUP_MATCHES",
+  );
+  assert(
+    pairInteraction(
+      stratumFromGroups({ ...additiveGroups, aOnly: { wins: 10, matches: MIN_GROUP_MATCHES } }),
+      1,
+      2,
+    ) !== null,
+    "pairInteraction: a group of exactly MIN_GROUP_MATCHES is accepted",
+  );
+  const negCell: PairStratum = {
+    hero: { wins: 5000, matches: 10000 },
+    singles: new Map<number, WinCell>([
+      [1, { wins: 400, matches: 800 }],
+      [2, { wins: 2000, matches: 4000 }],
+    ]),
+    pairs: new Map<string, WinCell>([[pairStatKey(1, 2), { wins: 500, matches: 1000 }]]),
+  };
+  assert(
+    pairInteraction(negCell, 1, 2) === null,
+    "pairInteraction: null when singles A < pair matches (negative A-only cell)",
+  );
+  const negWins: PairStratum = {
+    ...negCell,
+    singles: new Map<number, WinCell>([
+      [1, { wins: 100, matches: 2000 }],
+      [2, { wins: 2000, matches: 4000 }],
+    ]),
+  };
+  assert(
+    pairInteraction(negWins, 1, 2) === null,
+    "pairInteraction: null when a derived cell has negative wins",
+  );
+  assert(
+    pairInteraction({ ...additive, pairs: new Map() }, 1, 2) === null,
+    "pairInteraction: null when the pair is missing",
+  );
+  assert(
+    pairInteraction(
+      { ...additive, singles: new Map([[1, additive.singles.get(1) as WinCell]]) },
+      1,
+      2,
+    ) === null,
+    "pairInteraction: null when a single is missing",
+  );
+  assert(pairInteraction(additive, 1, 1) === null, "pairInteraction: null when a === b");
+
+  // 1d. symmetry
+  const fwd = pairInteraction(stratumFromGroups(handGroups), 1, 2);
+  const rev = pairInteraction(stratumFromGroups(handGroups), 2, 1);
+  assert(
+    fwd !== null && rev !== null && near(fwd.logOr, rev.logOr) && near(fwd.variance, rev.variance),
+    "pairInteraction: symmetric in (a, b)",
+  );
+
+  // 1e. wrExpected
+  assert(
+    addI !== null &&
+      addI.wrExpected > 0 &&
+      addI.wrExpected < 1 &&
+      Math.abs(addI.wrExpected - addI.wrPair) < 1e-3,
+    "pairInteraction: wrExpected in (0,1) and ~ wrPair for a near-additive large-count case",
+    `Got: expected=${addI?.wrExpected}, pair=${addI?.wrPair}`,
+  );
+  assert(
+    synergyI !== null &&
+      synergyI.wrExpected > 0 &&
+      synergyI.wrExpected < 1 &&
+      synergyI.wrPair > synergyI.wrExpected,
+    "pairInteraction: synergistic pair wins more than wrExpected",
+  );
+
+  // 2. poolInteractions
+  const mk = (logOr: number, variance: number): PairInteraction => ({
+    logOr,
+    variance,
+    wrPair: 0.5,
+    wrExpected: 0.5,
+    pairMatches: 100,
+  });
+  const pooled = poolInteractions([mk(1, 0.5), null, mk(4, 2)]);
+  // weights 2 and 0.5 -> sum 2.5, mean (2*1 + 0.5*4) / 2.5 = 1.6
+  assert(
+    pooled !== null && near(pooled.logOr, 1.6),
+    "poolInteractions: inverse-variance weighted mean",
+    `Got: ${pooled?.logOr}`,
+  );
+  assert(
+    pooled !== null && near(pooled.se, Math.sqrt(1 / 2.5)),
+    "poolInteractions: se = sqrt(1 / sum(w))",
+  );
+  assert(
+    pooled !== null && pooled.strataUsed === 2,
+    "poolInteractions: strataUsed counts non-null parts only",
+  );
+  assert(poolInteractions([null, null]) === null, "poolInteractions: all-null gives null");
+  assert(poolInteractions([]) === null, "poolInteractions: empty input gives null");
+
+  // 3. estimateTau2 / shrinkTowardZero (zero-centred prior: tau2 = mean(x^2) - mean(se^2))
+  const tight = [
+    { logOr: 0.1, se: 1 },
+    { logOr: -0.1, se: 1 },
+    { logOr: 0, se: 1 },
+  ];
+  assert(estimateTau2(tight) === 0, "estimateTau2: spread smaller than se gives 0");
+  assert(
+    shrinkTowardZero(0.1, 1, estimateTau2(tight)) === 0,
+    "shrinkTowardZero: tau2 = 0 returns exactly 0",
+  );
+  const wide = [
+    { logOr: -2, se: 0.1 },
+    { logOr: 2, se: 0.1 },
+    { logOr: 1, se: 0.1 },
+    { logOr: -1, se: 0.1 },
+  ];
+  const tau2 = estimateTau2(wide);
+  assert(
+    near(tau2, 2.5 - 0.01),
+    "estimateTau2: method of moments around ZERO (mean x^2 - mean se^2)",
+    `Got: ${tau2}`,
+  );
+  const shared = estimateTau2([
+    { logOr: 1, se: 0.1 },
+    { logOr: 1, se: 0.1 },
+    { logOr: 1, se: 0.1 },
+  ]);
+  assert(
+    near(shared, 1 - 0.01),
+    "estimateTau2: estimates sharing a nonzero mean are not over-shrunk (spread is measured from 0)",
+    `Got: ${shared}`,
+  );
+  const sh = shrinkTowardZero(2, 0.1, tau2);
+  assert(
+    sh > 0 && sh < 2,
+    "shrinkTowardZero: positive tau2 shrinks strictly between 0 and the estimate",
+  );
+  assert(
+    near(sh, (2 * tau2) / (tau2 + 0.01)),
+    "shrinkTowardZero: equals logOr * tau2 / (tau2 + se^2)",
+  );
+  assert(
+    shrinkTowardZero(-2, 0.1, tau2) < 0,
+    "shrinkTowardZero: preserves the sign of a negative estimate",
+  );
+  assert(
+    estimateTau2([]) === 0 && estimateTau2([{ logOr: 5, se: 0.1 }]) === 0,
+    "estimateTau2: fewer than 2 estimates gives 0",
+  );
+
+  // 4. removeItemEffects (least-squares additive item effects)
+  const closeTo = (x: number, y: number) => Math.abs(x - y) < 1e-6;
+  // Purely additiveFit values on an INCOMPLETE graph: plain per-item means get
+  // this wrong; least squares recovers the effects and leaves 0 residual.
+  const truth: Record<string, number> = { p: 0.3, q: -0.2, r: 0.1, s: -0.4, t: 0.2 };
+  const truthMean = Object.values(truth).reduce((x, y) => x + y, 0) / 5;
+  const g0 = 0.05;
+  const edges: Array<[string, string]> = [
+    ["p", "q"],
+    ["p", "r"],
+    ["q", "r"],
+    ["r", "s"],
+    ["s", "t"],
+    ["q", "t"],
+  ];
+  const additiveFit = removeItemEffects(
+    edges.map(([a, b]) => ({ a, b, value: g0 + truth[a] + truth[b] })),
+  );
+  assert(
+    additiveFit.pairOnly.every((v) => closeTo(v, 0)),
+    "removeItemEffects: purely additiveFit values on an incomplete graph leave 0 pair-only residual",
+    `Got: ${additiveFit.pairOnly.join(", ")}`,
+  );
+  assert(
+    Object.keys(truth).every((id) =>
+      closeTo(additiveFit.byItem.get(id)?.effect ?? NaN, truth[id] - truthMean),
+    ) && closeTo(additiveFit.grand, g0 + 2 * truthMean),
+    "removeItemEffects: recovers the item effects (mean 0) and the intercept",
+  );
+  // Non-additiveFit values: the least-squares normal equations say each item's
+  // residuals sum to 0, and the residuals sum to 0 overall.
+  const messy = [
+    { a: "p", b: "q", value: 0.4 },
+    { a: "p", b: "r", value: -0.1 },
+    { a: "q", b: "r", value: 0.25 },
+    { a: "r", b: "s", value: 0.9 },
+    { a: "s", b: "t", value: -0.3 },
+    { a: "q", b: "t", value: 0.05 },
+    { a: "p", b: "t", value: 0.6 },
+  ];
+  const fitMessy = removeItemEffects(messy);
+  const residualSum = (id: string) =>
+    messy.reduce((s, r, i) => s + (r.a === id || r.b === id ? fitMessy.pairOnly[i] : 0), 0);
+  assert(
+    ["p", "q", "r", "s", "t"].every((id) => closeTo(residualSum(id), 0)) &&
+      closeTo(
+        fitMessy.pairOnly.reduce((x, y) => x + y, 0),
+        0,
+      ),
+    "removeItemEffects: residuals satisfy the least-squares normal equations",
+  );
+  assert(
+    !fitMessy.pairOnly.every((v) => closeTo(v, 0)),
+    "removeItemEffects: non-additive values leave a nonzero pair-only remainder",
+  );
+  assert(
+    closeTo(
+      [...fitMessy.byItem.values()].reduce((x, e) => x + e.effect, 0),
+      0,
+    ) &&
+      fitMessy.byItem.get("p")?.pairs === 3 &&
+      fitMessy.byItem.get("s")?.pairs === 2,
+    "removeItemEffects: effects have mean 0; byItem counts pairs per item",
+  );
+  const reversed = removeItemEffects([...messy].reverse());
+  assert(
+    reversed.pairOnly.every((v, i) => closeTo(v, fitMessy.pairOnly[messy.length - 1 - i])),
+    "removeItemEffects: output is aligned with the input order",
+  );
+  // An item in ONE pair: that pair's residual is absorbed by the item's own
+  // effect (the old per-item-mean version returned a number about the partner).
+  const leaf = removeItemEffects([...messy, { a: "t", b: "u", value: 0.8 }]);
+  assert(
+    closeTo(leaf.pairOnly[messy.length], 0),
+    "removeItemEffects: a single-pair item's pair has 0 pair-only residual",
+    `Got: ${leaf.pairOnly[messy.length]}`,
+  );
+
+  // 5. componentClosure
+  const comps: Record<string, string[]> = { t3: ["t2"], t2: ["t1"], t1: [] };
+  const closure3 = componentClosure("t3", (id) => comps[id]);
+  assert(
+    closure3.size === 2 && closure3.has("t2") && closure3.has("t1") && !closure3.has("t3"),
+    "componentClosure: 3-level chain returns every lower tier",
+  );
+  const cyc: Record<string, string[]> = { p: ["q"], q: ["p"] };
+  const cycClosure = componentClosure("p", (id) => cyc[id]);
+  assert(
+    cycClosure.size === 2 && cycClosure.has("q") && cycClosure.has("p"),
+    "componentClosure: a cycle terminates",
+  );
+  assert(
+    componentClosure("nope", (id) => comps[id]).size === 0,
+    "componentClosure: unknown id gives an empty set",
+  );
+
+  // 6. fitHeroPairs
+  const fitItems = new Map<number, FitItem>([
+    [1, { id: "a_item" }],
+    [2, { id: "b_item", componentItems: ["a_item"] }],
+    [3, { id: "c_item" }],
+    [4, { id: "d_item" }],
+    [5, { id: "e_item" }],
+  ]);
+  const pairWins: Array<[number, number, number]> = [
+    [1, 3, 1200],
+    [3, 4, 1000],
+    [1, 4, 1100],
+    [4, 5, 900],
+    [3, 5, 1300],
+  ];
+  // Bands DIFFER from raw (pair wins shifted), so raw, banded and shrunk are
+  // distinct numbers and a mis-wiring between them shows up.
+  const mkFitStratum = (reverse: boolean, shift: number): PairStratum => {
+    const pairEntries: Array<[string, WinCell]> = [
+      ...pairWins.map(([x, y, w]): [string, WinCell] => [
+        pairStatKey(x, y),
+        { wins: w + shift * (x + y), matches: 2000 },
+      ]),
+      [pairStatKey(1, 2), { wins: 1500, matches: 2000 }], // component -> upgrade
+      [pairStatKey(1, 99), { wins: 100, matches: 200 }], // unknown id
+      [pairStatKey(2, 4), { wins: 15, matches: 30 }], // below minPairMatches
+    ];
+    const singleEntries: Array<[number, WinCell]> = [1, 2, 3, 4, 5].map((id) => [
+      id,
+      { wins: 2000, matches: 4000 },
+    ]);
+    return {
+      hero: { wins: 5000, matches: 10000 },
+      singles: new Map(reverse ? [...singleEntries].reverse() : singleEntries),
+      pairs: new Map(reverse ? [...pairEntries].reverse() : pairEntries),
+    };
+  };
+  const fit = fitHeroPairs(
+    mkFitStratum(false, 0),
+    [mkFitStratum(false, 15), mkFitStratum(false, -8)],
+    fitItems,
+    50,
+  );
+  const fitRev = fitHeroPairs(
+    mkFitStratum(true, 0),
+    [mkFitStratum(true, 15), mkFitStratum(true, -8)],
+    fitItems,
+    50,
+  );
+  assert(
+    fit.droppedChain === 1,
+    "fitHeroPairs: component->upgrade pair counted in droppedChain",
+    `Got: ${fit.droppedChain}`,
+  );
+  assert(
+    fit.droppedUnknown === 1,
+    "fitHeroPairs: pair with an id missing from itemsByNumericId counted in droppedUnknown",
+    `Got: ${fit.droppedUnknown}`,
+  );
+  assert(
+    fit.pairs.map((p) => `${p.a}|${p.b}`).join(",") ===
+      "a_item|c_item,a_item|d_item,c_item|d_item,c_item|e_item,d_item|e_item",
+    "fitHeroPairs: below-minPairMatches pair silently skipped; pairs sorted by (a, b), a < b",
+    `Got: ${fit.pairs.map((p) => `${p.a}|${p.b}`).join(", ")}`,
+  );
+  assert(
+    fit.pairs.every((p) => !near(p.raw.logOr, p.banded.logOr)),
+    "fitHeroPairs: banded comes from the band strata, not the raw stratum",
+  );
+  assert(
+    fit.tau2 === estimateTau2(fit.pairs.map((p) => p.banded)),
+    "fitHeroPairs: tau2 is estimated from the BANDED estimates",
+  );
+  assert(
+    fit.pairs.every((p) => p.shrunk === shrinkTowardZero(p.banded.logOr, p.banded.se, fit.tau2)),
+    "fitHeroPairs: shrunk = shrinkTowardZero(banded, se, tau2) for every pair",
+  );
+  const expectedPairOnly = removeItemEffects(
+    fit.pairs.map((p) => ({ a: p.a, b: p.b, value: p.shrunk })),
+  ).pairOnly;
+  assert(
+    fit.pairs.every((p, i) => p.pairOnly === expectedPairOnly[i]) &&
+      fit.pairs.some((p) => Math.abs(p.pairOnly) > 1e-9),
+    "fitHeroPairs: pairOnly = removeItemEffects over the shrunk values, index-aligned and nonzero",
+  );
+  assert(
+    JSON.stringify(fit.pairs) === JSON.stringify(fitRev.pairs) &&
+      fit.tau2 === fitRev.tau2 &&
+      fit.droppedChain === fitRev.droppedChain &&
+      fit.droppedUnknown === fitRev.droppedUnknown,
+    "fitHeroPairs: identical output when strata Map insertion order is reversed",
+  );
+  const fitB = fitHeroPairs(mkFitStratum(false, 0), [mkFitStratum(false, 15)], fitItems, 50);
+  assert(
+    fitB.pairs.length === 5 && fitB.pairs.every((p) => p.banded.strataUsed === 1),
+    "fitHeroPairs: banded.strataUsed reflects the number of bands supplied",
+  );
+  let threw = false;
+  try {
+    fitHeroPairs(
+      mkFitStratum(false, 0),
+      [],
+      new Map<number, FitItem>([
+        [1, { id: "dup" }],
+        [3, { id: "dup" }],
+      ]),
+      50,
+    );
+  } catch {
+    threw = true;
+  }
+  assert(threw, "fitHeroPairs: two numeric ids with one class name throws (ambiguous join)");
+
+  // 7. pairLiftKey / pairLiftFor
+  const entry: PairLiftEntry = { lift: 0.2, se: 0.05, n: 300 };
+  const tbl: PairLiftTable = {
+    version: 1,
+    generated: "2026-01-01",
+    window: { from: "2025-12-01", to: "2026-01-01" },
+    method: {
+      gameMode: "normal",
+      netWorthBands: [0],
+      minPairMatches: 100,
+      minAbsZ: 3,
+      minItemPairs: 10,
+    },
+    fits: { "7": { matches: 1000, pairsFitted: 1, kept: 1, tau: 0.1 } },
+    heroes: { "7": { "x|y": entry } },
+  };
+  assert(
+    pairLiftKey("x", "y") === "x|y" && pairLiftKey("y", "x") === "x|y",
+    "pairLiftKey: order-independent, lower id first",
+  );
+  assert(
+    pairLiftFor(tbl, 7, "x", "y") === entry && pairLiftFor(tbl, 7, "y", "x") === entry,
+    "pairLiftFor: same entry in either order",
+  );
+  assert(pairLiftFor(tbl, 8, "x", "y") === null, "pairLiftFor: unknown hero gives null");
+  assert(pairLiftFor(tbl, 7, "x", "z") === null, "pairLiftFor: unknown pair gives null");
+  assert(pairLiftFor(tbl, 7, "x", "x") === null, "pairLiftFor: idA === idB gives null");
+  assert(
+    pairLiftFor(tbl, "7", "x", "y") === entry,
+    "pairLiftFor: accepts heroId as a string as well as a number",
+  );
+
+  // 8. committed table integrity (generic: the file is regenerated by a script)
+  const table = pairLiftTableJson as unknown as PairLiftTable;
+  const isDate = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  assert(table.version === 1, "pairLiftTable.json: version === 1");
+  assert(
+    isDate(table.generated) && isDate(table.window.from) && isDate(table.window.to),
+    "pairLiftTable.json: generated / window.from / window.to are YYYY-MM-DD",
+  );
+  assert(
+    table.method.minAbsZ > 0 && table.method.minPairMatches > 0 && table.method.minItemPairs > 0,
+    "pairLiftTable.json: method.minAbsZ, minPairMatches and minItemPairs are positive",
+  );
+  const heroKeys = Object.keys(table.heroes);
+  assert(
+    heroKeys.every((k) => /^\d+$/.test(k)),
+    "pairLiftTable.json: every hero key is a numeric string",
+  );
+  const badFits = heroKeys.filter(
+    (k) =>
+      table.fits[k] === undefined || table.fits[k].kept !== Object.keys(table.heroes[k]).length,
+  );
+  assert(
+    badFits.length === 0,
+    "pairLiftTable.json: every hero has a fits entry whose kept equals its entry count",
+    badFits.join(", "),
+  );
+  const badKeys: string[] = [];
+  const badEntries: string[] = [];
+  for (const k of heroKeys) {
+    for (const [pk, e] of Object.entries(table.heroes[k])) {
+      const parts = pk.split("|");
+      if (parts.length !== 2 || parts[0] === parts[1] || !(parts[0] < parts[1])) {
+        badKeys.push(`${k}:${pk}`);
+      }
+      if (
+        !Number.isFinite(e.lift) ||
+        !(e.se > 0) ||
+        !Number.isInteger(e.n) ||
+        e.n < table.method.minPairMatches ||
+        // Strict: fitPairTable thresholds on the rounded values it writes.
+        Math.abs(e.lift) / e.se < table.method.minAbsZ
+      ) {
+        badEntries.push(`${k}:${pk}`);
+      }
+    }
+  }
+  assert(
+    badKeys.length === 0,
+    "pairLiftTable.json: every pair key is `a|b` with a < b",
+    badKeys.slice(0, 5).join(", "),
+  );
+  assert(
+    badEntries.length === 0,
+    "pairLiftTable.json: every entry has finite lift, se > 0, integer n >= minPairMatches, |lift|/se >= minAbsZ (strict, on the rounded values)",
+    badEntries.slice(0, 5).join(", "),
   );
 }
 

@@ -792,6 +792,92 @@ Whether it is then replaced, kept as a fallback for pairs without data, or
 narrowed to mechanism-only rules is decided in that PR with the fitted table in
 hand.
 
+## Pair lift table (Milestone F, PR 2)
+
+**Where things live.**
+
+- `lib/engine/pairLift.ts`: all the pure math (`pairInteraction`,
+  `poolInteractions`, `estimateTau2`, `shrinkTowardZero`, `removeItemEffects`,
+  `componentClosure`, `fitHeroPairs`), plus the table types and the lookup
+  `pairLiftFor(table, heroId, idA, idB)`. Fixtures are in
+  `lib/engine/__fixtures__/mini.ts`.
+- `src/scripts/pairData.ts`: the live loader shared by both scripts. It pins
+  the time window, sums both purchase orders, throttles to about 150 req/min,
+  and fails loudly.
+- `src/scripts/fitPairTable.ts` (`npm run fit-pairs`): fits every visible
+  hero and writes `lib/engine/data/pairLiftTable.json`.
+- `src/scripts/pairProbe.ts` (`npm run pair-probe`): one hero with
+  diagnostics, using the same math.
+
+**What the table holds.** For each hero, only pairs that have:
+
+- at least `minPairMatches` co-owning matches (default 500);
+- `|lift| / se >= minAbsZ` (default 3);
+- both items in at least `minItemPairs` fitted pairs (10).
+
+`lift` is `pairOnly`: the log odds ratio, banded by net worth, shrunk toward
+zero, with item-wide effects removed. Keys are `pairLiftKey` over `Item.id`
+(class_name), lower id first. `fits` records each hero's matches, pairs fitted,
+pairs kept and tau, which is what to compare when reviewing a refresh.
+
+**`se` belongs to the banded estimate, not to `lift`.** `lift` has been
+shrunk and centred, so `|lift| / se` is a ranking threshold, not a z-score, and
+`lift ± se` is not a confidence interval. Don't call it "significance" in UI
+copy or reasons.
+
+**How the method was hardened in review** (scoring-auditor, PR 2):
+
+- **Item effects are a least-squares fit, not per-item means.** The fit is
+  value = grand + effect(a) + effect(b), by Gauss-Seidel with fixed sweeps.
+  Means are only exact on a complete pair graph, and this graph is
+  incomplete. With means, an item in one pair got a pair-only value that was
+  really a statement about its partner. Under least squares that residual is
+  0, and `minItemPairs` drops items whose effect is poorly determined.
+- **Shrinkage is measured from zero.** tau² = mean(x²) − mean(se²), because the
+  shrinkage target is 0. Centring on the sample mean would over-shrink whenever
+  estimates share a nonzero mean.
+- **All ordering uses code-unit order (`compareIds`), not `localeCompare`.**
+  This is the same order as `pairLiftKey` and the JSON, and it does not depend
+  on the machine's ICU. Duplicate class names throw.
+
+**For PR 3: owned items only.** `pairLiftFor` is symmetric, so the types don't
+enforce this. The term must look up (candidate, OWNED item) only, never
+(candidate, other candidate), which is the circular-selection rule.
+
+**Absent is not zero.** A pair missing from the table was not measured clearly
+enough. That is not evidence the pair is neutral, and `pairLiftFor` returns
+null, never 0, for it. The consuming term must treat null as "no signal"
+(inert), in the same way as the other terms' absent inputs.
+
+**Refreshing.** Run `npm run fit-pairs` (about 8 s per hero; the full roster
+takes a few minutes, against the analytics API's 6-hour cache). A `--heroes`
+subset still REPLACES the whole file, so use it only with `--dry`. The file is
+in `.prettierignore`: its one-entry-per-line, sorted layout is canonical, so a
+refresh diffs readably. Refresh it on the data-verification cadence in
+CLAUDE.md and after any major item patch.
+
+**First fit (2026-10-18, window 2026-09-18 to 2026-10-18).** 43 heroes and
+19,667 kept pairs, from about 2,300 to 7,000 fitted per hero. The file is 1.77
+MB. A single hero's slice is 5–87 KB (median 37 KB), which is what PR 3 should
+pass to the client: never import the whole file into a client component. Kept
+pairs per hero range from 54 (Violet, 99k matches) to 1,023 (Baba). About 60%
+of kept pairs are positive. Tau is 0.05–0.12 on every hero (median about 0.075),
+so the real pair spread found in the spike holds across the roster. The
+highest-tau heroes (Baba 0.119, McGinnis 0.112, Victor 0.104) are where pair
+choice matters most. A low-match hero keeps few pairs rather than noisy ones:
+that is the shrinkage and the z threshold working.
+
+**The enemy-composition confound is visible in the table, so cap PR 3
+accordingly.** After least-squares item effects, Spirit Resilience
+(`upgrade_tech_purge`) still has many large positive pairs with gun items: 9
+partners above +0.25 on McGinnis and 7 on Dynamo, for example Ethereal Bullets
++0.34 and Blitz Bullets +0.30. An effect that applied to the item across the
+board would have been removed, so this is pair-structured. It reads as "a gun
+build that also bought anti-spirit defence was facing a spirit-heavy team",
+which is finding 6 of the spike. The term in PR 3 will reward these pairs
+anyway. Bound it like `synergyTerm` (a small fraction of a slot), and phrase
+its reason as what was measured.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical
@@ -802,8 +888,9 @@ pre-aggregated pair endpoint above gives the same per-hero counts without
 ingestion. See "Milestone F spike" for the method, results and guardrails.
 Remaining work:
 
-1. An offline fitter producing a committed per-hero pair table.
-2. A pure lift function with fixtures.
+1. ~~An offline fitter producing a committed per-hero pair table.~~ Done in PR
+   2; see "Pair lift table".
+2. ~~A pure lift function with fixtures.~~ Done in PR 2.
 3. A `pairTerm` `MarginalTermFn` in `constructBasket()`, passed through
    `page.tsx`, `BuildClient` and `basketProbe.ts`.
 4. Optionally, a pair reason in `HeroBasketSuggestion`.

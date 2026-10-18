@@ -12,7 +12,8 @@
     "mini": "npx tsx src/scripts/mini.ts && npx tsx lib/engine/__fixtures__/mini.ts",
     "probe": "npx tsx src/scripts/basketProbe.ts",
     "pair-probe": "npx tsx src/scripts/pairProbe.ts",
-    "sync-boon-data": "npx tsx src/scripts/syncBoonData.ts"
+    "sync-boon-data": "npx tsx src/scripts/syncBoonData.ts",
+    "fit-pairs": "npx tsx src/scripts/fitPairTable.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
