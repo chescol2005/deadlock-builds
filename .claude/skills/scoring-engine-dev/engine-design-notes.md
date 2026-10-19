@@ -811,7 +811,8 @@ hand.
 
 **What the table holds.** For each hero, only pairs that have:
 
-- at least `minPairMatches` co-owning matches (default 500);
+- at least `minPairMatches` co-owning matches (default 300 since PR 3; 500 in
+  PR 2's fit);
 - `|lift| / se >= minAbsZ` (default 3);
 - both items in at least `minItemPairs` fitted pairs (10).
 
@@ -856,7 +857,8 @@ in `.prettierignore`: its one-entry-per-line, sorted layout is canonical, so a
 refresh diffs readably. Refresh it on the data-verification cadence in
 CLAUDE.md and after any major item patch.
 
-**First fit (2026-10-18, window 2026-09-18 to 2026-10-18).** 43 heroes and
+**PR 2's first fit, superseded by PR 3's Oracle+ refit (all ranks, 2026-10-18,
+window 2026-09-18 to 2026-10-18).** 43 heroes and
 19,667 kept pairs, from about 2,300 to 7,000 fitted per hero. The file is 1.77
 MB. A single hero's slice is 5–87 KB (median 37 KB), which is what PR 3 should
 pass to the client: never import the whole file into a client component. Kept
@@ -878,6 +880,90 @@ which is finding 6 of the spike. The term in PR 3 will reward these pairs
 anyway. Bound it like `synergyTerm` (a small fraction of a slot), and phrase
 its reason as what was measured.
 
+## Pair term in the basket (Milestone F, PR 3)
+
+**What fires.** `pairTerm` (termId `pair-lift`, in `DEFAULT_BASKET_TERMS`
+after `synergyTerm`) adds this hero's measured lift between a candidate and
+each of its partners. Partners are owned items plus basket picks: the same set
+as `synergyTerm`, via the shared `pairPartners`, and never other unpicked
+candidates. The partners' lifts are summed and saturate at 0.3 log odds, so the
+value is within ±`PAIR_LIFT_MAX_FRACTION` (0.08) of a slot. It is symmetric:
+a measurably bad pair is pushed down. It is relevance-gated, inert without
+`ctx.pairLift`, and a pair missing from the table is no signal. The reason
+gives approximate win-rate points and the measurement's scope, and never says
+"synergy".
+
+**Higher-rank data only (product decision).** The table is fitted on matches
+whose average badge is **Oracle (tier 8) or above, over 90 days**, with at
+least 300 co-owning matches. Ascendant+ was the first choice, but at Ascendant+
+the per-pair se is several times the real spread between pairs. Shrinkage then
+zeroes almost everything: 0 pairs kept for Graves, Infernus, Baba and Violet,
+and 14 for Haze, even over 90 days. Over 30 days Graves has 4,985 Ascendant+
+player-matches against 858,524 at all ranks, and Eternus alone has 825. The badge filter is
+the MATCH average of both teams, not the player's own rank. A 90-day window
+can span balance patches: refresh after a major one.
+
+**Measured wins over the hand rules.** The fitter also writes `rulePairs`:
+each `SYNERGY_RULES` pair's measurement for every hero where its se ≤
+`ruleMaxSe` (0.05), plus any hand-rule pair that is significant whatever its
+se. At that precision a real effect of about 0.15 would have cleared 3 se. Both
+terms read one helper, `measuredPair`, which returns the significant entry or
+else the `rulePairs` entry:
+
+- Where a measurement exists, `synergyTerm` skips the rule, even when the
+  measurement is about 0, and `pairTerm` credits the pair with exactly that
+  measurement. So the pair is never counted twice, and an overridden rule is
+  never silently dropped: the player sees a `pair-lift` line explaining the
+  measured value.
+- A rule with no measurement (a rarely co-bought pair, or a little-played hero)
+  keeps firing as before.
+
+A fixture enforces the table invariant that every hand-rule pair in `heroes`
+is also in `rulePairs`. This came from scoring-auditor review: the first draft
+could double count, and it left 5 of the 6 overridden rules silent.
+
+**Fitted table (2026-10-18, Oracle+, 2026-07-20 to 2026-10-18).** 3,796 kept pairs across 43 heroes, 343
+KB, against 19,667 at all ranks over 30 days. Coverage is uneven, and the
+term is simply inert where data is thin:
+
+- **Plenty of data:** Bebop 363, Haze 314, Drifter 257.
+- **Very little:** Vyper 1, Mirage 8, Silver 8.
+- **None:** Deadman Danny, Solomon and Violet (0 each; under 26k Oracle+
+  matches).
+
+Six hand-rule measurements cleared `ruleMaxSe`, so those rules are now
+overridden:
+
+| Hero     | Hand rule                    | Measured lift                            |
+| -------- | ---------------------------- | ---------------------------------------- |
+| Infernus | Ricochet + Toxic Bullets     | +0.105, also a significant `pairs` entry |
+| Haze     | Ricochet + Toxic Bullets     | −0.048                                   |
+| Graves   | Ricochet + Toxic Bullets     | +0.036                                   |
+| Graves   | Heroic Aura + Mystic Shot    | +0.004                                   |
+| Ivy      | Vortex Web + Alchemical Fire | −0.020                                   |
+| Paige    | Vortex Web + Alchemical Fire | −0.017                                   |
+
+The hand rules keep firing for every other hero.
+
+**Live effect.** Probe runs with and without `--no-pair-lift`, the new
+probe flag that reproduces the pre-PR 3 basket. In each case the first value
+is without the pair table and the second is with it:
+
+| Hero     | Owned              | Candidate           | Change                                                | First-pick rank |
+| -------- | ------------------ | ------------------- | ----------------------------------------------------- | --------------- |
+| Infernus | Ricochet           | Toxic Bullets       | hand +5.00 replaced by measured +1.40 (about 2.6 pts) | 34 → 44         |
+| Graves   | Heroic Aura        | Mystic Shot         | hand +5.00 replaced by measured +0.05 (+0.004 lift)   | 51 → 56         |
+| Haze     | Active Reload      | Reinforcing Casings | −3.63 (about 6.8 pts worse)                           | 68 → 79         |
+| Infernus | Spiritual Overflow | Ethereal Bullets    | +2.39                                                 | 15 → 13         |
+| Bebop    | Unstoppable        | Ultimate Burst      | +4.00 (saturated)                                     | 7 → 7           |
+
+**Whole baskets were unchanged in all 5 scenarios checked.** The term moves
+mid-ranked candidates but, at 0.08 of a slot (±4 coverage units against about
+80 for a top pick), never displaces a clear coverage leader. That is the
+intended conservatism given the enemy-composition confound. Raising
+`PAIR_LIFT_MAX_FRACTION` is a one-constant change if play-testing says the
+measured pairs deserve more weight; re-run these probes if you do.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical
@@ -891,9 +977,15 @@ Remaining work:
 1. ~~An offline fitter producing a committed per-hero pair table.~~ Done in PR
    2; see "Pair lift table".
 2. ~~A pure lift function with fixtures.~~ Done in PR 2.
-3. A `pairTerm` `MarginalTermFn` in `constructBasket()`, passed through
-   `page.tsx`, `BuildClient` and `basketProbe.ts`.
-4. Optionally, a pair reason in `HeroBasketSuggestion`.
+3. ~~A `pairTerm` `MarginalTermFn` in `constructBasket()`, passed through
+   `page.tsx`, `BuildClient` and `basketProbe.ts`.~~ Done in PR 3; see "Pair
+   term in the basket".
+4. A synergy / anti-synergy audit view, in the same style as
+   `item-scoring-audit.html`: the hand-authored `SYNERGY_RULES` and
+   `ANTI_SYNERGY_RULES` alongside the measured per-hero pair table, with
+   measured-vs-hand agreement. It is generated by a committed script so it can
+   be regenerated after every table refresh, and published as an artifact.
+5. Optionally, a pair reason in `HeroBasketSuggestion`'s simplified view.
 
 It is the measured counterpart to the hand-authored synergy table above.
 

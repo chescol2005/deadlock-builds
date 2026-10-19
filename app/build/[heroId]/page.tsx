@@ -9,6 +9,9 @@ import { getHeroAccuracy, getItemAnalytics, getRankTiers } from "@/lib/analytics
 import { getHeroStats } from "@/lib/heroStore";
 import { fetchHeroAbilityItems } from "@/lib/api/deadlockApi";
 import { mapHeroAbilities } from "@/lib/abilityCoefficients";
+import { heroPairLift } from "@/lib/engine/pairLift";
+import type { PairLiftTable } from "@/lib/engine/pairLift";
+import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 
 export default async function BuildHeroPage({
   params,
@@ -65,6 +68,12 @@ export default async function BuildHeroPage({
 
   const heroAbilities = mapHeroAbilities(rawAbilities, heroData.items);
 
+  // Measured item-pair lift (Milestone F): a committed, offline-fitted table
+  // (npm run fit-pairs). Sliced here, on the server, so the client only receives
+  // this hero's few dozen KB, never the whole file. null when the hero was not
+  // fitted (the basket's pairTerm is then inert).
+  const pairLift = heroPairLift(pairLiftTableJson as unknown as PairLiftTable, heroIdNum);
+
   let initialState: BuildState | null = null;
   if (build) {
     try {
@@ -87,6 +96,7 @@ export default async function BuildHeroPage({
       itemAnalytics={itemAnalytics}
       heroAccuracy={heroAccuracy}
       rankTiers={rankTiers}
+      pairLift={pairLift}
     />
   );
 }

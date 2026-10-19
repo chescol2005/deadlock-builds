@@ -26,7 +26,8 @@ const USAGE = `Usage: npm run pair-probe -- <hero> [options]
   <hero>          hero id (e.g. 76) or name (e.g. graves, "lady geist")
 
 Options:
-  --rank T        rank tier 0-11 (badge T0-T9); default: all ranks
+  --rank T        one rank tier 0-11 (badge T0-T9); default: all ranks
+  --min-rank T    rank tier T and above (8 = Oracle reproduces the committed table)
   --days N        window length in days, ending at today 00:00 UTC (default 30)
   --bands a,b,c   final-net-worth band edges in souls (default 0,15000,25000,35000,45000,60000;
                   the last band is open-ended)
@@ -38,6 +39,7 @@ Options:
 interface ProbeArgs {
   hero: string;
   rank: number | null;
+  minRank: number | null;
   days: number;
   bands: number[];
   min: number;
@@ -62,6 +64,7 @@ function parseArgs(argv: string[]): ProbeArgs {
   const out: ProbeArgs = {
     hero: "",
     rank: null,
+    minRank: null,
     days: 30,
     bands: [...DEFAULT_NET_WORTH_BANDS],
     min: 500,
@@ -75,6 +78,8 @@ function parseArgs(argv: string[]): ProbeArgs {
       process.exit(0);
     } else if (a === "--rank") {
       out.rank = parseIntArg(a, argv[++i], 0, 11);
+    } else if (a === "--min-rank") {
+      out.minRank = parseIntArg(a, argv[++i], 0, 11);
     } else if (a === "--days") {
       out.days = parseIntArg(a, argv[++i], 1, 90);
     } else if (a === "--bands") {
@@ -164,7 +169,12 @@ async function main(): Promise<void> {
   }
   const name = (id: string) => byId.get(id)?.name ?? id;
 
-  const strata = buildStrata({ days: args.days, rank: args.rank, bands: args.bands });
+  const strata = buildStrata({
+    days: args.days,
+    rank: args.rank,
+    minRank: args.minRank,
+    bands: args.bands,
+  });
   console.log(`\nLoading ${1 + strata.bands.length} strata x 3 endpoints for ${hero.name}...`);
   const raw = await loadStratum(heroId, strata.all);
   const bands: LoadedStratum[] = [];
@@ -173,9 +183,11 @@ async function main(): Promise<void> {
   console.log(`\n=== ${hero.name} (hero ${heroId}) — measured pair interaction ===`);
   console.log(
     `Window: ${strata.from} to ${strata.to} (${args.days}d), game_mode normal, ` +
-      (args.rank === null
-        ? "all ranks"
-        : `rank tier ${args.rank} (badge ${args.rank * 10}-${args.rank * 10 + 9})`),
+      (args.rank !== null
+        ? `rank tier ${args.rank} (badge ${args.rank * 10}-${args.rank * 10 + 9})`
+        : args.minRank !== null
+          ? `rank tier ${args.minRank}+ (badge >= ${args.minRank * 10})`
+          : "all ranks"),
   );
   console.log(
     `All: ${raw.hero.matches} player-matches, win rate ${fmt((100 * raw.hero.wins) / Math.max(1, raw.hero.matches), 1)}%; ` +

@@ -77,7 +77,10 @@ export interface StratumFilter {
  */
 export function buildStrata(opts: {
   days: number;
+  /** One rank tier only (badge T0-T9). */
   rank: number | null;
+  /** This rank tier and above (badge >= T0). Ignored if `rank` is set. */
+  minRank?: number | null;
   bands: ReadonlyArray<number>;
 }): {
   from: string;
@@ -95,6 +98,10 @@ export function buildStrata(opts: {
   if (opts.rank !== null) {
     base.min_average_badge = opts.rank * 10;
     base.max_average_badge = opts.rank * 10 + 9;
+  } else if (opts.minRank !== undefined && opts.minRank !== null) {
+    // Badge is the MATCH average of both teams (tier * 10 + subtier), not the
+    // individual player's rank.
+    base.min_average_badge = opts.minRank * 10;
   }
   const bands = opts.bands.map((lo, k) => {
     const hi = opts.bands[k + 1];

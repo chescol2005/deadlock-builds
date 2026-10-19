@@ -15,8 +15,9 @@
 // trivially deterministic, and — because coverage is submodular (diminishing
 // returns, see `coverageTerm`) — it carries the standard (1 − 1/e) worst-case
 // guarantee for budgeted maximum coverage (strictly, for the coverage term
-// alone: `synergyTerm` is supermodular, so the bound is approximate once it is
-// enabled; its small cap keeps the deviation small). Exactness is not worth the
+// alone: `synergyTerm` and `pairTerm` are supermodular, and pairTerm's
+// negative values make the objective non-monotone, so the bound is approximate
+// once they are enabled; their small caps keep the deviation small). Exactness is not worth the
 // determinism and explainability cost here.
 //
 // Design constraints (CLAUDE.md + scoring-engine-dev skill, non-negotiable):
@@ -32,8 +33,9 @@
 // - NO AI. Zero imports from `lib/coach/`. Terms are plain arithmetic.
 //
 // Extension seam: `constructBasket` takes `terms` (default
-// `DEFAULT_BASKET_TERMS`). A Milestone F empirical item-pair/covariance term
-// plugs in as one more `MarginalTermFn` with no change to the loop.
+// `DEFAULT_BASKET_TERMS`). The Milestone F measured item-pair term,
+// `pairTerm`, plugged in this way as one more `MarginalTermFn` with no change
+// to the loop.
 
 import type { ItemAnalytics } from "../analyticsStore";
 import { MAX_ACTIVE_ITEMS } from "../buildUtils";
@@ -43,6 +45,8 @@ import {
   isApproachingSignificantBonus,
 } from "../categoryBonuses";
 import type { ItemCategory } from "../items";
+import { pairLiftIn } from "./pairLift";
+import type { PairLiftEntry } from "./pairLift";
 import { findSynergyRules } from "./synergy";
 import type {
   BasketContext,
@@ -161,6 +165,33 @@ const PROC_PLATFORM_MAX_FRACTION = 0.1;
  */
 export const SYNERGY_MAX_FRACTION = 0.1;
 
+/**
+ * Hard ceiling on `pairTerm`, as a fraction of one slot's coverage.
+ *
+ * Between the single-item win-rate nudge (0.06) and the hand-authored synergy /
+ * proc terms (0.10). It is better controlled than a raw win rate: per hero,
+ * banded by final net worth, shrunk, and with each item's own effect removed.
+ * But it is still observational. Part of a measured lift is context the engine
+ * cannot see, above all the enemy team: anti-spirit items pair "well" with gun
+ * items because both get bought against spirit-heavy teams (engine-design-notes,
+ * "Pair lift table"). SCALED by the measured lift, symmetric: a measurably bad
+ * pair is pushed down as far as a good one is pushed up. At saturation it can
+ * beat an item with up to 0.08 of a slot MORE coverage (and a +cap candidate
+ * against a -cap one, a 0.16 gap), never a larger one.
+ */
+export const PAIR_LIFT_MAX_FRACTION = 0.08;
+
+/**
+ * Summed lift (log odds) at which pairTerm saturates. About 0.3 is roughly 7
+ * win-rate points near 50%, at the top of what the fitted table holds
+ * (strong pairs sit around 0.15-0.35), so one strong partner nearly saturates
+ * and several cannot stack past the cap.
+ */
+const PAIR_LIFT_SATURATION = 0.3;
+
+/** Log odds to approximate win-rate points near 50% (p(1 - p) = 0.25, x100). */
+const LOG_ODDS_TO_POINTS_AT_EVEN = 25;
+
 /** Max categories named in a coverage `reason` before it is truncated. */
 const MAX_REASON_CATEGORIES = 3;
 
@@ -261,6 +292,8 @@ export function makeBasketContext(opts: {
   hitReliabilityFactor?: number;
   /** See BasketContext.ownedItemNames. Omitted => synergy sees basket picks only. */
   ownedItemNames?: ReadonlyMap<string, string>;
+  /** See BasketContext.pairLift. Omitted => pairTerm inert, hand rules never overridden. */
+  pairLift?: BasketContext["pairLift"];
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -313,6 +346,7 @@ export function makeBasketContext(opts: {
         ? opts.hitReliabilityFactor
         : undefined,
     ownedItemNames: opts.ownedItemNames,
+    pairLift: opts.pairLift,
   };
 }
 
@@ -657,30 +691,53 @@ export const hitReliabilityTerm: MarginalTermFn = {
 };
 
 /**
+ * The measurement the basket uses for a pair: a significant entry, else a
+ * precisely measured SYNERGY_RULES pair (rulePairs). Both pairTerm and the
+ * synergyTerm override read THIS, so a hand rule is skipped exactly when
+ * pairTerm takes the pair over: never counted twice, never silently dropped.
+ */
+function measuredPair(
+  lift: BasketContext["pairLift"],
+  idA: string,
+  idB: string,
+): PairLiftEntry | null {
+  if (!lift) return null;
+  return pairLiftIn(lift.pairs, idA, idB) ?? pairLiftIn(lift.rulePairs, idA, idB);
+}
+
+/**
+ * Items a candidate can pair with: everything the player already owns plus
+ * everything this basket already picked (owned items are never candidates, so
+ * they never appear in `state.picked`). itemId -> display name. Never other
+ * not-yet-picked candidates: that would make selection circular.
+ */
+function pairPartners(state: BasketState, ctx: BasketContext): Map<string, string> {
+  const partners = new Map<string, string>(ctx.ownedItemNames ?? []);
+  for (const p of state.picked) partners.set(p.itemId, p.name);
+  return partners;
+}
+
+/**
  * Rewards completing a known item PAIR (see lib/engine/synergy.ts), the first
  * term to read `state.picked`.
  *
- * Relevance-gated like the other adjustment terms: synergy is a reason to
- * prefer one useful item, never to buy a useless one. Several partners cannot
- * stack past one SYNERGY_MAX_FRACTION cap.
- *
- * Honest limits:
- *  (a) Greedy is myopic — only the SECOND item of a pair is boosted. The first
- *      earns nothing for its partner's possible future pick.
- *  (b) Synergy is supermodular, so with this term enabled the (1 − 1/e)
- *      guarantee in the file header no longer strictly holds; the bound keeps
- *      the deviation small.
+ * MEASURED WINS (Milestone F): a rule is skipped for a hero when the basket
+ * has a measurement of that pair (`measuredPair`: a significant entry, or a
+ * precise `rulePairs` entry), even a measured ~0. pairTerm then credits the
+ * pair with exactly that measurement and explains it, so the pair is never
+ * counted twice and never silently loses its bonus. A rule with no
+ * measurement (a rarely co-bought pair, a little-played hero) keeps firing.
  */
 export const synergyTerm: MarginalTermFn = {
   termId: "synergy",
 
   evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
-    // Partners count whether the basket picked them or the player already owns
-    // them — owned items never appear in `state.picked` (they are not candidates).
-    const partnerNames = new Map<string, string>(ctx.ownedItemNames ?? []);
-    for (const p of state.picked) partnerNames.set(p.itemId, p.name);
+    const partnerNames = pairPartners(state, ctx);
 
-    const rules = findSynergyRules(candidate.itemId, new Set(partnerNames.keys()));
+    const lift = ctx.pairLift;
+    const rules = findSynergyRules(candidate.itemId, new Set(partnerNames.keys())).filter(
+      (rule) => measuredPair(lift, rule.itemIds[0], rule.itemIds[1]) === null,
+    );
     if (rules.length === 0) return null;
 
     if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
@@ -709,12 +766,76 @@ export const synergyTerm: MarginalTermFn = {
   },
 };
 
+/**
+ * Measured pair lift (Milestone F): how much better (or worse) players of THIS
+ * hero did when they owned a candidate together with one of its partners
+ * (owned items and basket picks), beyond what the two items predict on their
+ * own. Read via `measuredPair` from this hero's slice of the committed table
+ * (src/scripts/fitPairTable.ts): significant pairs, plus precisely measured
+ * hand-rule pairs, which is how an overridden SYNERGY_RULES pair still gets
+ * its measured value and a reason.
+ *
+ * Guards, matching the other adjustment terms:
+ *  - inert without `ctx.pairLift`, and a pair absent from the table counts as
+ *    NO SIGNAL, never as zero;
+ *  - relevance-gated: never a reason to buy an item that covers no need;
+ *  - bounded: the partners' lifts are summed, then saturate at
+ *    PAIR_LIFT_SATURATION, so value is in +/- PAIR_LIFT_MAX_FRACTION of a slot;
+ *  - the reason states what was measured and its scope, and never calls it
+ *    synergy: the data shows correlation within wealth bands, not mechanism.
+ *
+ * Supermodular like synergyTerm (only the second item of a pair is credited),
+ * with the same caveat on the greedy bound.
+ */
+export const pairTerm: MarginalTermFn = {
+  termId: "pair-lift",
+
+  evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
+    const lift = ctx.pairLift;
+    if (!lift) return null;
+
+    const partners = pairPartners(state, ctx);
+    const hits: Array<{ name: string; entry: PairLiftEntry }> = [];
+    // Code-unit order: deterministic sum and reason, whatever the Map order.
+    for (const id of [...partners.keys()].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))) {
+      const entry = measuredPair(lift, candidate.itemId, id);
+      if (entry && Number.isFinite(entry.lift)) {
+        hits.push({ name: partners.get(id) ?? id, entry });
+      }
+    }
+    if (hits.length === 0) return null;
+
+    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+
+    const scale = coverageScalePerSlot(ctx);
+    if (scale <= 0) return null;
+
+    let sum = 0;
+    for (const h of hits) sum += h.entry.lift;
+    const signal = Math.max(-1, Math.min(1, sum / PAIR_LIFT_SATURATION));
+    const value = signal * PAIR_LIFT_MAX_FRACTION * scale;
+    if (!Number.isFinite(value) || value === 0) return null;
+
+    const points = Math.abs(sum) * LOG_ODDS_TO_POINTS_AT_EVEN;
+    const sign = value >= 0 ? "+" : "";
+    return {
+      termId: "pair-lift",
+      value,
+      reason:
+        `${sign}${value.toFixed(2)}: players on this hero who also built ${hits.map((h) => h.name).join(", ")} ` +
+        `won roughly ${points.toFixed(1)} points ${sum >= 0 ? "more" : "less"} often than the items predict ` +
+        `separately (${lift.scope}; measured, not proof the items combine)`,
+    };
+  },
+};
+
 export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
   coverageTerm,
   categoryBonusTerm,
   procPlatformTerm,
   hitReliabilityTerm,
   synergyTerm,
+  pairTerm,
   analyticsTerm,
 ];
 

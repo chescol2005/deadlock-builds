@@ -50,6 +50,7 @@ import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
 import { resolveAccuracyAtRank } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
 import { constructBasket, makeBasketContext } from "@/lib/engine/basketSelect";
+import type { HeroPairLift } from "@/lib/engine/pairLift";
 import {
   deriveHeroNeedVector,
   deriveHitReliabilityFactor,
@@ -89,6 +90,7 @@ export default function BuildClient({
   itemAnalytics,
   heroAccuracy,
   rankTiers = [],
+  pairLift = null,
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
@@ -110,6 +112,9 @@ export default function BuildClient({
   heroAccuracy?: ReadonlyMap<number, HeroAccuracy>;
   /** Rank tiers (0 Obscurus … 11 Eternus), fetched from /v1/assets/ranks. */
   rankTiers?: RankTierRaw[];
+  /** This hero's slice of the measured pair-lift table (Milestone F), sliced
+   * server-side. null => the basket's pairTerm is inert. */
+  pairLift?: HeroPairLift | null;
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
@@ -469,8 +474,12 @@ export default function BuildClient({
         roster: heroRoster,
         gunAccuracyByHeroId,
       }),
-      // Lets synergyTerm credit a pair whose other half the player already owns.
+      // Lets synergyTerm and pairTerm credit a pair whose other half the
+      // player already owns.
       ownedItemNames: new Map(buildItems.map((i) => [i.id, i.name])),
+      // Measured pair lift for this hero; also lets a precise measurement
+      // override a hand-authored synergy rule ("measured wins").
+      pairLift: pairLift ?? undefined,
     });
 
     return constructBasket(candidates, ctx);
@@ -486,6 +495,7 @@ export default function BuildClient({
     selectedRankTier,
     totalSpiritPower,
     manualBoonLevel,
+    pairLift,
   ]);
 
   const ultimateUnlocked = manualBoonLevel >= 7;
