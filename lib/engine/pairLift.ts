@@ -330,7 +330,7 @@ export interface PairLiftEntry {
 }
 
 export interface PairLiftTable {
-  version: 2;
+  version: 3;
   /** YYYY-MM-DD the fitter ran. */
   generated: string;
   window: { from: string; to: string };
@@ -361,6 +361,14 @@ export interface PairLiftTable {
    * whatever their se). Heroes with none are absent.
    */
   rulePairs: Record<string, Record<string, PairLiftEntry>>;
+  /**
+   * AUDIT ONLY: never read by the engine (heroPairLift does not expose it).
+   * heroId -> pairLiftKey -> entry for EVERY hand-authored pair, synergy and
+   * anti-synergy, that was fitted for that hero, whatever its z or se, so the
+   * synergy audit report can show "measured ~0" vs "no data". Absent = the pair
+   * was not fitted (too few co-owning matches, a component chain, or thin bands).
+   */
+  handPairs: Record<string, Record<string, PairLiftEntry>>;
 }
 
 /** Unordered key over Item.id (class_name), `lo|hi`. */
