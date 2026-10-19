@@ -1,5 +1,6 @@
 import type { ItemAnalytics } from "../analyticsStore";
 import type { ItemCategory } from "../items";
+import type { HeroPairLift } from "./pairLift";
 
 export const INTENT_KEYS = ["burst", "sustain", "tank", "mobility", "utility"] as const;
 
@@ -183,6 +184,14 @@ export interface BasketContext {
    * Aura and being offered Mystic Shot. Omitted => only basket picks count.
    */
   ownedItemNames?: ReadonlyMap<string, string>;
+  /**
+   * This hero's slice of the measured pair-lift table (Milestone F), from
+   * `heroPairLift` in pairLift.ts. ALWAYS passed in: the committed table is
+   * loaded server-side and sliced per hero, never read inside the engine.
+   * Omitted => pairTerm is inert and synergyTerm's hand rules are never
+   * overridden.
+   */
+  pairLift?: HeroPairLift;
 }
 
 /**

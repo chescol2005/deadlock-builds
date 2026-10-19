@@ -166,7 +166,7 @@ each item with the existing term that shows it:
 - [ ] **Bounded** as a fraction of one slot: `value = ... * X_MAX_FRACTION *
 coverageScalePerSlot(ctx)` with a named `*_MAX_FRACTION` constant whose
       doc comment places it relative to the others (category bonus 0.15,
-      synergy 0.10, proc-platform 0.10, analytics 0.06). See `analyticsTerm`.
+      synergy 0.10, proc-platform 0.10, pair-lift 0.08, analytics 0.06). See `analyticsTerm`.
 - [ ] **Relevance-gated:** `if (computeCoverageGain(...).total <= 0) return null`
       so a bonus can never make a useless item worth buying. See `synergyTerm`.
 - [ ] **Inert when its input is absent:** the input is an optional

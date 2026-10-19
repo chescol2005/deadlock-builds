@@ -8,7 +8,8 @@
 //   src/scripts/fitPairTable.ts (writes data/pairLiftTable.json) and
 //   src/scripts/pairProbe.ts. Inputs are pre-fetched win/match counts; nothing
 //   here touches the network.
-// - The committed TABLE's types and lookup (pairLiftFor), for the basket.
+// - The committed TABLE's types and lookups: heroPairLift (one hero's slice,
+//   built server-side for the basket), pairLiftIn, pairLiftFor.
 //
 // Method, data caveats and measured results: engine-design-notes.md,
 // "Milestone F spike" and "Pair lift table".
@@ -329,7 +330,7 @@ export interface PairLiftEntry {
 }
 
 export interface PairLiftTable {
-  version: 1;
+  version: 2;
   /** YYYY-MM-DD the fitter ran. */
   generated: string;
   window: { from: string; to: string };
@@ -340,11 +341,26 @@ export interface PairLiftTable {
     minAbsZ: number;
     /** Both items must be in at least this many fitted pairs. */
     minItemPairs: number;
+    /** Only matches whose average badge is this rank tier or above; null = all ranks. */
+    minRank: number | null;
+    /** Display name of minRank (e.g. "Oracle"), from /v1/assets/ranks. */
+    minRankName: string | null;
+    /** Length of the window in days. */
+    days: number;
+    /** rulePairs keeps a hand-rule pair's measurement only when se <= this. */
+    ruleMaxSe: number;
   };
   /** heroId -> fit summary, for reviewing a refresh diff. */
   fits: Record<string, { matches: number; pairsFitted: number; kept: number; tau: number }>;
   /** heroId -> pairLiftKey -> entry. Only pairs with |lift| / se >= minAbsZ. */
   heroes: Record<string, Record<string, PairLiftEntry>>;
+  /**
+   * heroId -> pairLiftKey -> entry for SYNERGY_RULES pairs that override the
+   * hand rule: measured precisely enough (se <= ruleMaxSe) WHATEVER their z (a
+   * precise "about 0" is a real finding), or significant (also in heroes,
+   * whatever their se). Heroes with none are absent.
+   */
+  rulePairs: Record<string, Record<string, PairLiftEntry>>;
 }
 
 /** Unordered key over Item.id (class_name), `lo|hi`. */
@@ -353,16 +369,50 @@ export function pairLiftKey(idA: string, idB: string): string {
 }
 
 /**
- * Measured lift for a pair on a hero, in either order. null means NO DATA
+ * Lift for a pair in one hero's entry map, in either order. null means NO DATA
  * (pair not measured, under the thresholds, or an item with itself), which is
  * not the same as a measured zero.
  */
+export function pairLiftIn(
+  entries: Readonly<Record<string, PairLiftEntry>> | undefined,
+  idA: string,
+  idB: string,
+): PairLiftEntry | null {
+  if (idA === idB || !entries) return null;
+  return entries[pairLiftKey(idA, idB)] ?? null;
+}
+
+/** pairLiftIn over a whole table's significant pairs for one hero. */
 export function pairLiftFor(
   table: PairLiftTable,
   heroId: number | string,
   idA: string,
   idB: string,
 ): PairLiftEntry | null {
-  if (idA === idB) return null;
-  return table.heroes[String(heroId)]?.[pairLiftKey(idA, idB)] ?? null;
+  return pairLiftIn(table.heroes[String(heroId)], idA, idB);
+}
+
+/**
+ * One hero's slice of the table: what the basket needs, small enough to pass
+ * to a client component (never pass the whole table).
+ */
+export interface HeroPairLift {
+  /** Significant pairs (|lift| / se >= minAbsZ), for pairTerm. */
+  pairs: Readonly<Record<string, PairLiftEntry>>;
+  /** Precisely measured SYNERGY_RULES pairs, for synergyTerm's override. */
+  rulePairs: Readonly<Record<string, PairLiftEntry>>;
+  /** Player-facing scope of the measurement, e.g. "Oracle+ matches, last 90 days". */
+  scope: string;
+}
+
+/** This hero's slice, or null if the table has no fit for the hero at all. */
+export function heroPairLift(table: PairLiftTable, heroId: number | string): HeroPairLift | null {
+  const id = String(heroId);
+  if (!table.fits[id]) return null;
+  const rank = table.method.minRankName ? `${table.method.minRankName}+ matches` : "matches";
+  return {
+    pairs: table.heroes[id] ?? {},
+    rulePairs: table.rulePairs[id] ?? {},
+    scope: `${rank}, last ${table.method.days} days`,
+  };
 }

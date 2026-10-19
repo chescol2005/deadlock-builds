@@ -39,6 +39,9 @@ import {
   deriveProcPlatformFactor,
 } from "@/lib/engine/heroNeed";
 import { toItemCandidates } from "@/lib/engine/itemAdapter";
+import { heroPairLift } from "@/lib/engine/pairLift";
+import type { PairLiftTable } from "@/lib/engine/pairLift";
+import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import type { BasketState, ItemCandidate, MarginalTerm, ScoreCategory } from "@/lib/engine/types";
 
@@ -52,6 +55,8 @@ Options:
   --rank T        rank tier 0-11 for accuracy (default: pooled across ranks)
   --item x        also report this item's first-pick rank and terms (repeatable)
   --top N         rows of the first-pick ranking to print (default 15)
+  --no-pair-lift  omit the measured pair table (pairTerm inert, hand synergy rules
+                  never overridden): the pre-Milestone-F-PR-3 basket, for before/after
 `;
 
 interface ProbeArgs {
@@ -61,6 +66,7 @@ interface ProbeArgs {
   rank: number | null;
   items: string[];
   top: number;
+  pairLift: boolean;
 }
 
 function fail(message: string): never {
@@ -77,7 +83,15 @@ function parseIntArg(flag: string, raw: string | undefined, min: number, max: nu
 }
 
 function parseArgs(argv: string[]): ProbeArgs {
-  const out: ProbeArgs = { hero: "", owned: [], boon: 15, rank: null, items: [], top: 15 };
+  const out: ProbeArgs = {
+    hero: "",
+    owned: [],
+    boon: 15,
+    rank: null,
+    items: [],
+    top: 15,
+    pairLift: true,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--help" || a === "-h") {
@@ -98,6 +112,8 @@ function parseArgs(argv: string[]): ProbeArgs {
       const v = argv[++i];
       if (!v) fail("--item needs a value");
       out.items.push(v);
+    } else if (a === "--no-pair-lift") {
+      out.pairLift = false;
     } else if (a === "--top") {
       out.top = parseIntArg(a, argv[++i], 1, 500);
     } else if (a.startsWith("--")) {
@@ -215,6 +231,10 @@ async function main(): Promise<void> {
     procPlatformFactor,
     hitReliabilityFactor,
     ownedItemNames: new Map(buildItems.map((i) => [i.id, i.name])),
+    // Sliced like app/build/[heroId]/page.tsx does on the server.
+    pairLift: args.pairLift
+      ? (heroPairLift(pairLiftTableJson as unknown as PairLiftTable, hero.id) ?? undefined)
+      : undefined,
   });
 
   const basket = constructBasket(candidates, ctx);
