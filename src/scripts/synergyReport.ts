@@ -31,7 +31,7 @@ const CLIENT_SCRIPT = path.join(process.cwd(), "src", "scripts", "synergyReport.
  * data-verifier agent against deadlock.wiki and the live item API. Update the
  * date and entries whenever a rule or its reason changes.
  */
-const RULE_REVIEW_DATE = "2026-10-18";
+const RULE_REVIEW_DATE = "2026-10-19";
 type ReviewVerdict = "sound" | "partly-wrong" | "wrong" | "opinion";
 const RULE_REVIEW: Record<string, { verdict: ReviewVerdict; note: string }> = {
   [pairLiftKey("upgrade_dps_aura", "upgrade_crackshot")]: {
@@ -44,27 +44,23 @@ const RULE_REVIEW: Record<string, { verdict: ReviewVerdict; note: string }> = {
   },
   [pairLiftKey("upgrade_aoe_root", "upgrade_thermal_detonator")]: {
     verdict: "sound",
-    note: "Vortex Web pulls enemies into a small area (4s); Alchemical Fire burns a 10m area for 5s.",
+    note: "Vortex Web pulls enemies into a small area; Alchemical Fire burns an area for longer than the pull lasts.",
   },
   [pairLiftKey("upgrade_damage_recycler", "upgrade_surging_power")]: {
-    verdict: "partly-wrong",
-    note: "Lifesteal stacks multiplicatively (deadlock.wiki/Lifesteal): 28% and 13% give 37.4% instead of 41%, a small loss, not 'far below the sum'.",
+    verdict: "sound",
+    note: "Reworded 2026-10-19. Lifesteal stacks multiplicatively (deadlock.wiki/Lifesteal), a small loss; it no longer claims 'far below the sum'.",
   },
   [pairLiftKey("upgrade_critshot", "upgrade_glass_cannon")]: {
     verdict: "opinion",
-    note: "No mechanical conflict. Budget opinion only, and the combined cost is 12,800 souls, not 12,400.",
+    note: "Reworded 2026-10-19 as budget advice with no mechanical claim; the wrong soul total was removed.",
   },
   [pairLiftKey("upgrade_cold_front", "upgrade_containment")]: {
-    verdict: "partly-wrong",
-    note: "Slows stack multiplicatively with a 2 m/s speed floor (deadlock.wiki/Slow). There is no DR cap.",
+    verdict: "sound",
+    note: "Reworded 2026-10-19. Slows stack multiplicatively with a movement-speed floor (deadlock.wiki/Slow); the 'DR cap' claim was removed.",
   },
   [pairLiftKey("upgrade_cloaking_device_active", "upgrade_self_bubble")]: {
     verdict: "opinion",
-    note: "Role-overlap opinion. Shadow Weave is mainly an ambush tool (fire rate, spirit, melee), not an escape.",
-  },
-  [pairLiftKey("upgrade_rapid_recharge", "upgrade_extra_charge")]: {
-    verdict: "wrong",
-    note: "Extra Charge is Rapid Recharge's own component, and the charge bonuses add up with no documented cap. This warns on the normal upgrade path.",
+    note: "Reworded 2026-10-19 as role advice; Shadow Weave is now described as stealth and ambush, not an escape.",
   },
 };
 

@@ -5,7 +5,10 @@
 // confirmed play knowledge, not inference from data. Pairs are unordered.
 //
 // Deliberately NOT added:
-// - Tesla Bullets: a known OPTIONAL third piece of the Ricochet/Toxic build.
+// - Tesla Bullets with Ricochet: deadlock.wiki/Ricochet lists Tesla Bullets as
+//   an exclusion (Ricochet does not spread it), so it is no third piece of the
+//   Ricochet/Toxic pair. (Corrected 2026-10-19; it was described as an optional
+//   third piece.)
 // - Ricochet + Mystic Shot: Mystic Shot is not affected by Ricochet.
 
 export interface SynergyRule {
