@@ -17,6 +17,8 @@ import {
   soulsPerMinEfficiency,
 } from "@/lib/farming/campData";
 import { normalizeItem } from "@/lib/itemNormalizer";
+import { ANTI_SYNERGY_RULES, detectAntiSynergies } from "@/lib/scoring/antiSynergy";
+import { componentClosure } from "@/lib/engine/pairLift";
 import type { UpgradeV2Raw } from "@/lib/api/deadlockApi";
 import { CATEGORY_BONUS_TIERS } from "@/lib/categoryBonuses";
 import { LANE_STRUCTURES, LANE_MINIMAP_MARKERS, LANES } from "@/lib/lanes/laneData";
@@ -785,6 +787,59 @@ async function run() {
   assert(
     CATEGORY_BONUS_TIERS.some((t) => t.isSignificant),
     "CATEGORY_BONUS_TIERS has at least one significant-bonus tier",
+  );
+
+  // -----------------------------------------------
+  // Fixture: anti-synergy rules (reviewed 2026-10-19)
+  // -----------------------------------------------
+  console.log("\nAnti-synergy rules");
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  const componentsOf = (id: string) => itemById.get(id)?.componentItems;
+  const badRuleItems = ANTI_SYNERGY_RULES.filter(
+    (r) =>
+      r.itemIds[0] === r.itemIds[1] || !itemById.has(r.itemIds[0]) || !itemById.has(r.itemIds[1]),
+  );
+  assert(
+    badRuleItems.length === 0,
+    "Every ANTI_SYNERGY_RULES entry names two distinct live items",
+    badRuleItems.map((r) => r.itemIds.join("+")).join(", "),
+  );
+  const chainRules = ANTI_SYNERGY_RULES.filter(
+    (r) =>
+      componentClosure(r.itemIds[0], componentsOf).has(r.itemIds[1]) ||
+      componentClosure(r.itemIds[1], componentsOf).has(r.itemIds[0]),
+  );
+  assert(
+    chainRules.length === 0,
+    "No anti-synergy rule pairs an item with its own component (that is the normal upgrade path)",
+    chainRules.map((r) => r.itemIds.join("+")).join(", "),
+  );
+  const staleNumbers = ANTI_SYNERGY_RULES.filter((r) => /\d[\d,. ]*\s*(souls|%)/i.test(r.reason));
+  assert(
+    staleNumbers.length === 0,
+    "No anti-synergy reason hardcodes a soul cost or percentage (they go stale on patches)",
+    staleNumbers.map((r) => r.itemIds.join("+")).join(", "),
+  );
+  assert(
+    detectAntiSynergies([]).length === 0,
+    "detectAntiSynergies: empty build gives no warnings",
+  );
+  const firstRule = ANTI_SYNERGY_RULES[0];
+  const pairItems = firstRule.itemIds.map((id) => itemById.get(id)).filter((i) => i !== undefined);
+  const pairWarnings = detectAntiSynergies(pairItems);
+  assert(
+    pairWarnings.length === 1 &&
+      pairWarnings[0].itemIds.join("+") === firstRule.itemIds.join("+") &&
+      pairWarnings[0].reason === firstRule.reason,
+    "detectAntiSynergies: a known pair gives exactly its rule's warning",
+    `Got ${pairWarnings.length} warnings`,
+  );
+  const upgradePath = ["upgrade_extra_charge", "upgrade_rapid_recharge"]
+    .map((id) => itemById.get(id))
+    .filter((i) => i !== undefined);
+  assert(
+    upgradePath.length === 2 && detectAntiSynergies(upgradePath).length === 0,
+    "detectAntiSynergies: Extra Charge + Rapid Recharge (component and upgrade) is not a conflict",
   );
 
   // -----------------------------------------------
