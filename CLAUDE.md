@@ -228,7 +228,9 @@ Actual tree root is `lib/` and `app/` (no `src/` prefix), except `src/scripts/`:
 the fixture runner `mini.ts`, `basketProbe.ts` (live basket check),
 `pairProbe.ts` (measured item-pair interaction for one hero, Milestone F),
 `fitPairTable.ts` (writes the committed pair-lift table), their shared loader
-`pairData.ts`, and `syncBoonData.ts`.
+`pairData.ts`, `synergyReport.ts` (+ `synergyReport.client.js`; writes the
+gitignored `reports/synergy-audit.html`, published as a private artifact), and
+`syncBoonData.ts`.
 
 ```
 lib/items.ts                  — Item, ItemAssignment, ItemPhase, BuildCategory types
@@ -403,8 +405,10 @@ checklist enforced by convention, not by a bot:
   work cadence.
 - **On the same monthly cadence, and after any major item patch,** refresh
   the measured pair table with `npm run fit-pairs`. Review the `fits` block in
-  the diff (matches, pairs kept and tau per hero) before committing. See
-  "Pair lift table" in engine-design-notes.md.
+  the diff (matches, pairs kept and tau per hero) before committing. Then run
+  `npm run synergy-report` and republish the private "Deadlock Synergy Audit"
+  artifact to its existing link (never commit the HTML). See "Pair lift
+  table" and "Synergy audit report" in engine-design-notes.md.
 - When `data-verifier` confirms a value changed, cite the source
   (deadlock.wiki page + date, or the exact API endpoint) directly in the
   code comment next to the changed constant — see `lib/boonSystem.ts`'s
@@ -472,23 +476,23 @@ the basket's soul budget is `boonSouls − cost of owned items`.
 
 ## Milestone History
 
-| Milestone | Status    | What it built                                                                                                                        |
-| --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                    |
-| M2        | ✅ Closed | Build Planner UI                                                                                                                     |
-| M3        | ✅ Closed | URL persistence + share links                                                                                                        |
-| M4        | ✅ Closed | Real item data + scoring engine                                                                                                      |
-| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                             |
-| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                               |
-| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                |
-| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, `lib/engine/` reconciliation, fetch-waterfall parallelization                                 |
-| B         | ✅ Closed | State/component health: derived `assignmentMap`, `lib/buildUtils.ts`, `CategoryManager` split into 8 files                           |
-| C         | ✅ Closed | New player UX: shared Tooltip/AudienceTabs, simplified/advanced toggle, difficulty/archetype tags, Fixture 9                         |
-| D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                           |
-| E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` (additive to `SuggestedItemsPanel`) — see engine-design-notes.md |
-| F         | 🚧 Active | Measured item-pair term (`pairTerm`, Oracle+ 90-day table) live in the basket; synergy audit view next — see engine-design-notes.md  |
-| G         | ⏸ Queued  | Need-vector enrichment (stretch) — full scope in engine-design-notes.md                                                              |
-| M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                         |
+| Milestone | Status    | What it built                                                                                                                                       |
+| --------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                   |
+| M2        | ✅ Closed | Build Planner UI                                                                                                                                    |
+| M3        | ✅ Closed | URL persistence + share links                                                                                                                       |
+| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                     |
+| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                            |
+| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                              |
+| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                               |
+| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, `lib/engine/` reconciliation, fetch-waterfall parallelization                                                |
+| B         | ✅ Closed | State/component health: derived `assignmentMap`, `lib/buildUtils.ts`, `CategoryManager` split into 8 files                                          |
+| C         | ✅ Closed | New player UX: shared Tooltip/AudienceTabs, simplified/advanced toggle, difficulty/archetype tags, Fixture 9                                        |
+| D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                                          |
+| E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` (additive to `SuggestedItemsPanel`) — see engine-design-notes.md                |
+| F         | 🚧 Active | Measured item-pair term (`pairTerm`, Oracle+ 90-day table) live in the basket; synergy audit report (private artifact) — see engine-design-notes.md |
+| G         | ⏸ Queued  | Need-vector enrichment (stretch) — full scope in engine-design-notes.md                                                                             |
+| M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                                        |
 
 ---
 
@@ -522,7 +526,8 @@ Item values are NOT flat (published scaling coefficients) · A "proc" is not
 always per-bullet · Non-substitutable categories (shred, anti-heal) · Positive
 synergy (hand-authored pair table) · Milestone F spike (measured pair
 interaction) · Pair lift table · Pair term in the basket (pairTerm, Oracle+,
-measured wins over hand rules).
+measured wins over hand rules) · Synergy audit report (handPairs, rule-reason
+review).
 
 The five rules that bite most often (details in the notes):
 

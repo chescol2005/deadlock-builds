@@ -24,6 +24,7 @@ import { getItems } from "@/lib/itemStore";
 import { fetchRankTiers } from "@/lib/api/analyticsApi";
 import { fitHeroPairs, pairLiftKey } from "@/lib/engine/pairLift";
 import { SYNERGY_RULES } from "@/lib/engine/synergy";
+import { ANTI_SYNERGY_RULES } from "@/lib/scoring/antiSynergy";
 import type { FitItem, PairLiftEntry, PairLiftTable } from "@/lib/engine/pairLift";
 import { DEFAULT_NET_WORTH_BANDS, buildStrata, loadStratum } from "./pairData";
 import type { LoadedStratum } from "./pairData";
@@ -153,7 +154,8 @@ function serialize(table: PairLiftTable): string {
   });
   lines.push("  },");
   section("heroes", table.heroes, false);
-  section("rulePairs", table.rulePairs, true);
+  section("rulePairs", table.rulePairs, false);
+  section("handPairs", table.handPairs, true);
   lines.push("}");
   return lines.join("\n") + "\n";
 }
@@ -199,7 +201,7 @@ async function main(): Promise<void> {
   );
 
   const table: PairLiftTable = {
-    version: 2,
+    version: 3,
     generated: new Date().toISOString().slice(0, 10),
     window: { from: strata.from, to: strata.to },
     method: {
@@ -216,7 +218,11 @@ async function main(): Promise<void> {
     fits: {},
     heroes: {},
     rulePairs: {},
+    handPairs: {},
   };
+  const handKeys = new Set(
+    [...SYNERGY_RULES, ...ANTI_SYNERGY_RULES].map((r) => pairLiftKey(r.itemIds[0], r.itemIds[1])),
+  );
   const ruleKeys = new Set(SYNERGY_RULES.map((r) => pairLiftKey(r.itemIds[0], r.itemIds[1])));
 
   let totalKept = 0;
@@ -262,6 +268,15 @@ async function main(): Promise<void> {
       rules[key] = { lift: round3(p.pairOnly), se, n: p.raw.pairMatches };
     }
     if (Object.keys(rules).length > 0) table.rulePairs[String(heroId)] = rules;
+
+    // Audit only (synergy report): every fitted hand pair, any z or se.
+    const hand: Record<string, PairLiftEntry> = {};
+    for (const p of fit.pairs) {
+      const key = pairLiftKey(p.a, p.b);
+      if (!handKeys.has(key)) continue;
+      hand[key] = { lift: round3(p.pairOnly), se: round3(p.banded.se), n: p.raw.pairMatches };
+    }
+    if (Object.keys(hand).length > 0) table.handPairs[String(heroId)] = hand;
 
     const kept = Object.keys(entries).length;
     totalKept += kept;

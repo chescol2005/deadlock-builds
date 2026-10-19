@@ -5,14 +5,17 @@ export type AntiSynergyWarning = {
   reason: string;
 };
 
-type AntiSynergyRule = {
+export type AntiSynergyRule = {
   itemIds: [string, string];
   reason: string;
 };
 
 // Explicit anti-synergy rules based on real Deadlock item interactions.
 // Each rule encodes a specific diminishing-returns or conflicting-use-case interaction.
-const ANTI_SYNERGY_RULES: ReadonlyArray<AntiSynergyRule> = [
+// Exported read-only for the offline synergy audit report and the pair-table
+// fitter's audit-only handPairs; detectAntiSynergies is still the only consumer
+// in the app.
+export const ANTI_SYNERGY_RULES: ReadonlyArray<AntiSynergyRule> = [
   {
     itemIds: ["upgrade_damage_recycler", "upgrade_surging_power"],
     reason:
