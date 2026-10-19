@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "deadlock": {
+      "type": "http",
+      "url": "https://api.deadlock-api.com/v1/mcp"
+    }
+  }
+}
