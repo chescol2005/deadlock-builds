@@ -270,7 +270,10 @@ manual review, not a fixture guarantee.
 ## Key Files Reference
 
 Actual tree root is `lib/` and `app/` (no `src/` prefix), except `src/scripts/`:
-the fixture runner `mini.ts`, `basketProbe.ts` (live basket check),
+the fixture runner `mini.ts` (+ `starterBuildFixtures.ts`, Fixture 13: live
+starter-build fixtures from `docs/starter-build-use-cases.md`), `basketProbe.ts`
+(live basket check), `basketData.ts` (live loader shared by the probe and
+Fixture 13, mirroring `app/build/[heroId]/page.tsx`),
 `pairProbe.ts` (measured item-pair interaction for one hero, Milestone F),
 `fitPairTable.ts` (writes the committed pair-lift table), their shared loader
 `pairData.ts`, `synergyReport.ts` (+ `synergyReport.client.js`; writes the
@@ -347,6 +350,14 @@ lib/engine/                   — engine scoring surface, parallel to lib/scorin
                                 per-hero measured pair lift (Oracle+, 90 days).
                                 Sliced per hero in page.tsx (heroPairLift) and
                                 read by pairTerm. Prettier-ignored
+  heroBasket.ts               — runHeroBasket(): THE hero-basket pipeline (need
+                                vector → accuracy → candidates → context →
+                                constructBasket). BuildClient, the probe and the
+                                starter build all call it; never re-inline it
+  starterBuild.ts             — buildStarterBuild(): runHeroBasket chained at
+                                STARTER_PHASE_BOON_LEVELS (early/mid/late =
+                                5,900/16,700/30,000 souls), each phase owning
+                                the earlier picks (Work 2; v0, no UI yet)
 lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cached,
                                 fail-open match-analytics (win rate, matches) from
                                 /v1/analytics/*; ItemAnalytics.itemId joins to
@@ -523,11 +534,14 @@ app/build/BuildClient.tsx  (client — owns ALL build state, derives via useMemo
   ├─ itemStatTotals / totalSpiritPower / boonSouls ← buildItems + boon slider
   ├─ SuggestedItemsPanel  → scoreItems(allItems, goal, build)
   │                         lib/scoring: independent per-item rank vs a goal
-  └─ heroBasket useMemo   → lib/engine: deriveHeroNeedVector + proc/hit
-                            factors → toItemCandidates(unowned items) →
+  └─ heroBasket useMemo   → lib/engine/heroBasket.ts runHeroBasket():
+                            deriveHeroNeedVector + proc/hit factors →
+                            toItemCandidates(unowned items) →
                             makeBasketContext(+ pairLift slice) →
                             constructBasket()
                             → HeroBasketSuggestion (presentational only)
+                            (starterBuild.ts chains the same function at
+                            fixed checkpoints; not wired into the UI yet)
 ```
 
 The two suggestion paths are independent and must stay so: neither reads the
@@ -613,7 +627,8 @@ always per-bullet · Non-substitutable categories (shred, anti-heal) · Positive
 synergy (hand-authored pair table) · Milestone F spike (measured pair
 interaction) · Pair lift table · Pair term in the basket (pairTerm, Oracle+,
 measured wins over hand rules) · Synergy audit report (handPairs, rule-reason
-review).
+review) · One basket pipeline, and the starter build (runHeroBasket,
+buildStarterBuild, Work 2).
 
 The five rules that bite most often (details in the notes):
 
