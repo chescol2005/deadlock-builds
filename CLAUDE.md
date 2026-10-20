@@ -62,6 +62,39 @@ Paste `mini.ts` fixture output in every PR body before merge.
 
 ---
 
+## Testing Expectations
+
+Agreed 2026-10-20, before the post-F roadmap work. The goal: future logic
+changes have to meet written expectations, not just compile.
+
+- **No new test framework.** Fixtures stay in the two existing harnesses:
+  `src/scripts/mini.ts` (app, live API data) and
+  `lib/engine/__fixtures__/mini.ts` (engine, synthetic inputs). `npm run mini`
+  runs both, and CI requires both to pass.
+- **Every work item ships with fixtures sized to it.** UI/shell work gets a few
+  integrity fixtures, e.g. every nav link resolves to a real `app/**/page.tsx`,
+  every guide is linked, and new panels join Fixture 9's checklist lists. Logic
+  work gets behavioural fixtures.
+- **Known gap: real-hero basket behaviour.** Engine fixtures prove each term on
+  made-up items. Nothing yet asserts that _real_ heroes get sensible baskets;
+  that is only eyeballed with `npm run probe`. Close it as follows.
+- **Suggested starter build (competitive-analysis rec. 6): use cases first.**
+  Before any engine code, write the use cases / acceptance criteria and get the
+  user's sign-off. Then encode them as live-data basket fixtures, per hero
+  archetype at early / mid / late soul checkpoints:
+  - stays within the soul budget;
+  - never pairs an item with its own component;
+  - every pick has a reason;
+  - same input gives the same basket;
+  - spirit heroes lean spirit, gun heroes lean gun;
+  - later phases build on earlier ones rather than replace them.
+- **Item scoring review (gates closing Milestone F):** build on those fixtures
+  with recorded baseline baskets for a fixed set of heroes × soul levels. Any
+  scoring change then shows up as a deliberate, reviewed diff, not silent drift.
+  Assert invariants by default; snapshot exact baskets only where intended.
+
+---
+
 ## Production API — Verified Function Signatures
 
 Verified by mini.ts. Do not guess — use these exactly.
@@ -529,8 +562,9 @@ suggestion paths: `lib/scoring/` (`scoreItems`, goal weights, anti-synergy) and
 `lib/engine/` (basket terms incl. `pairTerm`, need vector, item adapter). Check
 live baskets with `npm run probe` across heroes and boon levels. Also run the
 `scoring-auditor` and `data-verifier` agents, and refresh the pair table + synergy
-audit report first if the data is over a month old. When the review is
-done, update the F row above and delete this reminder.
+audit report first if the data is over a month old. Use the baseline
+baskets and live basket fixtures described in "Testing Expectations". When
+the review is done, update the F row above and delete this reminder.
 
 ---
 
