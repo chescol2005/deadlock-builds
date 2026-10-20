@@ -151,6 +151,10 @@ export function BuildSummaryPanel({
   const hasItems = displayItems.length > 0;
 
   const antiSynergies = useMemo(() => detectAntiSynergies(allBuildItems), [allBuildItems]);
+  const itemNames = useMemo(
+    () => new Map(allBuildItems.map((i) => [i.id, i.name])),
+    [allBuildItems],
+  );
 
   const bonusRows: {
     key: CategoryKey;
@@ -319,15 +323,24 @@ export function BuildSummaryPanel({
         <section>
           <div
             style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "#f97316",
-              textTransform: "uppercase",
-              letterSpacing: 0.8,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
               marginBottom: 10,
             }}
           >
-            Conflicts Detected
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "#f97316",
+                textTransform: "uppercase",
+                letterSpacing: 0.8,
+              }}
+            >
+              Worth Checking
+            </span>
+            <InfoTooltip content="Item pairs whose effects overlap or that pull your budget in one direction. They're notes, not mistakes: in high-rank match data none of these pairs measurably lowers win rate. Keep both if they suit your plan." />
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -345,7 +358,8 @@ export function BuildSummaryPanel({
                 }}
               >
                 <span style={{ fontWeight: 700 }}>
-                  {itemIds[0]} + {itemIds[1]}:
+                  {itemNames.get(itemIds[0]) ?? itemIds[0]} +{" "}
+                  {itemNames.get(itemIds[1]) ?? itemIds[1]}:
                 </span>{" "}
                 {reason}
               </div>
