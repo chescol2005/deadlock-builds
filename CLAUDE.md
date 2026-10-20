@@ -98,6 +98,18 @@ The old `https://assets.deadlock-api.com/v2/...` host is **gone**. It used to
 reference to it is dead and should be rewritten to the host above. Match
 analytics live on the same host, under `/v1/analytics/*`.
 
+### Deadlock MCP server (dev-time only)
+
+`.mcp.json` registers `https://api.deadlock-api.com/v1/mcp` as the `deadlock`
+MCP server; each collaborator approves it on first load. It gives Claude Code
+sessions read-only DuckDB SQL over hourly snapshots of the API database
+(`mcp__deadlock__execute_query`, `list_heroes`, `list_items`, `list_patches`,
+...). Use it for ad-hoc checks and `data-verifier` cross-checks, e.g. scoping a
+question to a patch with `list_patches`. Never call it from app code or the data
+pipeline: the app reads the REST API above. It is rate-limited (30 queries/min,
+400/day), so bulk pulls still go through the REST API or the data dumps.
+Always add a `start_time` range to `match_player` queries, or they scan every file.
+
 ```typescript
 GET / v1 / assets / items; // all items
 GET / v1 / assets / items / by - slot - type / { slot }; // weapon | spirit | vitality
@@ -382,6 +394,13 @@ Project skills live in `.claude/skills/`, sub-agents in `.claude/agents/`.
 | `data-verifier`   | read-only + web   | Cross-check code against live API / wiki, report discrepancies |
 | `scoring-auditor` | read-only         | Audit a scoring/engine diff for architecture-rule compliance   |
 | `panel-builder`   | read + edit/write | Scaffold a new build/guide panel to convention                 |
+
+`data-verifier` can also use the `deadlock` MCP server (see "Data Source") when
+the session has it approved.
+
+**Product strategy:** `docs/competitive-analysis.md` compares the competitor
+sites (feature gaps, prioritized recommendations). Read it before scoping a
+new user-facing milestone.
 
 ---
 
