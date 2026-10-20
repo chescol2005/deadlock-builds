@@ -1,7 +1,8 @@
 # Suggested starter build: use cases and acceptance criteria
 
-**Status:** DRAFT, awaiting sign-off. Do not write engine code for this feature until
-this doc is approved (see "Testing Expectations" in CLAUDE.md).
+**Status:** APPROVED 2026-10-20, with every recommendation in section 7 accepted as
+written. Fixtures (2b) are written from this version; change this doc first if an
+expectation needs to change (see "Testing Expectations" in CLAUDE.md).
 **Drafted:** 2026-10-20 · **Feature:** competitive-analysis.md recommendation 6 ·
 **Work item:** Work 2 (PRs 2a docs → 2b pipeline + fixtures → 2c engine → 2d UI)
 
