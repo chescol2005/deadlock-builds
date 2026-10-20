@@ -2,7 +2,7 @@
 // Run: npm run mini
 // Required to pass before any PR merge
 
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { getItems } from "@/lib/itemStore";
 import type { AbilityUpgradeTier } from "@/lib/abilityCoefficients";
 import { scoreItems } from "@/lib/scoring/scoreItems";
@@ -33,6 +33,7 @@ import {
   canActivateItem,
   MAX_ACTIVE_ITEMS,
 } from "@/lib/buildUtils";
+import { GUIDES, NAV_SECTIONS, isActiveSection } from "@/lib/navigation";
 
 let passed = 0;
 let failed = 0;
@@ -693,6 +694,9 @@ async function run() {
     "app/build/components/SuggestedItemsPanel.tsx",
     "app/build/components/BuildSummaryPanel.tsx",
     "app/build/BuildClient.tsx",
+    // Site nav + homepage.
+    "app/components/SiteNav.tsx",
+    "app/page.tsx",
   ];
 
   for (const relPath of TOOLTIP_ADOPTERS) {
@@ -787,6 +791,74 @@ async function run() {
   assert(
     CATEGORY_BONUS_TIERS.some((t) => t.isSignificant),
     "CATEGORY_BONUS_TIERS has at least one significant-bonus tier",
+  );
+
+  // -----------------------------------------------
+  // Fixture 12: Site navigation
+  // -----------------------------------------------
+  // The /guide/* pages shipped with no link to them anywhere. lib/navigation.ts
+  // is now the single list of sections and guides; these checks keep it in
+  // step with the app/ route tree so a new guide can't go unlinked again.
+  console.log("\n12. Site navigation (lib/navigation.ts)");
+
+  const routeExists = (href: string) =>
+    existsSync(href === "/" ? "app/page.tsx" : `app${href}/page.tsx`);
+  const allNavLinks = [...NAV_SECTIONS, ...GUIDES];
+
+  const deadLinks = allNavLinks.filter((l) => !routeExists(l.href));
+  assert(
+    deadLinks.length === 0,
+    "Every NAV_SECTIONS / GUIDES href resolves to an app/**/page.tsx",
+    deadLinks.map((l) => l.href).join(", "),
+  );
+  assert(
+    new Set(allNavLinks.map((l) => l.href)).size === allNavLinks.length &&
+      new Set(GUIDES.map((g) => g.label)).size === GUIDES.length,
+    "Nav hrefs and guide labels are unique",
+  );
+  assert(
+    readFileSync("app/components/HomeHeroPicker.tsx", "utf-8").includes("href={`/build/${") &&
+      existsSync("app/build/[heroId]/page.tsx"),
+    "Homepage hero tiles link to /build/[heroId], and that route exists",
+  );
+  assert(
+    allNavLinks.every((l) => l.label.trim().length > 0 && l.description.trim().length > 0),
+    "Every nav entry has a label and a plain-English description",
+  );
+
+  const guideRoutes = readdirSync("app/guide", { withFileTypes: true })
+    .filter((d) => d.isDirectory() && existsSync(`app/guide/${d.name}/page.tsx`))
+    .map((d) => `/guide/${d.name}`);
+  const guideHrefs = new Set(GUIDES.map((g) => g.href));
+  const unlinkedGuides = guideRoutes.filter((r) => !guideHrefs.has(r));
+  assert(
+    guideRoutes.length > 0 && unlinkedGuides.length === 0,
+    `Every guide page under app/guide/ is listed in GUIDES (${guideRoutes.length} found)`,
+    unlinkedGuides.join(", "),
+  );
+  assert(
+    NAV_SECTIONS.some((s) => s.href === "/guide"),
+    "NAV_SECTIONS links the /guide index",
+  );
+
+  assert(
+    readFileSync("app/layout.tsx", "utf-8").includes("<SiteNav"),
+    "app/layout.tsx mounts SiteNav on every page",
+  );
+  const NAV_CONSUMERS = ["app/components/SiteNav.tsx", "app/guide/page.tsx", "app/page.tsx"];
+  for (const relPath of NAV_CONSUMERS) {
+    assert(
+      readFileSync(relPath, "utf-8").includes('from "@/lib/navigation"'),
+      `${relPath} reads its links from lib/navigation.ts`,
+    );
+  }
+
+  assert(
+    isActiveSection("/build/7", "/build") &&
+      isActiveSection("/build", "/build") &&
+      !isActiveSection("/builder", "/build") &&
+      isActiveSection("/guide/lanes", "/guide"),
+    "isActiveSection matches the section and its sub-pages only",
   );
 
   // -----------------------------------------------

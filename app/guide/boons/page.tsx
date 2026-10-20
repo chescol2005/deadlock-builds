@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BoonsPageClient } from "./components/BoonsPageClient";
 
 export const metadata = { title: "Boons Guide | Deadlock Foundry" };
@@ -6,10 +7,14 @@ export default function BoonsGuidePage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <nav className="mb-6 text-sm text-zinc-500">
-          <span>Home</span>
+        <nav aria-label="Breadcrumb" className="mb-6 text-sm text-zinc-500">
+          <Link href="/" className="hover:text-zinc-300">
+            Home
+          </Link>
           <span className="mx-2">/</span>
-          <span>Guides</span>
+          <Link href="/guide" className="hover:text-zinc-300">
+            Guides
+          </Link>
           <span className="mx-2">/</span>
           <span className="text-zinc-300">Boons</span>
         </nav>

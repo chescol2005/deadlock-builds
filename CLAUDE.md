@@ -309,6 +309,10 @@ lib/boons/boonsGuideData.ts   — boons guide copy, derived from boonSystem.ts
                                 (Milestone D1) — not a second source of truth
 lib/itemization/itemizationGuideData.ts — itemization guide copy, derived from
                                 buildUtils.ts/buildCalculations.ts (Milestone D2)
+lib/navigation.ts             — NAV_SECTIONS, GUIDES, isActiveSection(): the ONE
+                                list of site sections/guides (site nav). SiteNav, the
+                                /guide index and the homepage map over it; mini.ts
+                                Fixture 12 fails if a guide folder is missing here
 lib/engine/                   — engine scoring surface, parallel to lib/scoring/.
                                 Its basket path is live in /build (heroBasket);
                                 the staged recommendItems() pipeline is not
@@ -355,6 +359,12 @@ app/components/                — cross-route shared UI (Milestone C):
   Tooltip.tsx                 — Tooltip, InfoTooltip — sanctioned title= replacement
   AudienceTabs.tsx             — reusable two(+)-audience tab switcher
   HeroDifficultyBadge.tsx      — HeroDifficultyBadge, HeroArchetypeTags
+  SiteNav.tsx                  — sticky global nav, mounted in app/layout.tsx;
+                                collapses to a menu below md
+  HomeHeroPicker.tsx           — homepage hero grid → /build/[heroId]
+app/page.tsx                  — homepage: pitch, hero picker, how-it-works,
+                                guides strip (fetch fails open to a /heroes link)
+app/guide/page.tsx            — guides index (cards from GUIDES)
 app/build/[heroId]/page.tsx   — server component, fetches items + hero data
 app/build/BuildClient.tsx     — single state source of truth; owns viewMode
                                 ("simplified" | "advanced") via AudienceTabs
@@ -398,9 +408,9 @@ app/guide/itemization/         — itemization guide (Milestone D2): categories/
                                 investment-bonus table
 ```
 
-`/guide/*` pages are not yet linked from any nav or the homepage — reachable
-only by direct URL. Pre-existing gap (farming had the same issue before this
-milestone), not fixed here since it wasn't in Milestone D's scope.
+Every page gets the global `SiteNav`. `/guide/*` pages are linked from it, from
+the `/guide` index and from the homepage. To add a guide, add its entry to
+`GUIDES` in `lib/navigation.ts`; Fixture 12 enforces this.
 
 ---
 
