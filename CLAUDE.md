@@ -513,6 +513,25 @@ the basket's soul budget is `boonSouls − cost of owned items`.
 | G         | ⏸ Queued  | Need-vector enrichment (stretch) — full scope in engine-design-notes.md                                                                             |
 | M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                                        |
 
+### ⚠️ Reminder: item scoring review gates closing Milestone F
+
+Milestone F stays 🚧 Active until a thorough item scoring review is done.
+That review comes **after** these three pieces of work, in this order (numbers
+are the recommendation numbers in `docs/competitive-analysis.md`):
+
+1. Global nav + real homepage (rec. 1): links the orphaned `/guide/*` pages
+2. "Start from a suggested build" (rec. 6): seed `/build/[heroId]` from
+   `constructBasket()` at early / mid / late soul checkpoints
+3. Per-page metadata / OG images (rec. 2) + mobile pass on `/build` (rec. 3)
+
+Then, **before marking F ✅ Closed**, do the item scoring review. Cover both
+suggestion paths: `lib/scoring/` (`scoreItems`, goal weights, anti-synergy) and
+`lib/engine/` (basket terms incl. `pairTerm`, need vector, item adapter). Check
+live baskets with `npm run probe` across heroes and boon levels. Also run the
+`scoring-auditor` and `data-verifier` agents, and refresh the pair table + synergy
+audit report first if the data is over a month old. When the review is
+done, update the F row above and delete this reminder.
+
 ---
 
 ## M6 Design Decisions (locked before coding)
