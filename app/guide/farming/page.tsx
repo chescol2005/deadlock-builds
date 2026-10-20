@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { FarmingPageClient } from "./components/FarmingPageClient";
 
 export const metadata = { title: "Farming Guide | Deadlock Foundry" };
@@ -6,10 +7,14 @@ export default function FarmingGuidePage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <nav className="mb-6 text-sm text-zinc-500">
-          <span>Home</span>
+        <nav aria-label="Breadcrumb" className="mb-6 text-sm text-zinc-500">
+          <Link href="/" className="hover:text-zinc-300">
+            Home
+          </Link>
           <span className="mx-2">/</span>
-          <span>Guides</span>
+          <Link href="/guide" className="hover:text-zinc-300">
+            Guides
+          </Link>
           <span className="mx-2">/</span>
           <span className="text-zinc-300">Farming</span>
         </nav>
