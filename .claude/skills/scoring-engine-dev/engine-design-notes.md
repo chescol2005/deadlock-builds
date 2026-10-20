@@ -978,7 +978,7 @@ it to the same artifact after every `npm run fit-pairs`.
 
 **Sections:**
 
-- Each hand-authored rule (3 synergy, 5 anti-synergy) with its reason, a
+- Each hand-authored rule (3 synergy, 4 anti-synergy since the rule fix; 5 at PR 4) with its reason, a
   mechanics review of that reason, and a per-hero verdict.
 - A hero explorer listing every significant pair.
 - The items that appear in the most significant pairs (likely context effects).
@@ -1007,8 +1007,8 @@ and negative for anti-synergy:
 | No data      | not fitted                                            |
 
 **Mechanics review of the rule reasons** (data-verifier, 2026-10-18, against
-deadlock.wiki and the live item API). This is recorded in `RULE_REVIEW`; the
-rules themselves are NOT changed in PR 4:
+deadlock.wiki and the live item API). These were the findings on the ORIGINAL
+reasons; the rules were corrected in the follow-up PR (see below):
 
 - **Rapid Recharge + Extra Charge: WRONG.** Extra Charge is Rapid Recharge's own
   component, and the charge bonuses add up with no documented cap. The rule warns
@@ -1025,7 +1025,24 @@ rules themselves are NOT changed in PR 4:
   contradicts `synergy.ts`' header note calling Tesla an optional third piece of
   the Ricochet/Toxic build.
 
-Correcting the rules is a separate scoring decision for the product owner.
+**Corrected 2026-10-19 (follow-up PR "fix hand pair rules"):**
+
+- **Rapid Recharge + Extra Charge: removed.**
+- **Leech + Vampiric Burst, Cold Front + Slowing Hex: reworded** to the
+  documented multiplicative stacking.
+- **Lucky Shot + Glass Cannon, Shadow Weave + Ethereal Shift: reworded** as
+  advice that says it isn't a mechanical conflict.
+- **`synergy.ts`' Tesla Bullets note: fixed.**
+- **No reason hardcodes soul costs or percentages any more.**
+
+`src/scripts/mini.ts` now enforces three things against live item data: rules
+name live items, never pair an item with its own component, and hardcode no
+costs or percentages.
+
+Measured at Oracle+, no anti-synergy pair shows a significant win-rate penalty
+on any hero. Cold Front + Slowing Hex was fitted on 18 heroes and Lucky Shot +
+Glass Cannon on 12, with mean lift about 0. They remain warnings about tooltips
+and budget, not about lost games. `RULE_REVIEW` records the corrected verdicts.
 
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
