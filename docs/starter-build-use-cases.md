@@ -161,26 +161,39 @@ Every phase stopped on budget: 5,600 + 10,400 + 13,600 = 29,600 of 30,000 souls.
   zero. Owned items only feed synergy and pair partners and the spirit-power scaling of
   candidates. A later phase therefore can't see what the earlier phases already cover.
   H7 requires fixing this, as a scoring change in 2c.
-- **F3. The basket doesn't know about components.** It has no `componentItems` handling,
-  so it can't plan an upgrade path (L6). It could also pick an item together with its own
-  component (H2), and it prices an upgrade of an owned component at full cost (H1). None
-  of this was seen in the sweep, but nothing prevents it.
+- **F3. The basket doesn't know about components.** It has no `componentItems` handling.
+  Upgrades still happen by accident: in 7 of the 8 chains a later phase buys an upgrade
+  of an earlier-phase component (Cold Front → Arctic Blast). The engine charges that
+  upgrade at full cost and keeps the consumed component in the build, so it double-counts
+  the component's souls and its slot (H1). Nothing stops it picking an item together with
+  its own component in the same phase (H2), though the sweep never did. _(Corrected
+  2026-10-20 from Fixture 13: the first draft said no upgrade paths appear.)_
 - **F4. Large items crowd out small ones.** Picks favour 3,200 and 6,400 items. At 2,000
   souls (slider 4) the basket buys a single 1,600 item. At the 5,900 early checkpoint it
   uses its souls well (3 items, 300 left), so L5 passes there.
 - **F5. Hard rules H1, H4, H5 and H6 already hold** in the sweep, as far as the probe
   shows. Fixtures still have to prove them.
+- **F6. The 12-item cap applies to the whole starter build, not just active items.**
+  Each phase's `maxItems` is `12 − everything owned so far`. H6 caps only active items
+  and lets later phases go into the game plan, which has no cap. This doesn't bite
+  today: builds come out at 9 items. It does bite when the player already owns a lot
+  (UC2): owning 8 items leaves early at most 4, and then mid and late come out empty.
+  Fix in 2c with a starter-specific cap. _(Found by the 2b `scoring-auditor` review.)_
 
 ### 5.3 Leans scored against the sweep
 
-| Lean                          | Today | Detail                                                               |
-| ----------------------------- | ----- | -------------------------------------------------------------------- |
-| L1 spirit casters lean spirit | ❌    | Seven and Lady Geist early: gun 3,200 > spirit 2,400 (passes by mid) |
-| L2 Haze leans gun             | ❌    | Mid cumulative: spirit 7,200 > gun 6,400                             |
-| L3 tanks get durability       | ❌    | Abrams and Warden late vitality: 800 / 29,600 = 2.7%                 |
-| L4 archetypes differ          | ❌    | Seven vs Haze late Jaccard 0.64; Seven vs Abrams 0.80                |
-| L5 early phase uses souls     | ✅    | 3 items, 300 souls left, for every hero                              |
-| L6 upgrade paths appear       | ❌    | None in any chain                                                    |
+| Lean                          | Today | Detail                                                                                                                     |
+| ----------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------- |
+| L1 spirit casters lean spirit | ❌    | Seven and Lady Geist early: gun 3,200 > spirit 2,400 (passes by mid)                                                       |
+| L2 Haze leans gun             | ❌    | Mid cumulative: spirit 7,200 > gun 6,400                                                                                   |
+| L3 tanks get durability       | ❌    | Abrams and Warden late vitality: 800 / 29,600 = 2.7%                                                                       |
+| L4 archetypes differ          | ❌    | Seven vs Haze late Jaccard 0.64 (Lady Geist vs Haze passes at exactly 0.50; Seven vs Abrams, not a measured pair, is 0.80) |
+| L5 early phase uses souls     | ✅    | 3 items, 300 souls left, for every hero                                                                                    |
+| L6 upgrade paths appear       | ✅    | 7 chains upgrade an earlier component, e.g. Cold Front → Arctic Blast (by accident; see F3)                                |
+
+Fixture 13 (`src/scripts/starterBuildFixtures.ts`) measures these against live data;
+its `KNOWN_LEAN_GAPS` list is the current truth: L1 Seven and Lady Geist, L2 Haze,
+L3 Abrams and Warden, L4 Seven/Haze.
 
 ## 6. Known failures (the ratchet)
 

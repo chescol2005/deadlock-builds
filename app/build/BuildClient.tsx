@@ -47,16 +47,9 @@ import { BuildEmptyState } from "@/app/build/components/BuildEmptyState";
 import { HeroStatsPanel } from "@/app/build/components/HeroStatsPanel";
 import { HeroBasketSuggestion } from "@/app/build/components/HeroBasketSuggestion";
 import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
-import { resolveAccuracyAtRank } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
-import { constructBasket, makeBasketContext } from "@/lib/engine/basketSelect";
 import type { HeroPairLift } from "@/lib/engine/pairLift";
-import {
-  deriveHeroNeedVector,
-  deriveHitReliabilityFactor,
-  deriveProcPlatformFactor,
-} from "@/lib/engine/heroNeed";
-import { toItemCandidates } from "@/lib/engine/itemAdapter";
+import { runHeroBasket } from "@/lib/engine/heroBasket";
 
 const VIEW_MODE_TABS = [
   { value: "simplified", label: "Simplified" },
@@ -416,73 +409,26 @@ export default function BuildClient({
   // point in the game?" and grows as the boon slider moves. No invented
   // budget: BOON_THRESHOLDS[0] is the real 600 starting souls.
   //
-  // src/scripts/basketProbe.ts mirrors this pipeline for live checks — change
-  // both together.
+  // The pipeline itself lives in lib/engine/heroBasket.ts (runHeroBasket), shared
+  // with src/scripts/basketProbe.ts, the starter build and the live fixtures.
   const heroBasket = useMemo(() => {
-    if (!heroBaseStats || heroAbilities.length === 0 || allItems.length === 0) return null;
-
-    // Discount each hero's nominal gun DPS by how much of it actually lands at
-    // the player's own rank. Nominal DPS assumes perfect accuracy, which
-    // over-rates spread weapons that count every pellet.
-    const gunAccuracyByHeroId = heroAccuracy
-      ? resolveAccuracyAtRank(heroAccuracy, selectedRankTier)
-      : undefined;
-
-    const needVector = deriveHeroNeedVector({
-      abilities: heroAbilities,
-      baseStats: heroBaseStats,
-      roster: heroRoster,
-      gunAccuracyByHeroId,
-    });
-
-    const ownedIds = new Set(buildItems.map((i) => i.id));
-
-    // Item values are NOT flat — Mystic Shot's proc is `40 + 0.9 x spirit
-    // power`, so pricing it at 40 understates it ~3.3x at 100 spirit. Resolve
-    // the published coefficients against what the player actually has.
-    //
-    // Both inputs come from the hero and the ALREADY-OWNED build, never from
-    // the candidates being chosen: an item's value must not depend on which
-    // other items the basket happens to pick, or selection becomes circular.
-    const candidates = toItemCandidates(
-      allItems.filter((i) => !ownedIds.has(i.id)),
-      { spiritPower: totalSpiritPower, boonLevel: manualBoonLevel },
+    if (!heroBaseStats) return null;
+    return (
+      runHeroBasket({
+        heroAbilities,
+        heroBaseStats,
+        heroRoster,
+        allItems,
+        ownedItems: buildItems,
+        souls: boonSouls,
+        boonLevel: manualBoonLevel,
+        spiritPower: totalSpiritPower,
+        itemAnalytics,
+        heroAccuracy,
+        rankTier: selectedRankTier,
+        pairLift: pairLift ?? undefined,
+      })?.basket ?? null
     );
-
-    const committed = buildItems.reduce((sum, i) => sum + i.cost, 0);
-
-    // Separate from gun need on purpose: a bullet proc's worth scales with how
-    // many bullets LAND per second, not with how hard each one hits. The two
-    // genuinely diverge — a hero can have the roster's weakest gun and still be
-    // one of its best platforms for per-hit items.
-    const procPlatformFactor = deriveProcPlatformFactor({
-      baseStats: heroBaseStats,
-      roster: heroRoster,
-      gunAccuracyByHeroId,
-    });
-
-    const ctx = makeBasketContext({
-      needVector,
-      soulBudget: Math.max(0, boonSouls - committed),
-      maxItems: Math.max(0, MAX_ACTIVE_ITEMS - buildItems.length),
-      itemAnalytics,
-      procPlatformFactor,
-      // Cooldown-gated bullet effects (Mystic Shot) are spent by FIRING, so a
-      // miss wastes the charge. Accuracy only -- the cooldown fixes the rate.
-      hitReliabilityFactor: deriveHitReliabilityFactor({
-        baseStats: heroBaseStats,
-        roster: heroRoster,
-        gunAccuracyByHeroId,
-      }),
-      // Lets synergyTerm and pairTerm credit a pair whose other half the
-      // player already owns.
-      ownedItemNames: new Map(buildItems.map((i) => [i.id, i.name])),
-      // Measured pair lift for this hero; also lets a precise measurement
-      // override a hand-authored synergy rule ("measured wins").
-      pairLift: pairLift ?? undefined,
-    });
-
-    return constructBasket(candidates, ctx);
   }, [
     heroBaseStats,
     heroAbilities,

@@ -34,6 +34,7 @@ import {
   MAX_ACTIVE_ITEMS,
 } from "@/lib/buildUtils";
 import { GUIDES, NAV_SECTIONS, isActiveSection } from "@/lib/navigation";
+import { runStarterBuildFixtures } from "./starterBuildFixtures";
 
 let passed = 0;
 let failed = 0;
@@ -860,6 +861,14 @@ async function run() {
       isActiveSection("/guide/lanes", "/guide"),
     "isActiveSection matches the section and its sub-pages only",
   );
+
+  // -----------------------------------------------
+  // Fixture 13: Starter build (docs/starter-build-use-cases.md)
+  // -----------------------------------------------
+  // Live-data fixtures for buildStarterBuild: hard rules H1-H9 plus the
+  // expected-lean ratchet (KNOWN_LEAN_GAPS) from the approved spec.
+  console.log("\n13. Starter build (docs/starter-build-use-cases.md)");
+  await runStarterBuildFixtures(assert);
 
   // -----------------------------------------------
   // Fixture: anti-synergy rules (reviewed 2026-10-19)

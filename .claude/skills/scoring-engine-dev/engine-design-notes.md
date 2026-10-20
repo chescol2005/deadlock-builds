@@ -1044,6 +1044,39 @@ on any hero. Cold Front + Slowing Hex was fitted on 18 heroes and Lucky Shot +
 Glass Cannon on 12, with mean lift about 0. They remain warnings about tooltips
 and budget, not about lost games. `RULE_REVIEW` records the corrected verdicts.
 
+## One basket pipeline, and the starter build (Work 2, PR 2b)
+
+The pipeline that turns a hero and an owned build into a basket (need vector →
+rank-aware accuracy → candidates → `makeBasketContext` → `constructBasket`) used
+to live inline in `BuildClient`'s `heroBasket` useMemo, and `basketProbe.ts`
+copied it by hand. It is now `runHeroBasket()` in `lib/engine/heroBasket.ts`.
+The planner, the probe, the starter build and Fixture 13 all call it. **Do not
+re-inline it.** A pipeline change made in one copy and not the other is exactly
+the drift this removes. The extraction was proved behaviour-identical before
+merging: the old inline code and `runHeroBasket` were run on the same live data
+for every hero × 6 boon levels × 3 owned sets × 2 ranks (1,548 baskets), with 0
+mismatches.
+
+`buildStarterBuild()` (`lib/engine/starterBuild.ts`) chains `runHeroBasket` at
+`STARTER_PHASE_BOON_LEVELS`: slider 10/22/29, which is 5,900/16,700/30,000 souls,
+or about 10/20/30 minutes on the live mean net-worth curve. Each phase owns the
+earlier phases' picks, and spirit power is recomputed from them. v0 only
+chains today's engine.
+
+The approved use cases (`docs/starter-build-use-cases.md`) found what that
+exposes:
+
+- **Near-identical builds for every archetype.** The `spiritDamage` need is
+  capped at 2.00 for every hero checked, and gun and health needs look inverted
+  for Haze and Abrams.
+- **Owned items not credited to coverage.** `constructBasket` starts coverage at
+  zero.
+- **No component or upgrade-path awareness.**
+
+Fixture 13 records the failing leans in `KNOWN_LEAN_GAPS`, a ratchet that can
+only shrink. Order from here: 2c fixes owned coverage and components, then a
+need-vector scoring PR works off L1–L4, and only then does 2d ship the UI.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical

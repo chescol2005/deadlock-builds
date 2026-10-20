@@ -1,48 +1,26 @@
 // src/scripts/basketProbe.ts — live basket check against real API data
 // Run: npm run probe -- <hero> [--owned a,b] [--boon N] [--rank T] [--item x] [--top N]
 //
-// Reproduces BuildClient's `heroBasket` useMemo for one hero, using the same
-// loaders as app/build/[heroId]/page.tsx, and prints what the basket picks and
-// why. Use it for the "live sanity check" after an engine change instead of
-// writing a throwaway script. It calls the lib functions — it never
-// reimplements them — so if BuildClient's pipeline changes, change this to
-// match (search for "MIRRORS BuildClient").
+// Runs the same pipeline as BuildClient's `heroBasket` (runHeroBasket in
+// lib/engine/heroBasket.ts) for one hero, on data loaded the way
+// app/build/[heroId]/page.tsx loads it (./basketData.ts), and prints what the
+// basket picks and why. Use it for the "live sanity check" after an engine
+// change instead of writing a throwaway script. Only the inputs BuildClient
+// derives itself (souls from the boon slider, spirit power from owned items)
+// are computed here; keep those in step with BuildClient.
 //
 // Live network, NOT a fixture: results move with patches and match data.
-// Fixtures stay hermetic in lib/engine/__fixtures__/mini.ts.
+// Hermetic engine fixtures live in lib/engine/__fixtures__/mini.ts.
 
-import { fetchHeroById } from "@/lib/deadlock";
-import { fetchVisibleHeroesEnriched } from "@/lib/heroApi";
-import { getItems } from "@/lib/itemStore";
 import type { Item } from "@/lib/items";
-import {
-  getHeroAccuracy,
-  getItemAnalytics,
-  getRankTiers,
-  resolveAccuracyAtRank,
-} from "@/lib/analyticsStore";
-import { getHeroStats } from "@/lib/heroStore";
-import { fetchHeroAbilityItems } from "@/lib/api/deadlockApi";
-import { mapHeroAbilities } from "@/lib/abilityCoefficients";
 import { calculateStatsAtBoon } from "@/lib/heroStats";
 import { calculateStatTotals, combineStatTotal } from "@/lib/buildCalculations";
 import { BOON_THRESHOLDS } from "@/lib/boonSystem";
-import { MAX_ACTIVE_ITEMS } from "@/lib/buildUtils";
-import {
-  DEFAULT_BASKET_TERMS,
-  constructBasket,
-  makeBasketContext,
-} from "@/lib/engine/basketSelect";
-import {
-  deriveHeroNeedVector,
-  deriveHitReliabilityFactor,
-  deriveProcPlatformFactor,
-} from "@/lib/engine/heroNeed";
-import { toItemCandidates } from "@/lib/engine/itemAdapter";
+import { DEFAULT_BASKET_TERMS } from "@/lib/engine/basketSelect";
+import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { heroPairLift } from "@/lib/engine/pairLift";
-import type { PairLiftTable } from "@/lib/engine/pairLift";
-import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
+import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
 import type { BasketState, ItemCandidate, MarginalTerm, ScoreCategory } from "@/lib/engine/types";
 
 const USAGE = `Usage: npm run probe -- <hero> [options]
@@ -158,87 +136,47 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   // ── Load: same sources as app/build/[heroId]/page.tsx ────────────────────
-  const [heroes, allItems, itemAnalytics, heroAccuracy, rankTiers] = await Promise.all([
-    fetchVisibleHeroesEnriched(),
-    getItems(),
-    getItemAnalytics(),
-    getHeroAccuracy(),
-    getRankTiers(),
-  ]);
+  const data = await loadLiveBasketData();
+  const { allItems, itemAnalytics, heroAccuracy, rankTiers } = data;
 
-  const heroQuery = norm(args.hero);
-  const hero =
-    heroes.find((h) => String(h.id) === args.hero) ??
-    heroes.find((h) => norm(h.name) === heroQuery);
+  const hero = findHero(data.heroes, args.hero);
   if (!hero) fail(`no visible hero matches "${args.hero}"`);
 
-  const [heroData, rawAbilities, heroBaseStats] = await Promise.all([
-    fetchHeroById(hero.id),
-    fetchHeroAbilityItems(hero.id),
-    getHeroStats(hero.id),
-  ]);
-  if (!heroBaseStats) fail(`no base stats for ${hero.name} — the hero stats fetch failed`);
+  const kit = await loadHeroKit(hero);
+  if (!kit) fail(`no base stats for ${hero.name} — the hero stats fetch failed`);
 
-  const heroAbilities = mapHeroAbilities(rawAbilities, heroData.items);
-  const heroRoster = heroes.flatMap((h) => (h.baseStats ? [h.baseStats] : []));
   const buildItems = args.owned.map((q) => findItem(allItems, q));
   const probeItems = args.items.map((q) => findItem(allItems, q));
 
-  // ── MIRRORS BuildClient: totalSpiritPower / boonSouls / heroBasket ───────
+  // ── Same inputs BuildClient derives: totalSpiritPower / boonSouls ────────
   const manualBoonLevel = args.boon;
   const boonSouls = BOON_THRESHOLDS[manualBoonLevel]?.souls ?? 0;
   const itemStatTotals = calculateStatTotals(buildItems);
   const totalSpiritPower = combineStatTotal(
-    calculateStatsAtBoon(heroBaseStats, manualBoonLevel).spiritPower,
+    calculateStatsAtBoon(kit.heroBaseStats, manualBoonLevel).spiritPower,
     itemStatTotals.spiritPowerFlat,
     itemStatTotals.spiritPowerPercent,
   );
 
-  // BuildClient resolves whenever the prop exists, including an empty (failed-
-  // open) map, so do the same rather than special-casing size 0.
-  const gunAccuracyByHeroId = resolveAccuracyAtRank(heroAccuracy, args.rank);
-
-  const needVector = deriveHeroNeedVector({
-    abilities: heroAbilities,
-    baseStats: heroBaseStats,
-    roster: heroRoster,
-    gunAccuracyByHeroId,
-  });
-
-  const ownedIds = new Set(buildItems.map((i) => i.id));
-  const candidates = toItemCandidates(
-    allItems.filter((i) => !ownedIds.has(i.id)),
-    { spiritPower: totalSpiritPower, boonLevel: manualBoonLevel },
-  );
-  const committed = buildItems.reduce((sum, i) => sum + i.cost, 0);
-
-  const procPlatformFactor = deriveProcPlatformFactor({
-    baseStats: heroBaseStats,
-    roster: heroRoster,
-    gunAccuracyByHeroId,
-  });
-  const hitReliabilityFactor = deriveHitReliabilityFactor({
-    baseStats: heroBaseStats,
-    roster: heroRoster,
-    gunAccuracyByHeroId,
-  });
-
-  const ctx = makeBasketContext({
-    needVector,
-    soulBudget: Math.max(0, boonSouls - committed),
-    maxItems: Math.max(0, MAX_ACTIVE_ITEMS - buildItems.length),
+  // The pipeline itself is shared with BuildClient (lib/engine/heroBasket.ts).
+  const run = runHeroBasket({
+    heroAbilities: kit.heroAbilities,
+    heroBaseStats: kit.heroBaseStats,
+    heroRoster: data.heroRoster,
+    allItems,
+    ownedItems: buildItems,
+    souls: boonSouls,
+    boonLevel: manualBoonLevel,
+    spiritPower: totalSpiritPower,
     itemAnalytics,
-    procPlatformFactor,
-    hitReliabilityFactor,
-    ownedItemNames: new Map(buildItems.map((i) => [i.id, i.name])),
+    heroAccuracy,
+    rankTier: args.rank,
     // Sliced like app/build/[heroId]/page.tsx does on the server.
-    pairLift: args.pairLift
-      ? (heroPairLift(pairLiftTableJson as unknown as PairLiftTable, hero.id) ?? undefined)
-      : undefined,
+    pairLift: args.pairLift ? (heroPairLift(data.pairLiftTable, hero.id) ?? undefined) : undefined,
   });
-
-  const basket = constructBasket(candidates, ctx);
-  // ── end mirror ───────────────────────────────────────────────────────────
+  if (!run) fail(`${hero.name} has no ability data or the item list is empty`);
+  const { basket, ctx, candidates, needVector, procPlatformFactor, hitReliabilityFactor } = run;
+  const ownedIds = new Set(buildItems.map((i) => i.id));
 
   // First-pick ranking: every affordable candidate scored against the empty
   // starting state, ordered exactly as the greedy loop breaks ties
