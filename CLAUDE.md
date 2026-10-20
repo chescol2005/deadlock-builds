@@ -562,9 +562,13 @@ Milestone F stays 🚧 Active until a thorough item scoring review is done.
 That review comes **after** these three pieces of work, in this order (numbers
 are the recommendation numbers in `docs/competitive-analysis.md`):
 
-1. Global nav + real homepage (rec. 1): links the orphaned `/guide/*` pages
+1. ✅ Global nav + real homepage (rec. 1): links the orphaned `/guide/*` pages (#85)
 2. "Start from a suggested build" (rec. 6): seed `/build/[heroId]` from
-   `constructBasket()` at early / mid / late soul checkpoints
+   `constructBasket()` at early / mid / late soul checkpoints. Use cases are
+   approved in `docs/starter-build-use-cases.md`. Order: 2b pipeline + fixtures
+   → 2c engine (owned coverage, components) → **need-vector fix pulled forward
+   from the scoring review** (its own scoring PR, works off leans L1–L4) → 2d
+   UI. The UI must not ship while every hero gets the same build (finding F1).
 3. Per-page metadata / OG images (rec. 2) + mobile pass on `/build` (rec. 3)
 
 Then, **before marking F ✅ Closed**, do the item scoring review. Cover both
