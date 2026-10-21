@@ -1307,8 +1307,10 @@ souls are the 10- and 20-minute marks on the net-worth curve), then:
 - Mid overlap: 0.377 → 0.373.
 - L4, L5 and L6 still pass, with 28 upgrade paths.
 
-**Not yet at the merge gate.** Wraith early, Abrams early and late, and Warden early still
-fail against `main`, and M2 fails: one item is in every early phase. The cause is ITEM
+**Merged with an approved exception (user decision 2026-10-20).** Wraith early, Abrams
+early and late, and Warden early pass on `main` but fail here, and M2 fails: one item is
+in every early phase. The gate asked for no regressions; the user accepted these four,
+listed in `KNOWN_LEAN_GAPS`, for the net 6 → 11. The cause is ITEM
 VALUATION, not the need. Haze's need is now strongly gun (gunDamage target 204 of 589),
 but the gun items Oracle+ Haze players actually open with (Rapid Rounds, Swift Striker,
 Active Reload: fire rate, reload, ammo) score little coverage per soul in
@@ -1320,6 +1322,31 @@ Two things were tried and rejected:
 - **A per-category value-per-soul reconciliation over the catalogue** made builds very
   diverse (mid overlap 0.18, 8 distinct early phases), but less like real play (M1 5/24),
   and gun stayed about 14% early.
+
+## Hero-relative damage and soft saturation (tried, NOT merged)
+
+Two follow-ups to the four regressions above, both measured against the same gate and
+both short of it. Kept as reference on branches `feat/item-valuation` (pushed, no PR) and
+`proto/soft-saturation` (local).
+
+- **Hero-relative damage (PR 3):** `heroDamage.ts` prices gun and spirit stats as % of
+  this hero's sustained DPS. Correct in isolation, and it fixed four stat bugs (reload
+  items penalised, fire rate from an active treated as permanent, Burst Fire's fire rate
+  missed, the `WeaponPower` sentinel read). Gate: M1 5/24, 5 regressions, M2 passes, mid
+  overlap 0.339.
+- **Soft saturation** (`U(c)` replacing `min(T, c)` in `computeCoverageGain`), swept on
+  top of PR 3: exponential `T(1 − e^(−c/T))` M1 9/24; clamp + tail α 0.15–0.4 M1 4–5;
+  power p 0.5–0.7 M1 3–7. Every curve kept 4–5 regressions; neighbouring settings
+  swung widely.
+
+**Why neither works: categories are valued in different units, and the need cannot fix
+that.** Targets are need × a constant and gain is the item's RAW value, so below the
+target the need cancels out; it only sets where the curve bends. Since PR 3, damage is
+"% of DPS", but sustain, mobility, utility and economy are still raw stat sums and come
+out several times larger per soul. Lady Geist at 5,900 souls (spiritDamage target 128,
+her largest): Extra Spirit is worth 7.4, Monster Rounds 21.1 (18 of it economy), Healing
+Rite 19.6. Do not re-sweep caps or curves; put every category on one value scale first
+(item scoring review).
 
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 

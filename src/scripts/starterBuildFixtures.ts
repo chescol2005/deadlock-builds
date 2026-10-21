@@ -38,11 +38,11 @@ const REFERENCE_HEROES = [
  * passing, the fixture fails until its key is removed here.
  */
 const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
-  // State after coverage-model PR 2 (phase-aware split + stat profile) stacked on
-  // PR 1, 2026-10-20: 11 of 24 M1 keys pass (6 on main). STACKED: the pair may
-  // only merge when this list is a subset of main's (doc §4.3). Still regressed
-  // vs main: Wraith:early, Abrams:early, Abrams:late, Warden:early. Cause:
-  // item valuation (the gun items players open with score little per soul).
+  // State after coverage-model PRs 1+2 (value per soul, phase-aware split + stat
+  // profile), 2026-10-20: 11 of 24 M1 keys pass (6 before). APPROVED EXCEPTION
+  // (user, 2026-10-20): Wraith:early, Abrams:early, Abrams:late and Warden:early
+  // passed before and are listed here as accepted regressions. Cause: categories
+  // valued in different units (doc §5.6); the item scoring review removes them.
   "M1:Seven:mid",
   "M1:Lady Geist:early",
   "M1:Lady Geist:mid",
