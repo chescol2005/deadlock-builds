@@ -71,6 +71,8 @@ import type {
   WinCell,
 } from "../pairLift";
 import { findSynergyRules, SYNERGY_RULES } from "../synergy";
+import { abilityDps, damageValues, sustainedGunDps } from "../heroDamage";
+import type { HeroDamageModel } from "../heroDamage";
 import { ANTI_SYNERGY_RULES } from "../../scoring/antiSynergy";
 import { estimateEffectValues } from "../effectEstimator";
 import { recommendItems } from "../engine";
@@ -3666,6 +3668,106 @@ console.log("\n20. Phase-aware split and measured stat profile (coverage-model P
       phaseView(base, "early").profile === null &&
       phaseView(base, "early").shares.gun === 0.2,
     "phaseView: per-phase split and profile when present; whole-game split otherwise",
+  );
+}
+
+console.log("\n21. Hero-relative damage valuation (coverage-model PR 3)");
+{
+  const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps;
+  const gun = { perShot: 10, shotsPerSecond: 5, clip: 20, reload: 2, overhead: 0 };
+
+  // a. Sustained gun DPS: per shot x clip / (clip / shots-per-second + reload).
+  const base = sustainedGunDps(gun, {});
+  assert(
+    near(base, (10 * 20) / (20 / 5 + 2)),
+    "sustainedGunDps: per shot x clip / (time to empty + reload)",
+    `Got ${base}`,
+  );
+
+  // b. Each gun stat moves sustained DPS the way the mechanics say:
+  //    damage % on every shot; fire rate only while firing; bigger clip defers
+  //    reloads; reload time is a signed % (negative = faster, verified live).
+  const dmg = sustainedGunDps(gun, { damagePercent: 10 });
+  const fire = sustainedGunDps(gun, { fireRatePercent: 10 });
+  const clip = sustainedGunDps(gun, { clipPercent: 50 });
+  const fasterReload = sustainedGunDps(gun, { reloadTimePercent: -35 });
+  const slowerReload = sustainedGunDps(gun, { reloadTimePercent: 20 });
+  assert(
+    near(dmg / base, 1.1) &&
+      fire / base > 1 &&
+      fire / base < 1.1 &&
+      clip > base &&
+      fasterReload > base &&
+      slowerReload < base,
+    "sustainedGunDps: +10% damage = +10%; fire rate < +10% (reload untouched); clip and faster reload help; slower reload hurts",
+    `dmg ${dmg / base}, fire ${fire / base}, clip ${clip / base}, reload-35 ${fasterReload / base}`,
+  );
+
+  // c. Ability DPS from spirit power: base + coefficient x SP, per cooldown;
+  //    damage-free or cooldown-free abilities contribute nothing.
+  const abilities = [
+    { baseDamage: 100, spiritScaling: 1, cooldown: 10 },
+    { baseDamage: 50, spiritScaling: 0.5, cooldown: 5 },
+    { baseDamage: null, spiritScaling: 1, cooldown: 10 },
+    { baseDamage: 80, spiritScaling: 1, cooldown: null },
+  ];
+  assert(
+    near(abilityDps(abilities, 20), (100 + 20) / 10 + (50 + 10) / 5),
+    "abilityDps: sum of (base + coefficient x spirit power) / cooldown over damaging abilities",
+    `Got ${abilityDps(abilities, 20)}`,
+  );
+
+  // d. Hero-relative item value: the SAME fire-rate item is worth more to a
+  //    gun-reliant hero than to an ability-reliant one, in % of total DPS.
+  const gunHero: HeroDamageModel = {
+    gun: { ...gun, perShot: 20 },
+    accuracy: 0.5,
+    abilities: [{ baseDamage: 40, spiritScaling: 0.5, cooldown: 20 }],
+    spiritPower: 10,
+  };
+  const casterHero: HeroDamageModel = {
+    gun: { ...gun, perShot: 4 },
+    accuracy: 0.5,
+    abilities: [
+      { baseDamage: 150, spiritScaling: 1.5, cooldown: 8 },
+      { baseDamage: 120, spiritScaling: 1.2, cooldown: 10 },
+    ],
+    spiritPower: 10,
+  };
+  const rapidRounds = { BonusFireRate: 9 };
+  const extraSpirit = { TechPower: 10 };
+  const gunOnGunHero = damageValues(rapidRounds, gunHero).gunDamage;
+  const gunOnCaster = damageValues(rapidRounds, casterHero).gunDamage;
+  const spiritOnGunHero = damageValues(extraSpirit, gunHero).spiritDamage;
+  const spiritOnCaster = damageValues(extraSpirit, casterHero).spiritDamage;
+  assert(
+    gunOnGunHero > gunOnCaster * 2 && spiritOnCaster > spiritOnGunHero * 2,
+    "damageValues: fire rate is worth far more to the gun hero, spirit power to the caster (% of total DPS)",
+    `fire rate ${gunOnGunHero.toFixed(2)} vs ${gunOnCaster.toFixed(2)}; spirit ${spiritOnCaster.toFixed(2)} vs ${spiritOnGunHero.toFixed(2)}`,
+  );
+
+  // e. Units: a value is % of the hero's total DPS. +10% weapon damage on a
+  //    hero whose damage is all gun is worth exactly 10.
+  const allGun: HeroDamageModel = { gun, accuracy: 1, abilities: [], spiritPower: 0 };
+  assert(
+    near(damageValues({ BaseAttackDamagePercent: 10 }, allGun).gunDamage, 10),
+    "damageValues: +10% weapon damage on an all-gun hero = 10 (% of total DPS)",
+  );
+
+  // f. WeaponPower is a catalogue-wide 0 sentinel and is never read.
+  assert(
+    damageValues({ WeaponPower: 50 }, allGun).gunDamage === 0,
+    "damageValues: WeaponPower (catalogue-wide sentinel) contributes nothing",
+  );
+
+  // g. Fire rate on an item with an active cooldown is the active's buff, so it
+  //    is discounted like other conditional stats (Active Reload, Kinetic Dash).
+  const permanent = damageValues({ BonusFireRate: 20 }, allGun).gunDamage;
+  const onActive = damageValues({ BonusFireRate: 20, AbilityCooldown: 12 }, allGun).gunDamage;
+  assert(
+    onActive > 0 && onActive < permanent * 0.6,
+    "damageValues: fire rate tied to an active (item has AbilityCooldown) is discounted",
+    `permanent ${permanent}, on active ${onActive}`,
   );
 }
 

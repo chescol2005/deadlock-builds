@@ -17,6 +17,14 @@
 //   shopable items at time of writing); widening this table as more keys get
 //   verified is expected and safe.
 
+import {
+  damageValues,
+  HERO_RELATIVE_GUN_KEYS,
+  HERO_RELATIVE_SPIRIT_KEYS,
+  heroDps,
+  sustainedGunDps,
+} from "./heroDamage";
+import type { HeroDamageModel } from "./heroDamage";
 import type { Item, ItemStats } from "../items";
 import { estimateEffectValues } from "./effectEstimator";
 import type { ItemCandidate, ScoreCategory } from "./types";
@@ -276,6 +284,13 @@ export type ItemValuationContext = {
   techRange?: number;
   healingOutput?: number;
   channelDuration?: number;
+  /**
+   * This hero's damage model (coverage-model PR 3). When present, damage stats
+   * and damage estimates are valued as % of THIS hero's total DPS
+   * (lib/engine/heroDamage.ts) instead of the hero-agnostic weight table.
+   * Omitted (no hero): the hero-agnostic valuation, unchanged.
+   */
+  heroDamage?: HeroDamageModel;
 };
 
 /**
@@ -390,8 +405,84 @@ function deriveHitShare(stats: ItemStats, flag: "perHit" | "requiresHit"): numbe
   return Math.min(1, perHit / total);
 }
 
-function deriveCategoryValues(stats: ItemStats): Record<ScoreCategory, number> {
+/**
+ * Scales hero-relative damage (% of the hero's total DPS) onto the magnitude
+ * the rest of the category values use, so damage vs defence keeps the balance
+ * the weight table had: chosen so the MEAN damage value over every hero ×
+ * item is what it was under the hero-agnostic valuation. Only the
+ * distribution between heroes moves. Calibrated 2026-10-20 over 44 heroes ×
+ * 156 items at slider 15 (mean 13.92 hero-agnostic vs 9.27 at scale 1); see
+ * "Hero-relative damage valuation" in engine-design-notes.md.
+ */
+export const HERO_DAMAGE_SCALE = 1.5;
+
+/**
+ * Typical enemy max health, for DoTs that deal % of the TARGET's max health
+ * (Toxic Bullets). Roughly the roster's max health mid-game.
+ */
+export const REFERENCE_ENEMY_HEALTH = 2500;
+
+/** Cast interval assumed for a damaging active with no published cooldown. */
+const DEFAULT_CAST_INTERVAL_S = 20;
+
+/**
+ * An effect estimate's damage, as damage per second for this hero. Null when the
+ * estimate carries no damage unit (it is then valued hero-agnostically).
+ */
+function estimateDps(
+  e: ReturnType<typeof estimateEffectValues>[number],
+  stats: ItemStats,
+  model: HeroDamageModel,
+  dps: { gun: number; total: number },
+): number | null {
+  if (!e.unit) return null;
+  const accuracy = Math.max(0, Math.min(1, model.accuracy));
+  const perShot = model.gun.perShot;
+  const landedShotsPerSecond =
+    perShot > 0 ? (sustainedGunDps(model.gun, {}) / perShot) * accuracy : 0;
+  const cooldown =
+    Number.isFinite(stats.AbilityCooldown) && stats.AbilityCooldown > 0 ? stats.AbilityCooldown : 0;
+  switch (e.unit) {
+    case "dps":
+      return e.value;
+    case "weaponPercent":
+      return (e.value / 100) * dps.gun;
+    case "maxHealthPercentPerSecond":
+      return ((e.perSecond ?? 0) / 100) * REFERENCE_ENEMY_HEALTH * accuracy;
+    case "damage":
+      if (e.perHit) return e.value * landedShotsPerSecond;
+      if (e.requiresHit) return cooldown > 0 ? (e.value / cooldown) * accuracy : 0;
+      return e.value / (cooldown > 0 ? cooldown : DEFAULT_CAST_INTERVAL_S);
+  }
+}
+
+function deriveCategoryValues(
+  stats: ItemStats,
+  heroDamage?: HeroDamageModel,
+): Record<ScoreCategory, number> {
   const values = emptyCategoryValues();
+  const dps = heroDamage ? heroDps(heroDamage) : null;
+  const heroMode = heroDamage !== undefined && dps !== null && dps.total > 0;
+
+  if (heroMode && heroDamage && dps) {
+    // Hero-relative damage: stats and estimates in % of this hero's total DPS.
+    const d = damageValues(stats, heroDamage);
+    values.gunDamage += d.gunDamage * HERO_DAMAGE_SCALE;
+    values.spiritDamage += d.spiritDamage * HERO_DAMAGE_SCALE;
+    for (const estimate of estimateEffectValues(stats)) {
+      const perSecond = estimateDps(estimate, stats, heroDamage, dps);
+      values[estimate.category] +=
+        perSecond === null ? estimate.value : (perSecond / dps.total) * 100 * HERO_DAMAGE_SCALE;
+    }
+    for (const [key, rawValue] of Object.entries(stats)) {
+      if (!Number.isFinite(rawValue)) continue;
+      if (HERO_RELATIVE_GUN_KEYS.has(key) || HERO_RELATIVE_SPIRIT_KEYS.has(key)) continue;
+      const mapping = STAT_KEY_TO_SCORE[key];
+      if (!mapping) continue;
+      values[mapping.category] += rawValue * mapping.weight;
+    }
+    return values;
+  }
 
   // Effect/proc estimates are layered ON TOP of the measured stats below, and
   // are already discounted by EFFECT_CONFIDENCE inside the estimator so an
@@ -434,9 +525,13 @@ export function toItemCandidate(item: Item, ctx?: ItemValuationContext): ItemCan
     name: item.name,
     category: item.category,
     cost: item.cost,
-    categoryValues: deriveCategoryValues(stats),
-    procReliance: deriveProcReliance(stats),
-    hitDependence: deriveHitDependence(stats),
+    categoryValues: deriveCategoryValues(stats, ctx?.heroDamage),
+    // With a hero damage model, per-hit and per-cooldown values already include
+    // this hero's fire rate and accuracy (estimateDps), so the hero-relative
+    // basket terms must not scale them again: zero reliance makes procPlatformTerm
+    // and hitReliabilityTerm inert for this item.
+    procReliance: ctx?.heroDamage ? 0 : deriveProcReliance(stats),
+    hitDependence: ctx?.heroDamage ? 0 : deriveHitDependence(stats),
     tags: item.tags,
     // Only set when present, so items without components are shaped as before.
     ...(item.componentItems && item.componentItems.length > 0

@@ -203,6 +203,18 @@ export type EffectEstimate = {
    * Mutually exclusive with `perHit`.
    */
   requiresHit?: boolean;
+  /**
+   * What `value` measures, for damage estimates (gunDamage / spiritDamage), so a
+   * hero-aware consumer (itemAdapter with a HeroDamageModel) can convert it to
+   * damage per second. Omitted for non-damage estimates.
+   * - "damage": damage per hit (perHit), per proc (requiresHit) or per cast
+   * - "weaponPercent": % of the hero's weapon damage (Ricochet, crit procs)
+   * - "maxHealthPercentPerSecond": % of the TARGET's max health per second (DoT)
+   * - "dps": already damage per second (uptime-weighted area damage)
+   */
+  unit?: "damage" | "weaponPercent" | "maxHealthPercentPerSecond" | "dps";
+  /** For "maxHealthPercentPerSecond": the per-second rate (value is the total). */
+  perSecond?: number;
 };
 
 function num(stats: ItemStats, key: string): number | null {
@@ -239,14 +251,21 @@ function uptime(stats: ItemStats): number {
  */
 export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const out: EffectEstimate[] = [];
-  const add = (category: ScoreCategory, raw: number, basis: string) => {
+  type Unit = EffectEstimate["unit"];
+  const add = (category: ScoreCategory, raw: number, basis: string, unit?: Unit) => {
     if (!Number.isFinite(raw) || raw <= 0) return;
-    out.push({ category, value: raw * EFFECT_CONFIDENCE, basis });
+    out.push({ category, value: raw * EFFECT_CONFIDENCE, basis, ...(unit ? { unit } : {}) });
   };
   /** As `add`, for value delivered per weapon hit. See EffectEstimate.perHit. */
-  const addPerHit = (category: ScoreCategory, raw: number, basis: string) => {
+  const addPerHit = (category: ScoreCategory, raw: number, basis: string, unit?: Unit) => {
     if (!Number.isFinite(raw) || raw <= 0) return;
-    out.push({ category, value: raw * EFFECT_CONFIDENCE, basis, perHit: true });
+    out.push({
+      category,
+      value: raw * EFFECT_CONFIDENCE,
+      basis,
+      perHit: true,
+      ...(unit ? { unit } : {}),
+    });
   };
 
   // ── Is a "proc" per-bullet, or gated behind a cooldown? ──
@@ -283,7 +302,7 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
    * (Silver shares the exemption only while transformed, which is situational
    * and deliberately not modelled.)
    */
-  const addProc = (category: ScoreCategory, raw: number, basis: string) => {
+  const addProc = (category: ScoreCategory, raw: number, basis: string, unit?: Unit) => {
     if (isCooldownGatedProc) {
       if (!Number.isFinite(raw) || raw <= 0) return;
       out.push({
@@ -291,9 +310,10 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
         value: raw * EFFECT_CONFIDENCE,
         basis: `${basis}, once per ${procAbilityCooldown}s cooldown, wasted on a miss`,
         requiresHit: true,
+        ...(unit ? { unit } : {}),
       });
     } else {
-      addPerHit(category, raw, basis);
+      addPerHit(category, raw, basis, unit);
     }
   };
 
@@ -308,6 +328,7 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "gunDamage",
       chainDamage * chainCount * (procChance / 100),
       `${chainDamage} dmg x ${chainCount} chained targets x ${procChance}% proc`,
+      "damage",
     );
   }
 
@@ -318,13 +339,19 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "spiritDamage",
       procMagic * (procChance / 100),
       `${procMagic} bonus spirit damage x ${procChance}% proc`,
+      "damage",
     );
   }
 
   // ── Crit proc (Lucky Shot) ──
   const crit = num(stats, "CritDamagePercent");
   if (crit != null && procChance != null) {
-    addProc("gunDamage", crit * (procChance / 100), `+${crit}% crit damage x ${procChance}% proc`);
+    addProc(
+      "gunDamage",
+      crit * (procChance / 100),
+      `+${crit}% crit damage x ${procChance}% proc`,
+      "weaponPercent",
+    );
   }
 
   // ── Damage over time (Toxic Bullets) ──
@@ -336,18 +363,29 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const tickRate = num(stats, "TickRate");
   if (dotPct != null && dotDuration != null && tickRate != null && tickRate > 0) {
     const ticks = dotDuration / tickRate;
-    addPerHit(
-      "gunDamage",
-      dotPct * ticks,
-      `${dotPct}% max-health per tick x ${ticks.toFixed(0)} ticks`,
-    );
+    // Hero-agnostic value: the DoT's total % of max health. The hero-aware
+    // conversion reads it per second instead (unit below): the DoT is
+    // refreshed while the hero keeps hitting, so it is a rate, not a burst.
+    out.push({
+      category: "gunDamage",
+      value: dotPct * ticks * EFFECT_CONFIDENCE,
+      basis: `${dotPct}% max-health per tick x ${ticks.toFixed(0)} ticks`,
+      perHit: true,
+      unit: "maxHealthPercentPerSecond",
+      perSecond: (dotPct / tickRate) * EFFECT_CONFIDENCE,
+    });
   }
 
   // ── Ricochet ──
   // A straight fraction of weapon damage repeated onto nearby targets.
   const ricochet = num(stats, "RicochetDamagePercent");
   if (ricochet != null) {
-    addPerHit("gunDamage", ricochet, `${ricochet}% of weapon damage bounced to nearby targets`);
+    addPerHit(
+      "gunDamage",
+      ricochet,
+      `${ricochet}% of weapon damage bounced to nearby targets`,
+      "weaponPercent",
+    );
   }
 
   // ── Sustained ground/area DPS (Alchemical Fire, Spirit Burn) ──
@@ -355,18 +393,18 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const dps = num(stats, "DPS");
   if (dps != null) {
     const up = uptime(stats);
-    add("spiritDamage", dps * up, `${dps} area DPS x ${(up * 100).toFixed(0)}% uptime`);
+    add("spiritDamage", dps * up, `${dps} area DPS x ${(up * 100).toFixed(0)}% uptime`, "dps");
   }
 
   // ── Burst damage actives (Mystic Burst, Capacitor, Quicksilver Reload) ──
   // Not divided by cooldown: a repeatable nuke keeps its per-cast value.
   const burst = num(stats, "Damage") ?? num(stats, "SpiritDamage");
   if (burst != null) {
-    add("spiritDamage", burst, `${burst} burst damage per cast`);
+    add("spiritDamage", burst, `${burst} burst damage per cast`, "damage");
   }
   const explosion = num(stats, "ExplosionDamage");
   if (explosion != null) {
-    add("spiritDamage", explosion, `${explosion} explosion damage`);
+    add("spiritDamage", explosion, `${explosion} explosion damage`, "damage");
   }
 
   // ── Burst heal (Healing Nova) and on-hit heal (Melee Lifesteal) ──
