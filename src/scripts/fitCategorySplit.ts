@@ -143,11 +143,40 @@ async function main(): Promise<void> {
       console.log(`  skip ${hero.name}: no priced purchases`);
       continue;
     }
+    // Phase splits: souls BOUGHT in 0–10 and 10–20 min (exact buy-time filters;
+    // not net of sells, since an early buy later sold is still an early buy).
+    // These feed the starter-build fixtures' measured phase expectations (M1).
+    const boughtShares = async (extra: Record<string, number>) => {
+      const phaseRows = await getJson<ItemStatsRow[]>("item-stats", {
+        ...window,
+        hero_ids: hero.id,
+        min_matches: 1,
+        ...extra,
+      });
+      const ps = { gun: 0, spirit: 0, vitality: 0 };
+      for (const r of phaseRows) {
+        const item = itemByNumericId.get(r.item_id);
+        if (item) ps[item.category] += r.matches * item.cost;
+      }
+      const pt = ps.gun + ps.spirit + ps.vitality;
+      return pt > 0
+        ? {
+            gun: round3(ps.gun / pt),
+            spirit: round3(ps.spirit / pt),
+            vitality: round3(ps.vitality / pt),
+          }
+        : undefined;
+    };
+    const early = await boughtShares({ max_bought_at_s: 600 });
+    const mid = await boughtShares({ min_bought_at_s: 600, max_bought_at_s: 1200 });
+
     table.heroes[String(hero.id)] = {
       gun: round3(souls.gun / total),
       spirit: round3(souls.spirit / total),
       vitality: round3(souls.vitality / total),
       matches,
+      ...(early ? { early } : {}),
+      ...(mid ? { mid } : {}),
     };
     const s = table.heroes[String(hero.id)];
     console.log(

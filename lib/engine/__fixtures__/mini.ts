@@ -24,6 +24,7 @@ import {
   makeBasketContext,
   PAIR_LIFT_MAX_FRACTION,
   pairTerm,
+  rankingPrice,
   procPlatformTerm,
   SYNERGY_MAX_FRACTION,
   synergyTerm,
@@ -3518,6 +3519,61 @@ console.log("\n18. Measured category split (need-vector PR)");
       Math.floor(committed.method.minAverageBadge / 10) >= 1,
     "heroCategorySplit.json: window spans method.days, generated = window.to, rank fields set",
     `days ${days}, generated ${committed.generated}`,
+  );
+}
+
+console.log("\n19. Ranking by value per binding resource (coverage-model PR 1)");
+{
+  // a. rankingPrice: per soul when souls are tight, a slot's share when slots bind.
+  assert(
+    rankingPrice(1600, 5900, 12) === 1600 &&
+      rankingPrice(800, 24000, 6) === 4000 &&
+      rankingPrice(6400, 24000, 6) === 6400 &&
+      rankingPrice(0, 0, 0) === 1,
+    "rankingPrice: max(effective cost, souls per free slot), never below 1",
+  );
+
+  // b. Tight souls: an efficient cheap item beats a pricier all-rounder that
+  //    only has more total value (the old raw-value ranking picked the latter).
+  const need = { ...zeroValues(), gunDamage: 1, spiritDamage: 1, sustain: 1 };
+  const cheap = mkCandidate("cheap_eff", 701, "gun", 800, { gunDamage: 30 });
+  const allRounder = mkCandidate("big_round", 702, "gun", 3200, {
+    gunDamage: 30,
+    spiritDamage: 25,
+    sustain: 25,
+  });
+  const tight = makeBasketContext({ needVector: need, soulBudget: 3200, maxItems: 12 });
+  const tightPick = constructBasket([cheap, allRounder], tight).picks[0]?.item.itemId;
+  assert(
+    tightPick === "cheap_eff",
+    "ranking: with tight souls, value per soul wins (800 item at 30 beats 3200 item at 80)",
+    `Got ${tightPick}`,
+  );
+
+  // c. Slots binding: plenty of souls per free slot, so the high-value item wins.
+  const roomy = makeBasketContext({ needVector: need, soulBudget: 30000, maxItems: 2 });
+  const roomyPick = constructBasket([cheap, allRounder], roomy).picks[0]?.item.itemId;
+  assert(
+    roomyPick === "big_round",
+    "ranking: when slots bind (souls per slot above both prices), value per slot wins",
+    `Got ${roomyPick}`,
+  );
+
+  // d. The stop rule still uses raw value: nothing worthless is bought just
+  //    because it is cheap.
+  const worthless = mkCandidate("worthless", 703, "gun", 100, {});
+  const onlyWorthless = constructBasket([worthless], tight);
+  assert(
+    onlyWorthless.picks.length === 0 && onlyWorthless.stopReason === "no-positive-value",
+    "ranking: a cheap item with no value is never picked",
+    `Got ${onlyWorthless.picks.length} picks, ${onlyWorthless.stopReason}`,
+  );
+
+  // e. Deterministic and order-independent.
+  assert(
+    JSON.stringify(constructBasket([cheap, allRounder, worthless], tight)) ===
+      JSON.stringify(constructBasket([worthless, allRounder, cheap], tight)),
+    "ranking: same result whatever the candidate order",
   );
 }
 

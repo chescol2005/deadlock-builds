@@ -54,7 +54,49 @@ export interface CategorySplitTable {
     minMatches: number;
     measure: string;
   };
-  heroes: Record<string, { gun: number; spirit: number; vitality: number; matches: number }>;
+  heroes: Record<
+    string,
+    {
+      gun: number;
+      spirit: number;
+      vitality: number;
+      matches: number;
+      /**
+       * Shares of item souls BOUGHT in 0–10 min / 10–20 min (Σ purchases × cost,
+       * not net of sells: early buys that are later sold still are early buys).
+       * Used by the starter-build fixtures' measured phase expectations (M1,
+       * docs/starter-build-use-cases.md §4.3); not read by the engine yet.
+       */
+      early?: CategoryShares;
+      mid?: CategoryShares;
+    }
+  >;
+}
+
+/** Measured phase splits for one hero: early / mid purchases, late = final inventory. */
+export interface HeroPhaseSplits {
+  early: CategoryShares;
+  mid: CategoryShares;
+  late: CategoryShares;
+}
+
+function validShares(s: CategoryShares | undefined): CategoryShares | null {
+  if (!s) return null;
+  const total = s.gun + s.spirit + s.vitality;
+  if (![s.gun, s.spirit, s.vitality].every((v) => Number.isFinite(v) && v >= 0) || !(total > 0)) {
+    return null;
+  }
+  return { gun: s.gun / total, spirit: s.spirit / total, vitality: s.vitality / total };
+}
+
+/** All three measured phase splits for a hero, or null when any is missing. */
+export function heroPhaseSplits(table: CategorySplitTable, heroId: number): HeroPhaseSplits | null {
+  const row = table.heroes[String(heroId)];
+  if (!row) return null;
+  const early = validShares(row.early);
+  const mid = validShares(row.mid);
+  const late = validShares(row);
+  return early && mid && late ? { early, mid, late } : null;
 }
 
 /**

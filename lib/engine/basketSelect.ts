@@ -1069,10 +1069,29 @@ export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
 // ─── Greedy basket construction ──────────────────────────────────────────────
 
 /**
- * True if candidate `a` should outrank candidate `b`.
+ * What a candidate "costs" for ranking: its effective price, but never less
+ * than the souls available per free slot.
  *
- * A STRICT TOTAL ORDER, mirroring engine.ts / scoreItems.ts exactly:
- *   1. marginal value, descending
+ * Budgeted maximum coverage is classically solved greedily by value PER COST.
+ * Here there are two budgets, souls and slots. When souls are tight (early: 5,900
+ * souls, 12 slots ≈ 490 per slot) every item costs more than a slot's share, so
+ * this is value per soul and 800-soul basics compete fairly with 3,200-soul
+ * all-rounders, as real early builds do. When slots bind (late: souls per slot
+ * above an item's price) cheap items are charged a full slot's share, so the
+ * ranking becomes value per slot and strong tier-4 items still win. An upgrade's
+ * lower effective cost counts in its favour. Never below 1 (no division by 0).
+ */
+export function rankingPrice(effectiveCost: number, budgetLeft: number, slotsLeft: number): number {
+  const perSlot = Math.max(0, budgetLeft) / Math.max(1, slotsLeft);
+  return Math.max(1, effectiveCost, perSlot);
+}
+
+/**
+ * True if candidate `a` should outrank candidate `b`, given each one's ranking
+ * score (marginal value ÷ `rankingPrice`).
+ *
+ * A STRICT TOTAL ORDER:
+ *   1. ranking score, descending
  *   2. cost, ascending (cheaper item wins an equal-value tie)
  *   3. itemId, ascending (final tiebreaker — guarantees total order)
  *
@@ -1195,6 +1214,7 @@ export function constructBasket(
 
     let bestIndex = -1;
     let bestValue = 0;
+    let bestScore = 0;
     let bestTerms: MarginalTerm[] = [];
     let bestCost = { cost: 0, consumes: [] as ItemCandidate[] };
     let sawAffordable = false;
@@ -1223,9 +1243,14 @@ export function constructBasket(
         value += result.value;
       }
 
-      if (bestIndex === -1 || outranks(candidate, value, remaining[bestIndex], bestValue)) {
+      // Rank by value per unit of the BINDING resource, not raw value (see
+      // rankingPrice). Raw value let a 3,200-soul all-rounder beat an 800-soul
+      // item that was just as efficient, so every hero opened the same way.
+      const score = value / rankingPrice(eff.cost, budgetLeft, slotsLeft);
+      if (bestIndex === -1 || outranks(candidate, score, remaining[bestIndex], bestScore)) {
         bestIndex = i;
         bestValue = value;
+        bestScore = score;
         bestTerms = candidateTerms;
         bestCost = eff;
       }

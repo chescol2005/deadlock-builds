@@ -335,7 +335,9 @@ lib/engine/                   — engine scoring surface, parallel to lib/scorin
   itemAdapter.ts              — toItemCandidate(), toItemCandidates() — Item bridge
   basketSelect.ts             — constructBasket(), makeBasketContext() (owned items seed
                                 coverage; effectiveCost(): upgrades consume owned
-                                direct components and cost the difference),
+                                direct components and cost the difference;
+                                picks ranked by value / rankingPrice(): per soul
+                                when souls are tight, per slot when slots bind),
                                 coverageTerm/categoryBonusTerm/procPlatformTerm/
                                 hitReliabilityTerm/synergyTerm/pairTerm/
                                 analyticsTerm. New terms plug in as one more

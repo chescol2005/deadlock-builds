@@ -22,6 +22,7 @@ import {
   componentClosures,
   effectiveCost,
   initialBasketState,
+  rankingPrice,
 } from "@/lib/engine/basketSelect";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { heroPairLift } from "@/lib/engine/pairLift";
@@ -153,6 +154,8 @@ interface Ranked {
   value: number;
   terms: MarginalTerm[];
   effective: { cost: number; consumes: ItemCandidate[] };
+  /** value ÷ rankingPrice: the order the greedy loop actually uses. */
+  score: number;
 }
 
 /** "3200" or "3200→2400 (upgrades Cold Front)" when held components are consumed. */
@@ -236,10 +239,13 @@ async function main(): Promise<void> {
         terms.push(r);
         value += r.value;
       }
-      return { candidate, value, terms, effective: effectiveCost(candidate, startHeld) };
+      const effective = effectiveCost(candidate, startHeld);
+      // Same ranking as the loop: value per unit of the binding resource.
+      const score = value / rankingPrice(effective.cost, ctx.soulBudget, ctx.maxItems);
+      return { candidate, value, terms, effective, score };
     })
     .sort((a, b) => {
-      if (b.value !== a.value) return b.value - a.value;
+      if (b.score !== a.score) return b.score - a.score;
       if (a.candidate.cost !== b.candidate.cost) return a.candidate.cost - b.candidate.cost;
       return a.candidate.itemId.localeCompare(b.candidate.itemId);
     });
@@ -301,7 +307,7 @@ async function main(): Promise<void> {
             r.effective.consumes.map((c) => c.name),
           ),
           5,
-        )}  ${lpad(fmt(r.value), 7)}  [${termSummary(r.terms)}]`,
+        )}  ${lpad(fmt(r.value), 7)}  per-price ${fmt(r.score * 1000, 1)}/1k  [${termSummary(r.terms)}]`,
     );
   });
 

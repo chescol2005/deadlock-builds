@@ -1247,6 +1247,39 @@ purchases that players later sell; a per-phase table could come later.
 **Refresh** monthly with `npm run fit-category-split`, alongside `npm run fit-pairs`, and
 review the diff hero by hero.
 
+## Ranking by value per binding resource (coverage-model PR 1)
+
+The greedy loop used to rank candidates by raw marginal value, with cost only as a
+tie-break. A 3,200-soul all-rounder carries more total stats than an equally efficient
+800-soul item, so it always won. Every hero therefore opened with Blood Tribute, Cultist
+Sacrifice or Fury Trance, while Oracle+ players open with 800-soul basics (Monster
+Rounds, Extra Regen, Extra Spirit).
+
+Budgeted maximum coverage is classically solved greedily by value PER COST. There are two
+budgets here, souls and slots. So the loop now ranks by `value / rankingPrice`, where
+`rankingPrice = max(effective cost, souls left / free slots, 1)`:
+
+- **Souls tight** (early: 5,900 souls, 12 slots ≈ 490 a slot): value per soul, so cheap
+  efficient items compete fairly.
+- **Slots binding** (souls per slot above an item's price): cheap items are charged a
+  slot's share, so the ranking becomes value per slot and strong tier-4 items still win.
+- **Upgrades:** their lower effective cost counts in their favour (lean L6).
+- **Stop rule:** still raw value ≤ 0, so a cheap item that covers nothing is never bought.
+
+Live effect, alone (before PR 2):
+
+- **M1 phase checks:** 6 → 11 of 24 pass.
+- **Early phases:** 3 items → 4–5, e.g. Seven: Cold Front, Spirit Strike, Battle Vest,
+  Grit, Monster Rounds.
+- **Upgrade paths:** 4 → 29.
+- **Regressions:** Wraith early, Abrams early and late, and Warden early now fail. Mid
+  overlap went 0.377 → 0.395.
+
+The regressions come from cheap items carrying placeholder-category stats looking
+efficient for everyone, which PR 2's measured phase profile replaces. The two PRs are
+stacked and merge together (user decision), so `main`'s ratchet never regresses. The
+probe ranks the same way and prints value per 1k of price.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical
