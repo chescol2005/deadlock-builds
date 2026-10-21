@@ -23,7 +23,13 @@ import {
 } from "./heroNeed";
 import { toItemCandidates } from "./itemAdapter";
 import type { HeroPairLift } from "./pairLift";
-import { adjustSplitForAccuracy, applyCategorySplit } from "./categorySplit";
+import {
+  adjustSplitForAccuracy,
+  applyCategorySplit,
+  applyStatProfile,
+  phaseForSouls,
+  phaseView,
+} from "./categorySplit";
 import type { HeroCategorySplit } from "./categorySplit";
 import type { BasketContext, BasketResult, HeroNeedVector, ItemCandidate } from "./types";
 
@@ -89,7 +95,24 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   // accuracy at the player's rank relative to Oracle+: gun items are worth less
   // to a player who lands fewer shots, as the kit-derived gun need modelled.
   const heroId = heroBaseStats.heroId;
-  let split = input.categorySplit;
+  //
+  // PHASE-AWARE (coverage-model PR 2): the basket shops in the phase its souls
+  // put it in (phaseForSouls), so it follows what players buy THEN — early
+  // purchases differ a lot from the final inventory (Oracle+ Seven: 44% gun in
+  // the first 10 minutes, 17% by the end). The phase's stat profile also sets
+  // the categories the kit cannot derive (antiHeal, sustain, utility, economy,
+  // mobility), which were a flat placeholder for every hero.
+  const view = input.categorySplit
+    ? phaseView(input.categorySplit, phaseForSouls(input.souls))
+    : null;
+  let split = view
+    ? {
+        ...view.shares,
+        scope: input.categorySplit?.scope ?? "",
+        basis: view.basis,
+        rankTier: input.categorySplit?.rankTier ?? 0,
+      }
+    : undefined;
   if (split && input.heroAccuracy) {
     const atRank = gunAccuracyByHeroId?.get(heroId);
     const atSplit = resolveAccuracyAtRank(input.heroAccuracy, split.rankTier).get(heroId);
@@ -99,15 +122,16 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   }
   const mode = input.categorySplitMode ?? "both";
 
-  const needVector = applyCategorySplit(
-    deriveHeroNeedVector({
-      abilities: heroAbilities,
-      baseStats: heroBaseStats,
-      roster: heroRoster,
-      gunAccuracyByHeroId,
-    }),
-    mode === "term-only" ? undefined : split,
-  );
+  const kitNeed = deriveHeroNeedVector({
+    abilities: heroAbilities,
+    baseStats: heroBaseStats,
+    roster: heroRoster,
+    gunAccuracyByHeroId,
+  });
+  const needVector =
+    mode === "term-only"
+      ? kitNeed
+      : applyStatProfile(applyCategorySplit(kitNeed, split), view?.profile);
 
   const ownedIds = new Set(ownedItems.map((i) => i.id));
 

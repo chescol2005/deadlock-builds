@@ -334,6 +334,43 @@ stubbed neutral categories hold about 45% of every hero's target. That needs a
 coverage-model change, so whether 2d waits for it is an open question for the user.
 Known gaps: L1 Seven, L1 Lady Geist.
 
+### 5.6 After coverage-model PRs 1 and 2 (value per soul, phase-aware split)
+
+PR 1 ranks picks by value per soul (or per slot when slots bind). PR 2 uses the phase's
+own measured split and replaces the five placeholder categories with a measured
+per-phase stat profile. Real vs engine split, gun/spirit/vitality %, with L1 distance
+(✅ = within 0.30):
+
+| Hero          | Early: real → engine (d)      | Mid: real → engine (d)        | Late: real → engine (d)       |
+| ------------- | ----------------------------- | ----------------------------- | ----------------------------- |
+| Seven         | 44/30/26 → 43/29/29 (0.05) ✅ | 17/52/32 → 15/31/54 (0.45)    | 17/48/35 → 22/38/41 (0.20) ✅ |
+| Lady Geist    | 18/62/21 → 14/43/43 (0.45)    | 28/38/34 → 46/23/31 (0.36)    | 28/41/31 → 34/31/34 (0.20) ✅ |
+| Haze          | 62/16/22 → 29/29/43 (0.67)    | 44/25/31 → 36/14/50 (0.38)    | 54/15/30 → 27/35/38 (0.55)    |
+| Wraith        | 48/38/14 → 29/43/29 (0.40)    | 43/29/28 → 38/23/38 (0.21) ✅ | 46/28/26 → 29/43/29 (0.35)    |
+| Infernus      | 36/40/24 → 29/43/29 (0.14) ✅ | 33/36/31 → 15/23/62 (0.61)    | 36/37/27 → 50/25/25 (0.27) ✅ |
+| Abrams        | 59/15/27 → 43/14/43 (0.32)    | 29/25/46 → 29/36/36 (0.21) ✅ | 30/21/49 → 29/41/29 (0.41)    |
+| Warden        | 71/14/15 → 43/29/29 (0.57)    | 24/42/35 → 31/31/38 (0.22) ✅ | 38/30/33 → 27/32/41 (0.22) ✅ |
+| Deadman Danny | 49/29/22 → 29/43/29 (0.41)    | 25/39/36 → 31/31/38 (0.17) ✅ | 24/47/29 → 16/43/41 (0.24) ✅ |
+
+- **M1:** 11 of 24 pass (6 before). The engine's mid phase now buys spirit (14–36%)
+  instead of none.
+- **M2:** still fails; one item is in every early phase.
+- **M3:** mid overlap 0.377 → 0.373; the baseline is lowered to 0.38.
+- L4, L5 and L6 still pass.
+
+**Approved exception (user, 2026-10-20).** §4.3's merge gate asked for no regressions.
+Four keys that passed before now fail: Wraith early, Abrams early and late, Warden early.
+The user accepted them for the net gain, and they are listed in `KNOWN_LEAN_GAPS`.
+
+**Why they fail.** The early phase is under-gun for gun openers (Haze 29% vs 62%, Warden
+43% vs 71%). Two follow-ups were measured and not merged: hero-relative damage values and
+soft saturation of the coverage caps. Both showed the same cause. Categories are valued
+in different units, so the need vector cannot steer picks: damage is "% of DPS" while
+sustain, mobility, utility and economy are raw stat sums, several times larger per soul.
+Putting every category on one value scale is the next step (pulled forward from the item
+scoring review). Details in "Hero-relative damage and soft saturation" in
+engine-design-notes.md.
+
 ## 6. Known failures (the ratchet)
 
 Fixtures check every hard rule and every lean:

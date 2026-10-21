@@ -11,8 +11,10 @@
 // "Measured category split" in engine-design-notes.md.
 //
 // The engine uses the split as a PRIOR (lib/engine/categorySplit.ts): it
-// redistributes the kit-derived need vector between the three families. Heroes
-// below --min matches are left out and fall back to the kit-only vector.
+// redistributes the kit-derived need vector between the three families, per
+// phase (early / mid purchase splits, final split late), and each phase's stat
+// profile sets the five non-family categories. Heroes below --min matches are
+// left out and fall back to the kit-only vector.
 //
 // Refresh on the same monthly cadence as `npm run fit-pairs` (CLAUDE.md, Data
 // Verification Cadence) and review the diff before committing.
@@ -25,6 +27,10 @@ import path from "node:path";
 import { fetchVisibleHeroesEnriched } from "@/lib/heroApi";
 import { getItems } from "@/lib/itemStore";
 import type { CategorySplitTable } from "@/lib/engine/categorySplit";
+import { toItemCandidate } from "@/lib/engine/itemAdapter";
+import { SCORE_CATEGORIES } from "@/lib/engine/types";
+import type { ScoreCategory } from "@/lib/engine/types";
+import type { Item } from "@/lib/items";
 import { getJson } from "./pairData";
 
 interface Args {
@@ -72,6 +78,31 @@ interface ItemStatsRow {
 }
 
 const round3 = (x: number) => Math.round(x * 1000) / 1000;
+const round4 = (x: number) => Math.round(x * 10000) / 10000;
+
+/**
+ * Measured STAT profile: Σ weight × the item's category values (unscaled, as
+ * lib/engine/itemAdapter scores items), normalized to shares of 1 across all 12
+ * score categories. This is what the purchases actually covered, so it gives
+ * the categories the kit cannot derive (antiHeal, sustain, utility, economy,
+ * mobility) a measured per-hero, per-phase weight.
+ */
+function statProfile(
+  weighted: ReadonlyArray<{ item: Item; weight: number }>,
+): Record<ScoreCategory, number> | undefined {
+  const sum = {} as Record<ScoreCategory, number>;
+  for (const c of SCORE_CATEGORIES) sum[c] = 0;
+  for (const { item, weight } of weighted) {
+    if (!(weight > 0)) continue;
+    const values = toItemCandidate(item).categoryValues;
+    for (const c of SCORE_CATEGORIES) sum[c] += weight * Math.max(0, values[c]);
+  }
+  const total = SCORE_CATEGORIES.reduce((t, c) => t + sum[c], 0);
+  if (!(total > 0)) return undefined;
+  const out = {} as Record<ScoreCategory, number>;
+  for (const c of SCORE_CATEGORIES) out[c] = round4(sum[c] / total);
+  return out;
+}
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
@@ -145,8 +176,8 @@ async function main(): Promise<void> {
     }
     // Phase splits: souls BOUGHT in 0–10 and 10–20 min (exact buy-time filters;
     // not net of sells, since an early buy later sold is still an early buy).
-    // These feed the starter-build fixtures' measured phase expectations (M1).
-    const boughtShares = async (extra: Record<string, number>) => {
+    // Read by the engine's phaseView and by the starter-build fixtures (M1).
+    const bought = async (extra: Record<string, number>) => {
       const phaseRows = await getJson<ItemStatsRow[]>("item-stats", {
         ...window,
         hero_ids: hero.id,
@@ -154,21 +185,39 @@ async function main(): Promise<void> {
         ...extra,
       });
       const ps = { gun: 0, spirit: 0, vitality: 0 };
+      const weighted: Array<{ item: Item; weight: number }> = [];
       for (const r of phaseRows) {
         const item = itemByNumericId.get(r.item_id);
-        if (item) ps[item.category] += r.matches * item.cost;
+        if (!item) continue;
+        ps[item.category] += r.matches * item.cost;
+        weighted.push({ item, weight: r.matches });
       }
       const pt = ps.gun + ps.spirit + ps.vitality;
-      return pt > 0
-        ? {
-            gun: round3(ps.gun / pt),
-            spirit: round3(ps.spirit / pt),
-            vitality: round3(ps.vitality / pt),
-          }
-        : undefined;
+      const shares =
+        pt > 0
+          ? {
+              gun: round3(ps.gun / pt),
+              spirit: round3(ps.spirit / pt),
+              vitality: round3(ps.vitality / pt),
+            }
+          : undefined;
+      return { shares, profile: statProfile(weighted) };
     };
-    const early = await boughtShares({ max_bought_at_s: 600 });
-    const mid = await boughtShares({ min_bought_at_s: 600, max_bought_at_s: 1200 });
+    const earlyBought = await bought({ max_bought_at_s: 600 });
+    const midBought = await bought({ min_bought_at_s: 600, max_bought_at_s: 1200 });
+    const early = earlyBought.shares;
+    const mid = midBought.shares;
+    // Late profile: the final inventory, (bought − sold), as for the late split.
+    const lateProfile = statProfile(
+      rows.flatMap((r) => {
+        const item = itemByNumericId.get(r.item_id);
+        return item ? [{ item, weight: Math.max(0, r.matches - (r.sold ?? 0)) }] : [];
+      }),
+    );
+    const profile =
+      earlyBought.profile && midBought.profile && lateProfile
+        ? { early: earlyBought.profile, mid: midBought.profile, late: lateProfile }
+        : undefined;
 
     table.heroes[String(hero.id)] = {
       gun: round3(souls.gun / total),
@@ -177,6 +226,7 @@ async function main(): Promise<void> {
       matches,
       ...(early ? { early } : {}),
       ...(mid ? { mid } : {}),
+      ...(profile ? { profile } : {}),
     };
     const s = table.heroes[String(hero.id)];
     console.log(

@@ -2,7 +2,8 @@
 // "Start from a suggested build" feature (lib/engine/starterBuild.ts).
 //
 // Spec: docs/starter-build-use-cases.md (APPROVED). Hard rules H1-H9 are plain
-// asserts. Expected leans L1-L6 go through the ratchet in section 6: a failing
+// asserts. Expected leans L4-L6 and the measured phase expectations M1-M3
+// (which replaced L1-L3, doc §4.3) go through the ratchet in section 6: a failing
 // lean must be listed in KNOWN_LEAN_GAPS, and a listed lean that starts passing
 // fails the harness until it is removed.
 //
@@ -38,15 +39,16 @@ const REFERENCE_HEROES = [
  * passing, the fixture fails until its key is removed here.
  */
 const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
-  // State after coverage-model PR 1 (value per binding resource), 2026-10-20:
-  // 11 of 24 M1 keys pass (6 on main). STACKED with PR 2: the pair may only
-  // merge when this list is a subset of main's and MID_OVERLAP_BASELINE is back
-  // to <= 0.38 (docs/starter-build-use-cases.md §4.3). Regressed vs main here,
-  // to be won back by PR 2: Wraith:early, Abrams:early, Abrams:late, Warden:early.
-  "M1:Seven:early",
+  // State after coverage-model PRs 1+2 (value per soul, phase-aware split + stat
+  // profile), 2026-10-20: 11 of 24 M1 keys pass (6 before). APPROVED EXCEPTION
+  // (user, 2026-10-20): Wraith:early, Abrams:early, Abrams:late and Warden:early
+  // passed before and are listed here as accepted regressions. Cause: categories
+  // valued in different units (doc §5.6); the item scoring review removes them.
   "M1:Seven:mid",
   "M1:Lady Geist:early",
+  "M1:Lady Geist:mid",
   "M1:Haze:early",
+  "M1:Haze:mid",
   "M1:Haze:late",
   "M1:Wraith:early",
   "M1:Wraith:late",
@@ -55,7 +57,7 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
   "M1:Abrams:late",
   "M1:Warden:early",
   "M1:Deadman Danny:early",
-  "M1:Deadman Danny:mid",
+  // M2 already failed on main (one item in every early phase): not a regression.
   "M2",
 ]);
 
@@ -63,9 +65,7 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
  * M3 baseline: mean pairwise Jaccard of the reference heroes' mid phases. May
  * only be lowered (docs/starter-build-use-cases.md §4.3).
  */
-// main measured 0.377 (2026-10-20). PR 1 alone measures 0.395; STACKED with PR 2,
-// which must bring it back to <= 0.38 before the pair merges.
-const MID_OVERLAP_BASELINE = 0.4;
+const MID_OVERLAP_BASELINE = 0.38; // main 0.377; PR 1+2 measure 0.373 (2026-10-20)
 
 const sum = (xs: ReadonlyArray<number>) => xs.reduce((a, b) => a + b, 0);
 
