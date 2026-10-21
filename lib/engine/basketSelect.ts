@@ -307,7 +307,7 @@ export function makeBasketContext(opts: {
    */
   ownedCandidates?: ReadonlyArray<ItemCandidate>;
   /** Measured shop-category split for this hero; omitted => categorySplitTerm inert. */
-  categorySplit?: CategoryShares & { scope: string };
+  categorySplit?: CategoryShares & { scope: string; basis?: string };
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -371,7 +371,7 @@ export function makeBasketContext(opts: {
     owned,
     targetSlots,
     // RAW shares (validated): the floor exists for need-vector reachability only;
-    // the term and its reason use what players actually end games with.
+    // the term and its reason use what players actually buy or hold.
     categorySplit:
       opts.categorySplit && flooredShares(opts.categorySplit)
         ? {
@@ -379,6 +379,7 @@ export function makeBasketContext(opts: {
             spirit: opts.categorySplit.spirit,
             vitality: opts.categorySplit.vitality,
             scope: opts.categorySplit.scope,
+            basis: opts.categorySplit.basis,
           }
         : undefined,
   };
@@ -1014,7 +1015,8 @@ function splitGain(
 
 /**
  * Steers the build's souls per SHOP category (gun / spirit / vitality) toward
- * what high-rank players on this hero end games holding (heroCategorySplit.json).
+ * what high-rank players on this hero buy in the current phase, or end games
+ * holding in the late game (heroCategorySplit.json, phaseView).
  * Positive when the candidate moves the held build's soul split toward that,
  * negative when it moves it further away. Counts what is held (owned items
  * included) and the souls actually paid (upgrades at the difference).
@@ -1043,10 +1045,11 @@ export const categorySplitTerm: MarginalTermFn = {
     if (Math.abs(gain) < CATEGORY_SPLIT_MIN_GAIN) return null;
 
     const pct = Math.round(split[candidate.category] * 100);
+    const basis = split.basis ?? "end games with";
     const reason =
       gain > 0
-        ? `Moves your build toward what ${split.scope} end games with on this hero (${pct}% ${candidate.category})`
-        : `Moves your build further from what ${split.scope} end games with on this hero (${pct}% ${candidate.category})`;
+        ? `Moves your build toward what ${split.scope} ${basis} on this hero (${pct}% ${candidate.category})`
+        : `Moves your build further from what ${split.scope} ${basis} on this hero (${pct}% ${candidate.category})`;
     return {
       termId: "category-split",
       value: gain * CATEGORY_SPLIT_MAX_FRACTION * scale,

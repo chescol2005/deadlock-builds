@@ -3667,6 +3667,23 @@ console.log("\n20. Phase-aware split and measured stat profile (coverage-model P
       phaseView(base, "early").shares.gun === 0.2,
     "phaseView: per-phase split and profile when present; whole-game split otherwise",
   );
+
+  // e. The term's reason names what the shares measure: early / mid purchases
+  //    are not what players end games with (audit, 2026-10-20).
+  assert(
+    phaseView(withPhases, "early").basis === "buy in the first 10 minutes" &&
+      phaseView(withPhases, "mid").basis === "buy from minute 10 to 20" &&
+      phaseView(withPhases, "late").basis === "end games with" &&
+      phaseView(base, "early").basis === "end games with",
+    "phaseView: basis matches the shares (phase purchases vs final inventory)",
+  );
+
+  // f. No family need to rescale: the need comes back unchanged, total kept.
+  const familyless = { ...zeroValues(), sustain: 1, economy: 1 };
+  assert(
+    applyStatProfile(familyless, profile) === familyless,
+    "applyStatProfile: with no family need the need is returned as is",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

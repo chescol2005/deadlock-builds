@@ -228,6 +228,11 @@ export interface BasketContext {
     vitality: number;
     /** e.g. "Oracle+ players (last 30 days)" — quoted in the reason. */
     scope: string;
+    /**
+     * What the shares measure, quoted in the reason after `scope`: e.g. "buy in
+     * the first 10 minutes" for a phase split. Omitted => "end games with".
+     */
+    basis?: string;
   };
 }
 

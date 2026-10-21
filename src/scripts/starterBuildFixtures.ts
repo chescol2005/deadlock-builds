@@ -2,7 +2,8 @@
 // "Start from a suggested build" feature (lib/engine/starterBuild.ts).
 //
 // Spec: docs/starter-build-use-cases.md (APPROVED). Hard rules H1-H9 are plain
-// asserts. Expected leans L1-L6 go through the ratchet in section 6: a failing
+// asserts. Expected leans L4-L6 and the measured phase expectations M1-M3
+// (which replaced L1-L3, doc §4.3) go through the ratchet in section 6: a failing
 // lean must be listed in KNOWN_LEAN_GAPS, and a listed lean that starts passing
 // fails the harness until it is removed.
 //
@@ -56,6 +57,7 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
   "M1:Abrams:late",
   "M1:Warden:early",
   "M1:Deadman Danny:early",
+  // M2 already failed on main (one item in every early phase): not a regression.
   "M2",
 ]);
 

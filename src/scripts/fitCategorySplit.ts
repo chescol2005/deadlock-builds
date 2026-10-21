@@ -11,8 +11,10 @@
 // "Measured category split" in engine-design-notes.md.
 //
 // The engine uses the split as a PRIOR (lib/engine/categorySplit.ts): it
-// redistributes the kit-derived need vector between the three families. Heroes
-// below --min matches are left out and fall back to the kit-only vector.
+// redistributes the kit-derived need vector between the three families, per
+// phase (early / mid purchase splits, final split late), and each phase's stat
+// profile sets the five non-family categories. Heroes below --min matches are
+// left out and fall back to the kit-only vector.
 //
 // Refresh on the same monthly cadence as `npm run fit-pairs` (CLAUDE.md, Data
 // Verification Cadence) and review the diff before committing.
@@ -174,7 +176,7 @@ async function main(): Promise<void> {
     }
     // Phase splits: souls BOUGHT in 0–10 and 10–20 min (exact buy-time filters;
     // not net of sells, since an early buy later sold is still an early buy).
-    // These feed the starter-build fixtures' measured phase expectations (M1).
+    // Read by the engine's phaseView and by the starter-build fixtures (M1).
     const bought = async (extra: Record<string, number>) => {
       const phaseRows = await getJson<ItemStatsRow[]>("item-stats", {
         ...window,

@@ -9,12 +9,16 @@
 // "Measured category split" in engine-design-notes.md.
 //
 // The split is a PRIOR on how much of the build each shop category deserves.
-// What the kit still decides: the health / resist / shield ratio inside
-// vitality, every category outside the three families (antiHeal, mobility,
-// sustain, utility, economy), and the families' combined weight against those.
-// (Shred is a fixed fraction of damage in heroNeed.ts, so the kit does not
-// decide it either way.) `applyCategorySplit` only REDISTRIBUTES the need
-// vector between the three families.
+// `applyCategorySplit` REDISTRIBUTES the need vector between the three
+// families; the kit still decides the health / resist / shield ratio inside
+// vitality. (Shred is a fixed fraction of damage in heroNeed.ts.)
+//
+// Per phase (coverage-model PR 2): `phaseView` picks the early / mid PURCHASE
+// split or the final split by the build's souls, and `applyStatProfile` sets
+// the five categories outside the families (antiHeal, mobility, sustain,
+// utility, economy) from the phase's measured stat profile; the families fill
+// the rest. Without phase data both fall back to the whole-game split and the
+// kit's own values for those five.
 //
 // The split is measured at Oracle+, where players land more shots. So the gun
 // share is scaled by the hero's accuracy at the player's rank relative to
@@ -107,8 +111,9 @@ export interface CategorySplitTable {
       /**
        * Shares of item souls BOUGHT in 0–10 min / 10–20 min (Σ purchases × cost,
        * not net of sells: early buys that are later sold still are early buys).
-       * Used by the starter-build fixtures' measured phase expectations (M1,
-       * docs/starter-build-use-cases.md §4.3); not read by the engine yet.
+       * Read by `phaseView` for the early / mid basket, and by the starter-build
+       * fixtures' measured phase expectations (M1, docs/starter-build-use-cases.md
+       * §4.3).
        */
       early?: CategoryShares;
       mid?: CategoryShares;
@@ -216,11 +221,15 @@ function validProfile(p: StatProfile | undefined): boolean {
 export function phaseView(
   split: HeroCategorySplit,
   phase: GamePhase,
-): { shares: CategoryShares; profile: StatProfile | null } {
-  if (!split.phases) return { shares: split, profile: null };
-  const shares =
-    phase === "early" ? split.phases.early : phase === "mid" ? split.phases.mid : split;
-  return { shares, profile: split.phases.profile[phase] };
+): { shares: CategoryShares; profile: StatProfile | null; basis: string } {
+  const final = "end games with";
+  if (!split.phases) return { shares: split, profile: null, basis: final };
+  const profile = split.phases.profile[phase];
+  if (phase === "early")
+    return { shares: split.phases.early, profile, basis: "buy in the first 10 minutes" };
+  if (phase === "mid")
+    return { shares: split.phases.mid, profile, basis: "buy from minute 10 to 20" };
+  return { shares: split, profile, basis: final };
 }
 
 /**
@@ -255,7 +264,9 @@ export function applyStatProfile(
   const restTotal = cats
     .filter((c) => !isProfileCat.has(c))
     .reduce((s, c) => s + Math.max(0, need[c]), 0);
-  const scale = restTotal > 0 ? (total * (1 - profileShare)) / restTotal : 0;
+  // No family need to rescale: keep the need as is rather than shrink its total.
+  if (!(restTotal > 0)) return need;
+  const scale = (total * (1 - profileShare)) / restTotal;
   const shareSum = [...shares.values()].reduce((s, v) => s + v, 0);
   const out: Record<ScoreCategory, number> = { ...need };
   for (const c of cats) {

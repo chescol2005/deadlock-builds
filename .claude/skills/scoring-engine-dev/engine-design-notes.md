@@ -1277,8 +1277,9 @@ Live effect, alone (before PR 2):
 
 The regressions come from cheap items carrying placeholder-category stats looking
 efficient for everyone, which PR 2's measured phase profile replaces. The two PRs are
-stacked and merge together (user decision), so `main`'s ratchet never regresses. The
-probe ranks the same way and prints value per 1k of price.
+stacked and merge together (user decision). Combined, four of these still regress; the
+user accepted them (see the PR 2 section below). The probe ranks the same way and prints
+value per 1k of price.
 
 ## Phase-aware split and measured stat profile (coverage-model PR 2)
 

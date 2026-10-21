@@ -109,6 +109,7 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     ? {
         ...view.shares,
         scope: input.categorySplit?.scope ?? "",
+        basis: view.basis,
         rankTier: input.categorySplit?.rankTier ?? 0,
       }
     : undefined;
