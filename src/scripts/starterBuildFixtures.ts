@@ -36,21 +36,35 @@ const REFERENCE_HEROES = [
  * passing, the fixture fails until its key is removed here.
  */
 const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
-  // Measured 2026-10-20 (doc section 5.3 predicted these AND L4:Lady Geist/Haze
-  // and L6, which already pass on today's engine).
+  // Measured 2026-10-20 after PR 2c (doc section 5.4). L3 and L4 were removed
+  // by PR 2c (owned coverage).
   "L1:Seven",
   "L1:Lady Geist",
   "L2:Haze",
-  "L3:Abrams",
-  "L3:Warden",
-  "L4:Seven/Haze",
+  // Re-listed in PR 2c (user decision 2026-10-20), an explained exception to
+  // "the list only shrinks": its earlier pass was an artifact of the double
+  // count (F3), where upgrade stats were stacked on the component's. With
+  // correct pricing an upgrade adds only the difference, and the basket ranks by
+  // value, not value per soul, so fresh items win. Needs a soul-efficiency /
+  // slot-pressure signal (planned after the need-vector PR).
+  "L6",
 ]);
 
 const sum = (xs: ReadonlyArray<number>) => xs.reduce((a, b) => a + b, 0);
 
-/** Items of phases 0..upto (inclusive), in order. */
+/**
+ * What the player HOLDS after phase `upto` (inclusive), owned items excluded:
+ * every phase's items minus components a later upgrade consumed. Leans are
+ * measured on this, so an upgrade's full cost isn't double-counted with the
+ * component it replaced.
+ */
 function cumulativeItems(build: StarterBuild, upto: number): Item[] {
-  return build.phases.slice(0, upto + 1).flatMap((p) => [...p.items]);
+  let held: Item[] = [];
+  for (const p of build.phases.slice(0, upto + 1)) {
+    const gone = new Set(p.consumed.map((i) => i.id));
+    held = [...held.filter((i) => !gone.has(i.id)), ...p.items];
+  }
+  return held;
 }
 
 function soulsByCategory(items: ReadonlyArray<Item>) {
@@ -59,8 +73,14 @@ function soulsByCategory(items: ReadonlyArray<Item>) {
   return out;
 }
 
+/** Everything held at the end: owned + phase items, minus consumed components. */
 function allBuildItems(build: StarterBuild): Item[] {
-  return [...build.ownedItems, ...build.phases.flatMap((p) => [...p.items])];
+  let held: Item[] = [...build.ownedItems];
+  for (const p of build.phases) {
+    const gone = new Set(p.consumed.map((i) => i.id));
+    held = [...held.filter((i) => !gone.has(i.id)), ...p.items];
+  }
+  return held;
 }
 
 export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
@@ -85,11 +105,34 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
   });
 
   // Hard rules H1 / H5 / H6, reused for the fail-open run (H9).
+  // H1 at EFFECTIVE cost: an upgrade of a held component costs the difference
+  // and consumes it (PR 2c). Checks the pick prices and the held build agree.
   const checkBudget = (b: StarterBuild): string | null => {
-    let cost = sum(b.ownedItems.map((i) => i.cost));
+    let spent = sum(b.ownedItems.map((i) => i.cost));
+    let held: Item[] = [...b.ownedItems];
     for (const p of b.phases) {
-      cost += sum(p.items.map((i) => i.cost));
-      if (cost > p.souls) return `${p.phase}: ${cost} > ${p.souls}`;
+      const heldIds = new Set(held.map((i) => i.id));
+      for (const pick of p.basket.picks) {
+        const consumedCost = sum(
+          pick.consumes.map((id) => {
+            if (!heldIds.has(id)) return Number.NaN;
+            return itemById.get(id)?.cost ?? Number.NaN;
+          }),
+        );
+        if (!Number.isFinite(consumedCost))
+          return `${p.phase}: ${pick.item.itemId} consumes an unheld item`;
+        if (pick.effectiveCost !== Math.max(0, pick.item.cost - consumedCost)) {
+          return `${p.phase}: ${pick.item.itemId} effective ${pick.effectiveCost} != ${pick.item.cost} - ${consumedCost}`;
+        }
+        spent += pick.effectiveCost;
+      }
+      const gone = new Set(p.consumed.map((i) => i.id));
+      held = [...held.filter((i) => !gone.has(i.id)), ...p.items];
+      if (spent > p.souls) return `${p.phase}: spent ${spent} > ${p.souls}`;
+      // Souls spent always equal the full cost of what is held (an upgrade's
+      // price already includes its consumed component's).
+      const heldCost = sum(held.map((i) => i.cost));
+      if (heldCost !== spent) return `${p.phase}: held cost ${heldCost} != spent ${spent}`;
     }
     return null;
   };
@@ -137,7 +180,7 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
   }
 
   for (const [name, build] of builds) {
-    // H1 — basic full-item-cost budget. Upgrade (effective-cost) pricing is PR 2c.
+    // H1 — budget at effective cost, consumed components priced in (PR 2c).
     const budgetErr = checkBudget(build);
     assert(budgetErr === null, `H1 budget holds each phase: ${name}`, budgetErr ?? undefined);
 
@@ -190,8 +233,9 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     assert(legalErr === null, `H6 legal items, within cap: ${name}`, legalErr ?? undefined);
   }
 
-  // H7 (partial) — owned items stay out of the phases and are echoed back.
-  // Owned items counting toward COVERAGE is PR 2c, so it is not asserted here.
+  // H7 — owned items stay out of the phases and are echoed back. That they count
+  // toward COVERAGE is asserted hermetically (engine fixtures, section 17) and
+  // below: owning coverage changes what the early phase picks.
   const coldFront = d.allItems.find((i) => i.name === "Cold Front");
   const extraHealth = d.allItems.find((i) => i.name === "Extra Health");
   assert(coldFront !== undefined, "H7 setup: Cold Front found");
@@ -214,6 +258,23 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
       );
       const err = checkBudget(withOwned) ?? checkPhases(withOwned) ?? checkLegal(withOwned);
       assert(err === null, "H7 owned build still satisfies H1/H5/H6", err ?? undefined);
+
+      // Owned coverage is credited: with nothing consumed, the early basket's
+      // final coverage exceeds what its own picks provide by the owned items'.
+      const early = withOwned.phases[0].basket;
+      const coverageSum = Object.values(early.coverage).reduce((a, b) => a + b, 0);
+      const pickSum = sum(
+        // Clamped at 0 per category, exactly as the engine sums coverage.
+        early.picks.map((p) =>
+          Object.values(p.item.categoryValues).reduce((a, b) => a + Math.max(0, b), 0),
+        ),
+      );
+      const consumedAny = early.picks.some((p) => p.consumes.length > 0);
+      assert(
+        consumedAny || coverageSum > pickSum + 1e-9,
+        "H7 owned items count toward coverage (early coverage > its picks' own values)",
+        `coverage ${coverageSum.toFixed(1)} vs picks ${pickSum.toFixed(1)}`,
+      );
     }
   }
 
@@ -358,17 +419,14 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     );
   }
 
-  // L6 — upgrade paths appear: some later-phase item has an earlier-phase item of
-  // the same build in its transitive component closure.
+  // L6 — upgrade paths appear: some later-phase pick actually CONSUMED an
+  // earlier phase's component (a real upgrade, priced at the difference).
   {
     const found: string[] = [];
     for (const [name, b] of builds) {
-      for (let k = 1; k < b.phases.length; k++) {
-        const earlier = new Set(cumulativeItems(b, k - 1).map((i) => i.id));
-        for (const i of b.phases[k].items) {
-          for (const c of componentClosure(i.id, componentsOf)) {
-            if (earlier.has(c)) found.push(`${name}: ${c} -> ${i.id}`);
-          }
+      for (const p of b.phases.slice(1)) {
+        for (const pick of p.basket.picks) {
+          for (const c of pick.consumes) found.push(`${name}: ${c} -> ${pick.item.itemId}`);
         }
       }
     }

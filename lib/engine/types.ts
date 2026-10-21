@@ -86,6 +86,13 @@ export interface ItemCandidate {
    */
   hitDependence: number;
   tags: ReadonlyArray<string>;
+  /**
+   * DIRECT shop components (`Item.componentItems`). Buying this item while
+   * holding one consumes it: the price drops by the component's cost and this
+   * item's stats REPLACE the component's (verified 2026-10-20 against
+   * deadlock.wiki/Items and the live item API). Omitted = no components.
+   */
+  componentIds?: ReadonlyArray<string>;
 }
 
 export interface StageScore {
@@ -140,8 +147,15 @@ export interface MarginalTerm {
 
 /** Mutable-per-iteration state the greedy loop threads through each term. */
 export interface BasketState {
+  /** This basket's picks so far, in order (owned items are never here). */
   picked: ReadonlyArray<ItemCandidate>;
-  /** Cumulative category values of everything picked so far. */
+  /**
+   * Everything currently held: owned items plus picks, minus components an
+   * upgrade consumed. `coverage` and `soulsPerCategory` are sums over it.
+   * Omitted (hand-built test states) = same as `picked`.
+   */
+  held?: ReadonlyArray<ItemCandidate>;
+  /** Category values summed over everything HELD (owned + picks − consumed). */
   coverage: Readonly<Record<ScoreCategory, number>>;
   /** Cumulative souls committed per shop category (drives the investment bonus). */
   soulsPerCategory: Readonly<Record<ItemCategory, number>>;
@@ -192,6 +206,18 @@ export interface BasketContext {
    * overridden.
    */
   pairLift?: HeroPairLift;
+  /**
+   * Items already owned, as candidates (valued like the candidates). They seed
+   * the basket's coverage, investment souls and held set, and an upgrade can
+   * consume them. Empty when nothing is owned.
+   */
+  owned: ReadonlyArray<ItemCandidate>;
+  /**
+   * Slots the coverage target spans: owned items + free slots (`maxItems`).
+   * Owned coverage counts toward the target, so the target must cover the whole
+   * build, not just the free slots. Equals `maxItems` when nothing is owned.
+   */
+  targetSlots: number;
 }
 
 /**
@@ -212,6 +238,11 @@ export interface BasketPick {
   terms: ReadonlyArray<MarginalTerm>;
   /** Cumulative coverage AFTER this pick — lets the UI show progress per step. */
   coverageAfter: Readonly<Record<ScoreCategory, number>>;
+  /** What this pick actually costs: `item.cost` minus consumed components. */
+  effectiveCost: number;
+  /** itemIds of held components this pick consumed (upgrade path); usually empty. */
+  consumes: ReadonlyArray<string>;
+  /** Running total of `effectiveCost`. */
   cumulativeCost: number;
 }
 

@@ -12,9 +12,12 @@ import type { HeroBaseStats } from "../../heroStats";
 import type { Item } from "../../items";
 import {
   analyticsTerm,
+  categoryBonusTerm,
   constructBasket,
   coverageTerm,
   DEFAULT_BASKET_TERMS,
+  effectiveCost,
+  initialBasketState,
   hitReliabilityTerm,
   makeBasketContext,
   PAIR_LIFT_MAX_FRACTION,
@@ -2992,6 +2995,255 @@ console.log("\n16. Milestone F — pairTerm and measured-wins override");
       e2eWith.picks[0].terms.some((t) => t.termId === "pair-lift"),
     "e2e pair-lift: the candidate with a measured positive pair is picked first, via a pair-lift term",
     `Got: ${e2eWith.picks.map((p) => p.item.itemId).join(", ")}`,
+  );
+}
+
+console.log("\n17. Owned coverage and upgrade components (Work 2, PR 2c)");
+{
+  // Upgrade rules verified 2026-10-20 (data-verifier; deadlock.wiki/Items, /Shop,
+  // live /v1/assets/items): buying an upgrade consumes its DIRECT owned
+  // components, costs `cost − Σ consumed component cost`, and its own stats
+  // REPLACE the component's (Arctic Blast TechResist 10 vs Cold Front 6, not 16).
+  const spiritNeed = { ...zeroValues(), spiritDamage: 1 };
+  const comp = mkCandidate("comp", 501, "spirit", 800, { spiritDamage: 10 });
+  const upg = {
+    ...mkCandidate("upg", 502, "spirit", 3200, { spiritDamage: 25 }),
+    componentIds: ["comp"],
+  };
+  const other = mkCandidate("other", 503, "spirit", 3200, { spiritDamage: 12 });
+
+  // a. No owned items => identical context to before (target spans maxItems).
+  const plain = makeBasketContext({ needVector: spiritNeed, soulBudget: 5000, maxItems: 4 });
+  const plainOwnedEmpty = makeBasketContext({
+    needVector: spiritNeed,
+    soulBudget: 5000,
+    maxItems: 4,
+    ownedCandidates: [],
+  });
+  assert(
+    JSON.stringify(plain.target) === JSON.stringify(plainOwnedEmpty.target) &&
+      plain.targetSlots === 4 &&
+      plainOwnedEmpty.targetSlots === 4,
+    "owned coverage: with nothing owned the target is unchanged (spans maxItems)",
+  );
+
+  // b. Owned items widen the target to the whole build (owned + free slots), so
+  //    owned coverage and free slots are not both counted against a shrunk target.
+  const ownedCtx = makeBasketContext({
+    needVector: spiritNeed,
+    soulBudget: 5000,
+    maxItems: 3,
+    ownedCandidates: [comp],
+  });
+  const sumT = (c: typeof plain) => SCORE_CATEGORIES.reduce((s, k) => s + c.target[k], 0);
+  assert(
+    ownedCtx.targetSlots === 4 && Math.abs(sumT(ownedCtx) - sumT(plain)) < 1e-9,
+    "owned coverage: 1 owned + 3 free slots spans the same target as 4 free slots",
+    `targetSlots ${ownedCtx.targetSlots}, sum ${sumT(ownedCtx)} vs ${sumT(plain)}`,
+  );
+
+  // c. Owned coverage is credited: a basket that owns spirit coverage starts there.
+  const withOwned = constructBasket([other], ownedCtx);
+  assert(
+    Math.abs(withOwned.coverage.spiritDamage - (10 + 12)) < 1e-9,
+    "owned coverage: result coverage includes owned items (10 owned + 12 picked)",
+    `Got ${withOwned.coverage.spiritDamage}`,
+  );
+
+  // d. Effective cost: owning the component discounts the upgrade by its cost,
+  //    so an upgrade whose nominal cost exceeds the budget is still affordable.
+  const tightCtx = makeBasketContext({
+    needVector: spiritNeed,
+    soulBudget: 2500,
+    maxItems: 3,
+    ownedCandidates: [comp],
+  });
+  const upgBasket = constructBasket([upg], tightCtx);
+  const upgPick = upgBasket.picks[0];
+  assert(
+    upgPick?.item.itemId === "upg" &&
+      upgPick.effectiveCost === 2400 &&
+      upgPick.consumes.join(",") === "comp" &&
+      upgBasket.totalCost === 2400,
+    "components: upgrading an owned component costs 3200 − 800 = 2400 and consumes it",
+    `Got pick ${upgPick?.item.itemId}, effectiveCost ${upgPick?.effectiveCost}, consumes ${upgPick?.consumes.join(",")}, total ${upgBasket.totalCost}`,
+  );
+
+  // e. The upgrade's stats REPLACE the consumed component's: coverage 25, not 35.
+  assert(
+    Math.abs(upgBasket.coverage.spiritDamage - 25) < 1e-9,
+    "components: consumed component's coverage is removed (upgrade 25 replaces component 10)",
+    `Got ${upgBasket.coverage.spiritDamage}`,
+  );
+  const ownedState: BasketState = {
+    picked: [],
+    held: [comp],
+    coverage: { ...zeroValues(), spiritDamage: 10 },
+    soulsPerCategory: { gun: 0, spirit: 800, vitality: 0 },
+    spent: 0,
+  };
+  const gain = coverageTerm.evaluate(upg, ownedState, tightCtx);
+  const t = tightCtx.target.spiritDamage;
+  const expectedGain = Math.min(t, 10 - 10 + 25) - Math.min(t, 10);
+  assert(
+    gain !== null && Math.abs(gain.value - expectedGain) < 1e-9,
+    "components: coverage gain of an upgrade nets out the consumed component",
+    `Got ${gain?.value}, expected ${expectedGain}`,
+  );
+  assert(
+    effectiveCost(upg, [comp]).cost === 2400 && effectiveCost(upg, []).cost === 3200,
+    "effectiveCost: 2400 with the component held, full 3200 without",
+  );
+
+  // f. A slot-neutral upgrade is allowed even with no free slots left.
+  const fullCtx = makeBasketContext({
+    needVector: spiritNeed,
+    soulBudget: 5000,
+    maxItems: 0,
+    ownedCandidates: [comp],
+  });
+  const fullBasket = constructBasket([upg, other], fullCtx);
+  assert(
+    fullBasket.picks.map((p) => p.item.itemId).join(",") === "upg",
+    "components: with 0 free slots an upgrade of an owned component still fits (frees its slot)",
+    `Got ${fullBasket.picks.map((p) => p.item.itemId).join(",")} stop ${fullBasket.stopReason}`,
+  );
+
+  // g. H2: one basket never holds an item together with its own component, and
+  //    never buys a component of something already held.
+  const bothCtx = makeBasketContext({ needVector: spiritNeed, soulBudget: 10000, maxItems: 4 });
+  const both = constructBasket([comp, upg], bothCtx).picks.map((p) => p.item.itemId);
+  assert(
+    !(both.includes("comp") && both.includes("upg")),
+    "components: a basket never picks an item and its own component together",
+    `Got ${both.join(",")}`,
+  );
+  const ownsUpg = makeBasketContext({
+    needVector: spiritNeed,
+    soulBudget: 10000,
+    maxItems: 4,
+    ownedCandidates: [upg],
+  });
+  assert(
+    !constructBasket([comp, other], ownsUpg).picks.some((p) => p.item.itemId === "comp"),
+    "components: never buys a component of an item already owned",
+  );
+
+  // h. Investment bonus counts souls already invested in owned items.
+  const bonusState: BasketState = { ...ownedState, coverage: zeroValues() };
+  const spiritCand = mkCandidate("spirit_4000", 504, "spirit", 4000, { spiritDamage: 5 });
+  const bonusOwned = categoryBonusTerm.evaluate(spiritCand, bonusState, tightCtx);
+  assert(
+    bonusOwned !== null && bonusOwned.reason.includes("4,800"),
+    "investment bonus: 800 owned + 4,000 crosses the 4,800 significant tier",
+    `Got ${bonusOwned?.reason}`,
+  );
+
+  // i. Deterministic, and input order is never load-bearing.
+  const extra = mkCandidate("extra", 505, "vitality", 800, { bonusHealth: 9 });
+  const multiCtx = (owned: ItemCandidate[]) =>
+    makeBasketContext({
+      needVector: splitNeed,
+      soulBudget: 9000,
+      maxItems: 4,
+      ownedCandidates: owned,
+    });
+  const fwd = constructBasket([upg, other, spiritCand], multiCtx([comp, extra]));
+  const rev = constructBasket([spiritCand, other, upg], multiCtx([extra, comp]));
+  assert(
+    JSON.stringify(fwd) === JSON.stringify(rev),
+    "owned coverage + components: same result when owned and candidate order is reversed",
+  );
+
+  // j. Stop reasons with owned items: after the slot-neutral upgrade the full
+  //    build reports "slots", and a full build with no upgrade available does too.
+  assert(
+    fullBasket.stopReason === "slots",
+    "stop reason: full build after a slot-neutral upgrade is 'slots'",
+    `Got ${fullBasket.stopReason}`,
+  );
+  const fullNoUpgrade = constructBasket(
+    [other],
+    makeBasketContext({
+      needVector: spiritNeed,
+      soulBudget: 5000,
+      maxItems: 0,
+      ownedCandidates: [comp],
+    }),
+  );
+  assert(
+    fullNoUpgrade.picks.length === 0 && fullNoUpgrade.stopReason === "slots",
+    "stop reason: full build with nothing slot-neutral is 'slots'",
+    `Got ${fullNoUpgrade.stopReason}`,
+  );
+
+  // k. An upgrade worse than its component in one category: that category's
+  //    coverage drops (counted in the total gain, never named in the reason).
+  const compR = mkCandidate("comp_r", 506, "spirit", 800, { spiritDamage: 10, resist: 8 });
+  const upgR = {
+    ...mkCandidate("upg_r", 507, "spirit", 3200, { spiritDamage: 25 }),
+    componentIds: ["comp_r"],
+  };
+  const rNeed = { ...zeroValues(), spiritDamage: 1, resist: 1 };
+  const rCtx = makeBasketContext({
+    needVector: rNeed,
+    soulBudget: 5000,
+    maxItems: 3,
+    ownedCandidates: [compR],
+  });
+  const rState = initialBasketState(rCtx);
+  const rGain = coverageTerm.evaluate(upgR, rState, rCtx);
+  const tS = rCtx.target.spiritDamage;
+  const tR = rCtx.target.resist;
+  const expectedR = Math.min(tS, 25) - Math.min(tS, 10) + (Math.min(tR, 0) - Math.min(tR, 8));
+  assert(
+    rGain !== null &&
+      Math.abs(rGain.value - expectedR) < 1e-9 &&
+      !rGain.reason.toLowerCase().includes("resist"),
+    "components: a category the upgrade drops counts negative in the gain and is not named",
+    `Got ${rGain?.value} (${rGain?.reason}), expected ${expectedR}`,
+  );
+
+  // l. Invariant: coverage always equals the sum over what is held.
+  const heldEnd = [comp, extra]
+    .filter((h) => !fwd.picks.some((p) => p.consumes.includes(h.itemId)))
+    .concat(fwd.picks.map((p) => p.item));
+  const sumHeld = (cat: ScoreCategory) =>
+    heldEnd.reduce((s, h) => s + Math.max(0, h.categoryValues[cat]), 0);
+  assert(
+    SCORE_CATEGORIES.every((cat) => Math.abs(fwd.coverage[cat] - sumHeld(cat)) < 1e-9),
+    "invariant: result coverage equals the sum of category values over held items",
+    `picks ${fwd.picks.map((p) => p.item.itemId).join(",")}`,
+  );
+
+  // m. Only DIRECT components are consumed (verified rule): owning A in A→B→C
+  //    and buying C directly pays full price and keeps A.
+  const gA = mkCandidate("g_a", 508, "spirit", 800, { spiritDamage: 5 });
+  const gC = {
+    ...mkCandidate("g_c", 510, "spirit", 6400, { spiritDamage: 40 }),
+    componentIds: ["g_b"],
+  };
+  const gBasket = constructBasket(
+    [gC],
+    makeBasketContext({
+      needVector: spiritNeed,
+      soulBudget: 9000,
+      maxItems: 3,
+      ownedCandidates: [gA],
+    }),
+  );
+  assert(
+    gBasket.picks[0]?.item.itemId === "g_c" &&
+      gBasket.picks[0].effectiveCost === 6400 &&
+      gBasket.picks[0].consumes.length === 0,
+    "components: a grand-component is not consumed (direct components only, full price)",
+    `Got ${gBasket.picks[0]?.effectiveCost} consumes ${gBasket.picks[0]?.consumes.join(",")}`,
+  );
+
+  // n. The engine itself never re-suggests an owned item.
+  assert(
+    !constructBasket([comp, other], ownedCtx).picks.some((p) => p.item.itemId === "comp"),
+    "owned items are never candidates, even if the caller passes them",
   );
 }
 

@@ -1077,6 +1077,72 @@ Fixture 13 records the failing leans in `KNOWN_LEAN_GAPS`, a ratchet that can
 only shrink. Order from here: 2c fixes owned coverage and components, then a
 need-vector scoring PR works off L1–L4, and only then does 2d ship the UI.
 
+## Owned coverage and upgrade components (Work 2, PR 2c)
+
+**Owned items count.** Before this PR `constructBasket` started coverage at zero, and
+owned items only fed synergy, pair partners and spirit-power scaling. A build that
+already had spirit damage kept being offered more. Now `makeBasketContext` takes
+`ownedCandidates`, valued exactly like the candidates in `runHeroBasket`. They seed
+`coverage`, `soulsPerCategory` (the investment bonus counts souls already invested) and
+`held`.
+
+The coverage **target now spans `targetSlots = maxItems + owned`**, the whole build.
+Seeding owned coverage while keeping the old target over free slots only would count
+owned items twice: once as coverage and once as a shrunk target. `coverageScalePerSlot`
+divides by `targetSlots` for the same reason. With nothing owned, `targetSlots ===
+maxItems`, so behaviour is identical to before, except for the H2 rule below.
+
+**Upgrade rules** were verified 2026-10-20 by `data-verifier` against deadlock.wiki/Items
+and /Shop and the live item API:
+
+- Buying an upgrade consumes its **direct** held components.
+- It costs `cost − Σ consumed component costs`.
+- Its stats **replace** the component's, never add to them. Arctic Blast's TechResist is
+  10 and Cold Front's is 6; the result is 10, not 16.
+- Chains upgrade one step at a time.
+
+`effectiveCost(candidate, held)` implements this, matching `getEffectiveAddCost` in
+`lib/buildUtils.ts`. The loop uses effective cost for affordability, `spent` and the
+investment bonus. `computeCoverageGain` subtracts a consumed component's values before
+adding the upgrade's. A category can come out negative; that counts in the total but is
+never named in a reason.
+
+**Slots.** A pick uses one slot, and each consumed component frees one. So upgrading a
+held component is slot-neutral and fits even when the build is full. The stop reason is
+`"slots"` whenever no free slot is left, even if a worthless slot-neutral upgrade still
+fits. When only H2 exclusions remain, it is `"no-positive-value"`, not `"budget"`.
+
+**H2.** One basket never _picks_ an item together with its own component (transitively,
+via `componentClosure`), and never buys a component of something already held. Only
+direct components are consumed, so an owned grand-component (A in A→B→C) can stay held
+next to C. The shared helpers `initialBasketState`, `componentClosures` and
+`blockedByComponents` are exported so that `basketProbe`'s first-pick ranking starts and
+filters exactly like the loop.
+
+Measured on live data against `main` (every hero × 6 boon levels × 3 owned sets):
+
+- **Nothing owned:** 44 of 264 baskets changed. All 44 were baskets where `main`
+  recommended an item **and its own component** together, e.g. Cultist Sacrifice plus
+  Monster Rounds, paying twice. That was a latent bug in the live `/build` basket.
+- **With owned items:** 362 of 528 changed, as intended.
+
+In the starter build, consumed components leave the owned set between phases (the
+planner's `resolveAddItem` does the same), and `StarterPhase.consumed` records them.
+
+**Synergy partners.** `synergyTerm` and `pairTerm` now pair against what is _held_,
+excluding the components the candidate itself would consume. Callers that pass only
+`ownedItemNames` keep the old behaviour. Owned items are sorted by itemId, so input order
+is never load-bearing.
+
+**UI.** `HeroBasketSuggestion` shows `effectiveCost` and "Upgrades your X: you trade it
+in…". An upgrade's Add button stays enabled when the build is full, because the upgrade
+is slot-neutral.
+
+**Not done here.** The basket picks by value, not value per soul, and a freed slot is
+worth nothing until slots run out. With correct pricing, upgrades therefore rarely win:
+lean L6 is back on `KNOWN_LEAN_GAPS` by user decision. The fix is an upgrade-efficiency
+signal, planned after the need-vector PR (`docs/starter-build-use-cases.md` §5.4).
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical
