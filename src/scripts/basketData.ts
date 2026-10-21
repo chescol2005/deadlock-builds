@@ -19,6 +19,8 @@ import { mapHeroAbilities } from "@/lib/abilityCoefficients";
 import type { HeroAbility } from "@/lib/abilityCoefficients";
 import type { PairLiftTable } from "@/lib/engine/pairLift";
 import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
+import type { CategorySplitTable } from "@/lib/engine/categorySplit";
+import categorySplitTableJson from "@/lib/engine/data/heroCategorySplit.json";
 
 export interface LiveBasketData {
   heroes: DeadlockHeroListItemEnriched[];
@@ -29,6 +31,7 @@ export interface LiveBasketData {
   /** Base stats of every visible hero that has them (need-vector z-scores). */
   heroRoster: HeroBaseStats[];
   pairLiftTable: PairLiftTable;
+  categorySplitTable: CategorySplitTable;
 }
 
 export interface LiveHeroKit {
@@ -53,6 +56,7 @@ export async function loadLiveBasketData(): Promise<LiveBasketData> {
     rankTiers,
     heroRoster: heroes.flatMap((h) => (h.baseStats ? [h.baseStats] : [])),
     pairLiftTable: pairLiftTableJson as unknown as PairLiftTable,
+    categorySplitTable: categorySplitTableJson as unknown as CategorySplitTable,
   };
 }
 

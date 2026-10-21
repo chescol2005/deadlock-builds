@@ -25,6 +25,7 @@ import {
 } from "@/lib/engine/basketSelect";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { heroPairLift } from "@/lib/engine/pairLift";
+import { heroCategorySplit } from "@/lib/engine/categorySplit";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
 import type { ItemCandidate, MarginalTerm } from "@/lib/engine/types";
@@ -41,6 +42,11 @@ Options:
   --top N         rows of the first-pick ranking to print (default 15)
   --no-pair-lift  omit the measured pair table (pairTerm inert, hand synergy rules
                   never overridden): the pre-Milestone-F-PR-3 basket, for before/after
+  --no-category-split
+                  omit the measured gun/spirit/vitality split (kit-only need vector,
+                  no category-split term), for before/after
+  --split-need-only  apply the split to the need vector only (ablation)
+  --split-term-only  apply the split as the basket term only (ablation)
 `;
 
 interface ProbeArgs {
@@ -51,6 +57,8 @@ interface ProbeArgs {
   items: string[];
   top: number;
   pairLift: boolean;
+  categorySplit: boolean;
+  splitMode: "both" | "need-only" | "term-only";
 }
 
 function fail(message: string): never {
@@ -75,6 +83,8 @@ function parseArgs(argv: string[]): ProbeArgs {
     items: [],
     top: 15,
     pairLift: true,
+    categorySplit: true,
+    splitMode: "both",
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -98,6 +108,12 @@ function parseArgs(argv: string[]): ProbeArgs {
       out.items.push(v);
     } else if (a === "--no-pair-lift") {
       out.pairLift = false;
+    } else if (a === "--no-category-split") {
+      out.categorySplit = false;
+    } else if (a === "--split-need-only") {
+      out.splitMode = "need-only";
+    } else if (a === "--split-term-only") {
+      out.splitMode = "term-only";
     } else if (a === "--top") {
       out.top = parseIntArg(a, argv[++i], 1, 500);
     } else if (a.startsWith("--")) {
@@ -186,6 +202,11 @@ async function main(): Promise<void> {
     rankTier: args.rank,
     // Sliced like app/build/[heroId]/page.tsx does on the server.
     pairLift: args.pairLift ? (heroPairLift(data.pairLiftTable, hero.id) ?? undefined) : undefined,
+    // Sliced like page.tsx; --no-category-split gives the kit-only need vector.
+    categorySplit: args.categorySplit
+      ? (heroCategorySplit(data.categorySplitTable, hero.id) ?? undefined)
+      : undefined,
+    categorySplitMode: args.splitMode,
   });
   if (!run) fail(`${hero.name} has no ability data or the item list is empty`);
   const { basket, ctx, candidates, needVector, procPlatformFactor, hitReliabilityFactor } = run;

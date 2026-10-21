@@ -48,6 +48,8 @@ import {
 } from "../categoryBonuses";
 import type { ItemCategory } from "../items";
 import { componentClosure, pairLiftIn } from "./pairLift";
+import { flooredShares } from "./categorySplit";
+import type { CategoryShares } from "./categorySplit";
 import type { PairLiftEntry } from "./pairLift";
 import { findSynergyRules } from "./synergy";
 import type {
@@ -304,6 +306,8 @@ export function makeBasketContext(opts: {
    * and the context is exactly what it was before owned coverage existed.
    */
   ownedCandidates?: ReadonlyArray<ItemCandidate>;
+  /** Measured shop-category split for this hero; omitted => categorySplitTerm inert. */
+  categorySplit?: CategoryShares & { scope: string };
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -366,6 +370,17 @@ export function makeBasketContext(opts: {
     pairLift: opts.pairLift,
     owned,
     targetSlots,
+    // RAW shares (validated): the floor exists for need-vector reachability only;
+    // the term and its reason use what players actually end games with.
+    categorySplit:
+      opts.categorySplit && flooredShares(opts.categorySplit)
+        ? {
+            gun: opts.categorySplit.gun,
+            spirit: opts.categorySplit.spirit,
+            vitality: opts.categorySplit.vitality,
+            scope: opts.categorySplit.scope,
+          }
+        : undefined,
   };
 }
 
@@ -952,9 +967,98 @@ export const pairTerm: MarginalTermFn = {
   },
 };
 
+/**
+ * Share of one slot's coverage that `categorySplitTerm` can add or subtract at
+ * most. That bound needs a single purchase to move the build's whole soul split,
+ * which the prior below rules out; in practice a pick moves it by a few percent,
+ * so the term lands at about 0.01–0.07 of a slot, in line with `synergyTerm` and
+ * `pairTerm`. Chosen 2026-10-20 after trying 0.25 / 0.5 / 1.0 against Fixture
+ * 13's leans; see "Measured category split" in engine-design-notes.md.
+ */
+export const CATEGORY_SPLIT_MAX_FRACTION = 0.5;
+
+/**
+ * Pseudo-souls, spread exactly at the target split, added to the held build
+ * before reading its current shares. An empty build therefore sits AT the
+ * target, so a first pick is neutral (no fixed, cost-blind bonus or penalty),
+ * and a small build is not read as wildly off-split after one item.
+ */
+export const CATEGORY_SPLIT_PRIOR_SOULS = 6400;
+
+/** Below this normalized gain the term is noise and is not shown at all. */
+const CATEGORY_SPLIT_MIN_GAIN = 0.002;
+
+const SHOP_CATEGORIES = ["gun", "spirit", "vitality"] as const;
+
+/**
+ * Normalized gain in [-1, 1] for spending `paid` souls in `category`:
+ * (target share − current share) × the fraction of the resulting build those
+ * souls make up. Positive when the category is under its measured share,
+ * negative when over, scaled by how much the purchase moves the split. Current
+ * shares include the target-shaped prior (see CATEGORY_SPLIT_PRIOR_SOULS).
+ */
+function splitGain(
+  souls: Readonly<Record<ItemCategory, number>>,
+  target: CategoryShares,
+  category: ItemCategory,
+  paid: number,
+): number {
+  const withPrior = SHOP_CATEGORIES.map(
+    (c) => Math.max(0, souls[c]) + CATEGORY_SPLIT_PRIOR_SOULS * target[c],
+  );
+  const total = withPrior.reduce((sum, v) => sum + v, 0);
+  if (!(total > 0)) return 0;
+  const current = withPrior[SHOP_CATEGORIES.indexOf(category)] / total;
+  return (target[category] - current) * (paid / (total + paid));
+}
+
+/**
+ * Steers the build's souls per SHOP category (gun / spirit / vitality) toward
+ * what high-rank players on this hero end games holding (heroCategorySplit.json).
+ * Positive when the candidate moves the held build's soul split toward that,
+ * negative when it moves it further away. Counts what is held (owned items
+ * included) and the souls actually paid (upgrades at the difference).
+ *
+ * Why a term and not only the need vector: the need vector works in STAT
+ * categories, and shop category is not stat category (Infuser is a vitality
+ * item that mostly gives spirit and sustain), so need weights only loosely move
+ * souls between shops. The measurement is in shop-category souls, so it is
+ * applied there. Relevance-gated like `categoryBonusTerm`: never a reason to
+ * buy an item that covers nothing. This is population data, so it is never the
+ * headline reason in the simplified view (HeroBasketSuggestion's bestTerm).
+ */
+export const categorySplitTerm: MarginalTermFn = {
+  termId: "category-split",
+
+  evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
+    const split = ctx.categorySplit;
+    if (!split) return null;
+    const scale = coverageScalePerSlot(ctx);
+    if (scale <= 0) return null;
+    const paid = effectiveCost(candidate, heldOf(state)).cost;
+    if (!(paid > 0)) return null;
+    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+
+    const gain = splitGain(state.soulsPerCategory, split, candidate.category, paid);
+    if (Math.abs(gain) < CATEGORY_SPLIT_MIN_GAIN) return null;
+
+    const pct = Math.round(split[candidate.category] * 100);
+    const reason =
+      gain > 0
+        ? `Moves your build toward what ${split.scope} end games with on this hero (${pct}% ${candidate.category})`
+        : `Moves your build further from what ${split.scope} end games with on this hero (${pct}% ${candidate.category})`;
+    return {
+      termId: "category-split",
+      value: gain * CATEGORY_SPLIT_MAX_FRACTION * scale,
+      reason,
+    };
+  },
+};
+
 export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
   coverageTerm,
   categoryBonusTerm,
+  categorySplitTerm,
   procPlatformTerm,
   hitReliabilityTerm,
   synergyTerm,

@@ -12,6 +12,7 @@
 import type { Item } from "@/lib/items";
 import { MAX_ACTIVE_ITEMS } from "@/lib/buildUtils";
 import { componentClosure, heroPairLift } from "@/lib/engine/pairLift";
+import { heroCategorySplit } from "@/lib/engine/categorySplit";
 import { buildStarterBuild } from "@/lib/engine/starterBuild";
 import type { StarterBuild, StarterBuildInputs } from "@/lib/engine/starterBuild";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
@@ -36,18 +37,19 @@ const REFERENCE_HEROES = [
  * passing, the fixture fails until its key is removed here.
  */
 const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
-  // Measured 2026-10-20 after PR 2c (doc section 5.4). L3 and L4 were removed
-  // by PR 2c (owned coverage).
+  // Measured 2026-10-20 after the need-vector PR (measured category split).
+  // Removed so far: L3 and L4 Seven/Haze by PR 2c (owned coverage); L2 Haze and
+  // L6 by the category-split PR. L6 passes for real now: Seven upgrades Grit
+  // into Guardian Ward at the difference.
+  //
+  // L1 remains: Seven and Lady Geist still put more souls into gun-shop and
+  // vitality-shop items than spirit-shop ones early and mid, because the
+  // coverage model prizes all-rounder items whose shop is not their stat
+  // (Infuser is vitality but mostly spirit and sustain; Spiritual Overflow is
+  // gun but spirit). Overriding that is a coverage-model redesign, not a
+  // weight tweak (docs/starter-build-use-cases.md §5.5).
   "L1:Seven",
   "L1:Lady Geist",
-  "L2:Haze",
-  // Re-listed in PR 2c (user decision 2026-10-20), an explained exception to
-  // "the list only shrinks": its earlier pass was an artifact of the double
-  // count (F3), where upgrade stats were stacked on the component's. With
-  // correct pricing an upgrade adds only the difference, and the basket ranks by
-  // value, not value per soul, so fresh items win. Needs a soul-efficiency /
-  // slot-pressure signal (planned after the need-vector PR).
-  "L6",
 ]);
 
 const sum = (xs: ReadonlyArray<number>) => xs.reduce((a, b) => a + b, 0);
@@ -101,6 +103,7 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     heroAccuracy: d.heroAccuracy,
     rankTier: null,
     pairLift: heroPairLift(d.pairLiftTable, kit.hero.id) ?? undefined,
+    categorySplit: heroCategorySplit(d.categorySplitTable, kit.hero.id) ?? undefined,
     ...over,
   });
 
@@ -314,12 +317,17 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     const kit = kits.get(name);
     if (!kit) continue;
     const b = buildStarterBuild(
-      inputsFor(kit, { itemAnalytics: new Map(), heroAccuracy: undefined, pairLift: undefined }),
+      inputsFor(kit, {
+        itemAnalytics: new Map(),
+        heroAccuracy: undefined,
+        pairLift: undefined,
+        categorySplit: undefined,
+      }),
     );
     const err = b ? (checkBudget(b) ?? checkPhases(b) ?? checkLegal(b)) : "null build";
     assert(
       b !== null && b.phases[0].items.length > 0 && err === null,
-      `H9 fails open (no analytics / pairs): ${name}`,
+      `H9 fails open (no analytics / pairs / category split): ${name}`,
       err ?? undefined,
     );
   }
@@ -350,6 +358,22 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     cumShares(name)
       .map((s, k) => `${phaseNames[k]} gun ${s.gun} spirit ${s.spirit}`)
       .join("; ");
+
+  // Kit-only reference (informational, never asserted): the same reference
+  // heroes with no measured split, so it stays visible how much of each lean
+  // comes from the engine's own reasoning versus the population prior.
+  for (const name of REFERENCE_HEROES) {
+    const kit = kits.get(name);
+    if (!kit) continue;
+    const b = buildStarterBuild(inputsFor(kit, { categorySplit: undefined }));
+    if (!b) continue;
+    const late = soulsByCategory(cumulativeItems(b, b.phases.length - 1));
+    const total = late.gun + late.spirit + late.vitality;
+    const pct = (v: number) => `${Math.round((v / Math.max(1, total)) * 100)}%`;
+    console.log(
+      `  ℹ kit-only late ${name}: gun ${pct(late.gun)} spirit ${pct(late.spirit)} vitality ${pct(late.vitality)}`,
+    );
+  }
 
   // L1 — spirit casters lean spirit in every phase.
   for (const name of ["Seven", "Lady Geist"]) {

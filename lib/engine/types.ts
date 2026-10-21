@@ -218,6 +218,17 @@ export interface BasketContext {
    * build, not just the free slots. Equals `maxItems` when nothing is owned.
    */
   targetSlots: number;
+  /**
+   * This hero's measured shop-category split (heroCategorySplit.json), already
+   * floored. Drives `categorySplitTerm`; omitted => that term is inert.
+   */
+  categorySplit?: {
+    gun: number;
+    spirit: number;
+    vitality: number;
+    /** e.g. "Oracle+ players (last 30 days)" — quoted in the reason. */
+    scope: string;
+  };
 }
 
 /**

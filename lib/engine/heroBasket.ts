@@ -23,6 +23,8 @@ import {
 } from "./heroNeed";
 import { toItemCandidates } from "./itemAdapter";
 import type { HeroPairLift } from "./pairLift";
+import { adjustSplitForAccuracy, applyCategorySplit } from "./categorySplit";
+import type { HeroCategorySplit } from "./categorySplit";
 import type { BasketContext, BasketResult, HeroNeedVector, ItemCandidate } from "./types";
 
 export interface HeroBasketInputs {
@@ -47,6 +49,17 @@ export interface HeroBasketInputs {
   rankTier: number | null;
   /** This hero's measured pair-lift slice; omitted => pairTerm inert. */
   pairLift?: HeroPairLift;
+  /**
+   * This hero's measured gun / spirit / vitality split (heroCategorySplit.json).
+   * Redistributes the kit-derived need between those families; omitted (thin
+   * data) => the kit-only need vector, unchanged.
+   */
+  categorySplit?: HeroCategorySplit;
+  /**
+   * Ablation switch for before/after checks (basketProbe): apply the split to
+   * the need vector only, to the basket term only, or both (default).
+   */
+  categorySplitMode?: "both" | "need-only" | "term-only";
 }
 
 export interface HeroBasketRun {
@@ -70,12 +83,31 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     ? resolveAccuracyAtRank(input.heroAccuracy, input.rankTier)
     : undefined;
 
-  const needVector = deriveHeroNeedVector({
-    abilities: heroAbilities,
-    baseStats: heroBaseStats,
-    roster: heroRoster,
-    gunAccuracyByHeroId,
-  });
+  // The measured split (when there is one) decides how much of the build goes to
+  // gun vs spirit vs vitality; the kit decides the rest (see categorySplit.ts).
+  // It was measured at Oracle+, so its gun share is scaled by this hero's
+  // accuracy at the player's rank relative to Oracle+: gun items are worth less
+  // to a player who lands fewer shots, as the kit-derived gun need modelled.
+  const heroId = heroBaseStats.heroId;
+  let split = input.categorySplit;
+  if (split && input.heroAccuracy) {
+    const atRank = gunAccuracyByHeroId?.get(heroId);
+    const atSplit = resolveAccuracyAtRank(input.heroAccuracy, split.rankTier).get(heroId);
+    if (atRank !== undefined && atSplit !== undefined && atSplit > 0) {
+      split = adjustSplitForAccuracy(split, atRank / atSplit);
+    }
+  }
+  const mode = input.categorySplitMode ?? "both";
+
+  const needVector = applyCategorySplit(
+    deriveHeroNeedVector({
+      abilities: heroAbilities,
+      baseStats: heroBaseStats,
+      roster: heroRoster,
+      gunAccuracyByHeroId,
+    }),
+    mode === "term-only" ? undefined : split,
+  );
 
   const ownedIds = new Set(ownedItems.map((i) => i.id));
 
@@ -129,6 +161,7 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     // override a hand-authored synergy rule ("measured wins").
     pairLift: input.pairLift,
     ownedCandidates,
+    categorySplit: mode === "need-only" ? undefined : split,
   });
 
   return {
