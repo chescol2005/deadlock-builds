@@ -16,12 +16,18 @@ import type { Item } from "@/lib/items";
 import { calculateStatsAtBoon } from "@/lib/heroStats";
 import { calculateStatTotals, combineStatTotal } from "@/lib/buildCalculations";
 import { BOON_THRESHOLDS } from "@/lib/boonSystem";
-import { DEFAULT_BASKET_TERMS } from "@/lib/engine/basketSelect";
+import {
+  DEFAULT_BASKET_TERMS,
+  blockedByComponents,
+  componentClosures,
+  effectiveCost,
+  initialBasketState,
+} from "@/lib/engine/basketSelect";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
-import type { BasketState, ItemCandidate, MarginalTerm, ScoreCategory } from "@/lib/engine/types";
+import type { ItemCandidate, MarginalTerm } from "@/lib/engine/types";
 
 const USAGE = `Usage: npm run probe -- <hero> [options]
 
@@ -130,6 +136,13 @@ interface Ranked {
   candidate: ItemCandidate;
   value: number;
   terms: MarginalTerm[];
+  effective: { cost: number; consumes: ItemCandidate[] };
+}
+
+/** "3200" or "3200→2400 (upgrades Cold Front)" when held components are consumed. */
+function costLabel(cost: number, effective: number, consumedNames: ReadonlyArray<string>): string {
+  if (consumedNames.length === 0) return String(cost);
+  return `${cost}→${effective} (upgrades ${consumedNames.join(", ")})`;
 }
 
 async function main(): Promise<void> {
@@ -177,21 +190,22 @@ async function main(): Promise<void> {
   if (!run) fail(`${hero.name} has no ability data or the item list is empty`);
   const { basket, ctx, candidates, needVector, procPlatformFactor, hitReliabilityFactor } = run;
   const ownedIds = new Set(buildItems.map((i) => i.id));
+  const nameOf = new Map(allItems.map((i) => [i.id, i.name]));
 
-  // First-pick ranking: every affordable candidate scored against the empty
-  // starting state, ordered exactly as the greedy loop breaks ties
-  // (value desc, cost asc, itemId asc). Shows where items sit before the
-  // basket's own picks start changing coverage.
-  const emptyCoverage = {} as Record<ScoreCategory, number>;
-  for (const cat of SCORE_CATEGORIES) emptyCoverage[cat] = 0;
-  const startState: BasketState = {
-    picked: [],
-    coverage: emptyCoverage,
-    soulsPerCategory: { gun: 0, spirit: 0, vitality: 0 },
-    spent: 0,
-  };
+  // First-pick ranking: every candidate the loop's FIRST iteration would
+  // consider, scored against the same starting state (owned coverage, investment
+  // souls and held set from initialBasketState), filtered the same way (H2
+  // component rule, effective cost, slots), and ordered exactly as the greedy
+  // loop breaks ties (value desc, cost asc, itemId asc).
+  const startState = initialBasketState(ctx);
+  const closures = componentClosures([...ctx.owned, ...candidates]);
+  const startHeld = startState.held ?? [];
   const ranked: Ranked[] = candidates
-    .filter((c) => c.cost <= ctx.soulBudget)
+    .filter((c) => !blockedByComponents(c, startState, closures))
+    .filter((c) => {
+      const eff = effectiveCost(c, startHeld);
+      return eff.cost <= ctx.soulBudget && ctx.maxItems - 1 + eff.consumes.length >= 0;
+    })
     .map((candidate) => {
       const terms: MarginalTerm[] = [];
       let value = 0;
@@ -201,7 +215,7 @@ async function main(): Promise<void> {
         terms.push(r);
         value += r.value;
       }
-      return { candidate, value, terms };
+      return { candidate, value, terms, effective: effectiveCost(candidate, startHeld) };
     })
     .sort((a, b) => {
       if (b.value !== a.value) return b.value - a.value;
@@ -238,8 +252,14 @@ async function main(): Promise<void> {
   );
   basket.picks.forEach((p, i) => {
     console.log(
-      `  ${lpad(String(i + 1), 2)}. ${pad(p.item.name, 24)} ${pad(p.item.category, 8)} ${lpad(String(p.item.cost), 5)}` +
-        `  value ${lpad(fmt(p.marginalValue), 7)}  [${termSummary(p.terms)}]`,
+      `  ${lpad(String(i + 1), 2)}. ${pad(p.item.name, 24)} ${pad(p.item.category, 8)} ${lpad(
+        costLabel(
+          p.item.cost,
+          p.effectiveCost,
+          p.consumes.map((id) => nameOf.get(id) ?? id),
+        ),
+        5,
+      )}` + `  value ${lpad(fmt(p.marginalValue), 7)}  [${termSummary(p.terms)}]`,
     );
   });
   const unmet = SCORE_CATEGORIES.filter((c) => basket.unmetNeed[c] > 0.005);
@@ -253,7 +273,14 @@ async function main(): Promise<void> {
   ranked.slice(0, args.top).forEach((r, i) => {
     console.log(
       `  ${lpad(String(i + 1), 3)}. ${pad(r.candidate.name, 24)} ${pad(r.candidate.category, 8)}` +
-        ` ${lpad(String(r.candidate.cost), 5)}  ${lpad(fmt(r.value), 7)}  [${termSummary(r.terms)}]`,
+        ` ${lpad(
+          costLabel(
+            r.candidate.cost,
+            r.effective.cost,
+            r.effective.consumes.map((c) => c.name),
+          ),
+          5,
+        )}  ${lpad(fmt(r.value), 7)}  [${termSummary(r.terms)}]`,
     );
   });
 

@@ -192,8 +192,53 @@ Every phase stopped on budget: 5,600 + 10,400 + 13,600 = 29,600 of 30,000 souls.
 | L6 upgrade paths appear       | ✅    | 7 chains upgrade an earlier component, e.g. Cold Front → Arctic Blast (by accident; see F3)                                |
 
 Fixture 13 (`src/scripts/starterBuildFixtures.ts`) measures these against live data;
-its `KNOWN_LEAN_GAPS` list is the current truth: L1 Seven and Lady Geist, L2 Haze,
-L3 Abrams and Warden, L4 Seven/Haze.
+its `KNOWN_LEAN_GAPS` list is the current truth.
+
+### 5.4 After PR 2c (owned coverage, effective upgrade cost, consumed components)
+
+F2 and F3 are fixed. F6 is resolved as the **held** cap: consumed components now free
+their slots, and with no selling in v1 (§7 Q4), 12 held items is the in-game limit. An
+uncapped game plan would recommend items the player has no room to hold. So the
+fixture's H6 check stays "owned + phase items held ≤ 12".
+
+| Hero          | Early (5,900)                                  | + Mid (16,700)                                | + Late (30,000)                               |
+| ------------- | ---------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Seven         | Blood Tribute, Cold Front, Spirit Strike       | Infuser, Cultist Sacrifice, Grit              | Cheat Death, Inhibitor, Mystic Expansion      |
+| Lady Geist    | Blood Tribute, Cold Front, Spirit Strike       | Infuser, Cultist Sacrifice, Mystic Expansion  | Spirit Burn, Inhibitor, Grit                  |
+| Haze          | Blood Tribute, Spirit Shielding, Spirit Strike | Arctic Blast, Cultist Sacrifice, Extra Health | Infuser, Spirit Burn, Mystic Expansion        |
+| Wraith        | Blood Tribute, Cold Front, Spirit Strike       | Infuser, Cultist Sacrifice, Grit              | Cheat Death, Inhibitor, Mystic Expansion      |
+| Infernus      | Cultist Sacrifice, Cold Front, Spirit Strike   | Infuser, Fury Trance, Mystic Expansion        | Spirit Burn, Divine Barrier, Golden Goose Egg |
+| Abrams        | Blood Tribute, Cold Front, Spirit Strike       | Infuser, Cultist Sacrifice, Mystic Expansion  | Spirit Burn, Inhibitor, Grit                  |
+| Warden        | Blood Tribute, Cold Front, Spirit Strike       | Infuser, Cultist Sacrifice, Mystic Expansion  | Spirit Burn, Inhibitor, Close Quarters        |
+| Deadman Danny | Blood Tribute, Cold Front, Spirit Strike       | Infuser, Cultist Sacrifice, Grit              | Cheat Death, Inhibitor, Mystic Expansion      |
+
+Later phases now see what earlier phases cover, so they fill other needs instead of
+buying more of the same:
+
+| Lean                              | After 2c   | Detail                                           |
+| --------------------------------- | ---------- | ------------------------------------------------ |
+| L1 Seven / Lady Geist lean spirit | ❌ (worse) | Seven late held: gun 6,400 > spirit 3,200        |
+| L2 Haze leans gun                 | ❌ (worse) | Late held: spirit 14,400 > gun 6,400             |
+| L3 tanks get durability           | ✅         | Abrams 45.9%, Warden 43.2% (was 2.7%)            |
+| L4 archetypes differ              | ✅         | Seven/Haze 0.38 (was 0.64); Lady Geist/Haze 0.50 |
+| L5 early phase uses souls         | ✅         | Unchanged: early has nothing owned               |
+| L6 upgrade paths appear           | ❌ (newly) | See below                                        |
+
+L1 and L2 got worse for the reason in F1. The need vector gives `spiritDamage` the same
+share for every hero, about 17% of the target. Once owned items fill that share, the
+basket moves on to other categories. That is the need-vector PR's job.
+
+**L6 passed only because of F3's double count.** Arctic Blast's full stats were stacked on
+top of Cold Front's. With upgrade stats replacing the component's, an upgrade adds only
+the _difference_. The basket picks by value rather than value per soul, and a freed slot
+is worth nothing until slots run out. So a fresh item beats an upgrade. Making upgrades
+win needs a soul-efficiency or slot-pressure signal. That is a scoring design decision,
+not a bug fix.
+
+**Decision (2026-10-20):** L6 goes back on `KNOWN_LEAN_GAPS` as an explained exception to
+"the list only shrinks", because its earlier pass was not real. The upgrade-efficiency
+signal is a separate scoring item after the need-vector PR. Known gaps after 2c: L1 Seven
+and Lady Geist, L2 Haze, L6.
 
 ## 6. Known failures (the ratchet)
 

@@ -86,10 +86,14 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   // Both inputs come from the hero and the ALREADY-OWNED build, never from
   // the candidates being chosen: an item's value must not depend on which
   // other items the basket happens to pick, or selection becomes circular.
+  const valuation = { spiritPower: input.spiritPower, boonLevel: input.boonLevel };
   const candidates = toItemCandidates(
     allItems.filter((i) => !ownedIds.has(i.id)),
-    { spiritPower: input.spiritPower, boonLevel: input.boonLevel },
+    valuation,
   );
+  // Owned items, valued the same way: they seed the basket's coverage and
+  // investment souls, and an upgrade candidate can consume them (PR 2c).
+  const ownedCandidates = toItemCandidates(ownedItems, valuation);
 
   const committed = ownedItems.reduce((sum, i) => sum + i.cost, 0);
 
@@ -124,6 +128,7 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     // Measured pair lift for this hero; also lets a precise measurement
     // override a hand-authored synergy rule ("measured wins").
     pairLift: input.pairLift,
+    ownedCandidates,
   });
 
   return {

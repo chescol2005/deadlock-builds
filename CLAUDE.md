@@ -332,7 +332,9 @@ lib/engine/                   — engine scoring surface, parallel to lib/scorin
                                 own gun DPS (damage x fire rate) vs roster — two
                                 INDEPENDENT signals, not one split budget
   itemAdapter.ts              — toItemCandidate(), toItemCandidates() — Item bridge
-  basketSelect.ts             — constructBasket(), makeBasketContext(),
+  basketSelect.ts             — constructBasket(), makeBasketContext() (owned items seed
+                                coverage; effectiveCost(): upgrades consume owned
+                                direct components and cost the difference),
                                 coverageTerm/categoryBonusTerm/procPlatformTerm/
                                 hitReliabilityTerm/synergyTerm/pairTerm/
                                 analyticsTerm. New terms plug in as one more
@@ -396,7 +398,9 @@ app/build/components/
   HeroBasketSuggestion.tsx     — hero-need basket (Milestone E): a SET of items
                                 chosen together. Presentational only — receives a
                                 BasketResult via props, computes nothing. Sits
-                                alongside SuggestedItemsPanel, does not replace it
+                                alongside SuggestedItemsPanel, does not replace it.
+                                Prices picks at BasketPick.effectiveCost and names
+                                the owned component an upgrade trades in
 app/guide/components/          — cross-guide shared UI (Milestone D4):
   Minimap.tsx                  — generic marker-overlay minimap; callers supply
                                 markers + renderMarker/renderTooltip/legend

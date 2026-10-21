@@ -151,6 +151,7 @@ function PickCard({
   onAdd,
   slotsFull,
   simplified,
+  consumedNames,
 }: {
   pick: BasketPick;
   index: number;
@@ -158,11 +159,17 @@ function PickCard({
   onAdd: (item: Item) => void;
   slotsFull: boolean;
   simplified: boolean;
+  /** Names of owned components this pick upgrades (trades in). Usually empty. */
+  consumedNames: ReadonlyArray<string>;
 }) {
   const category = item?.category ?? pick.item.category;
   const styles = CATEGORY_STYLES[category];
   const name = item?.name ?? pick.item.name;
-  const cost = item?.cost ?? pick.item.cost;
+  // What the player actually pays: an upgrade of an owned component costs the
+  // difference (the component is traded in), which is what the total sums.
+  const cost = pick.effectiveCost;
+  const fullCost = item?.cost ?? pick.item.cost;
+  const isUpgrade = consumedNames.length > 0;
   const icon = item?.icon;
   const top = bestTerm(pick.terms);
 
@@ -213,7 +220,7 @@ function PickCard({
               Unavailable
             </button>
           </Tooltip>
-        ) : slotsFull ? (
+        ) : slotsFull && !isUpgrade ? (
           <button
             disabled
             className="shrink-0 cursor-not-allowed rounded-md border border-zinc-700 px-2 py-1 text-[11px] font-semibold text-zinc-600"
@@ -229,6 +236,13 @@ function PickCard({
           </button>
         )}
       </div>
+
+      {isUpgrade ? (
+        <div className="text-[11px] text-amber-300/90">
+          Upgrades your {consumedNames.join(" and ")}: you trade it in, so this costs ◈
+          {fmt(cost)} instead of ◈{fmt(fullCost)} and uses no extra slot.
+        </div>
+      ) : null}
 
       {simplified ? (
         <div className="text-[11px] italic text-zinc-400">
@@ -333,7 +347,7 @@ export function HeroBasketSuggestion({
                 <span className="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
                   Coverage vs. Need
                 </span>
-                <InfoTooltip content="Each bar shows how much of this hero's need in that category the basket currently covers. A full bar means this need is met — an empty one means it's still a gap." />
+                <InfoTooltip content="Each bar shows how much of this hero's need in that category your current items plus these suggestions cover. A full bar means this need is met — an empty one means it's still a gap." />
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {coverageCategories.map((cat) => (
@@ -372,6 +386,7 @@ export function HeroBasketSuggestion({
                   onAdd={onAdd}
                   slotsFull={slotsFull}
                   simplified={simplified}
+                  consumedNames={pick.consumes.map((id) => itemById.get(id)?.name ?? id)}
                 />
               ))}
             </div>

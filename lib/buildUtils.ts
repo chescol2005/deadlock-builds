@@ -24,7 +24,9 @@ export function getConsumedComponents(currentBuild: Item[]): Map<string, string[
 
 // Returns the effective purchase cost of an item given the current build.
 // Components already present in the build are treated as a discount (they will be
-// consumed on purchase). Partial component sets receive proportional discounts.
+// consumed on purchase): each owned DIRECT component takes its own full cost off,
+// so a partial set discounts exactly the components owned (deadlock.wiki/Items,
+// verified 2026-10-20). lib/engine's effectiveCost() applies the same rule.
 // Always returns at least 0.
 export function getEffectiveAddCost(item: Item, currentBuild: Item[], allItems: Item[]): number {
   if (!item.componentItems || item.componentItems.length === 0) return item.cost;

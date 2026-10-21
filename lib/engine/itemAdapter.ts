@@ -438,6 +438,10 @@ export function toItemCandidate(item: Item, ctx?: ItemValuationContext): ItemCan
     procReliance: deriveProcReliance(stats),
     hitDependence: deriveHitDependence(stats),
     tags: item.tags,
+    // Only set when present, so items without components are shaped as before.
+    ...(item.componentItems && item.componentItems.length > 0
+      ? { componentIds: item.componentItems }
+      : {}),
   };
 }
 

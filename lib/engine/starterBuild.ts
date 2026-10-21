@@ -5,9 +5,10 @@
 // phased build: early items, then what to add by mid game, then late game.
 // Use cases and acceptance criteria: docs/starter-build-use-cases.md.
 //
-// v0 (PR 2b) deliberately only CHAINS today's engine. Owned-item coverage,
-// component/upgrade-path handling and the need-vector fix are later PRs, and
-// the fixtures' KNOWN_LEAN_GAPS list records what still falls short.
+// PR 2c: owned items count toward coverage, and an upgrade of an earlier
+// phase's component is priced at the difference and consumes it (it leaves the
+// build, freeing its slot). The need-vector fix is a later PR; the fixtures'
+// KNOWN_LEAN_GAPS list records what still falls short.
 //
 // Pure: same inputs, same output.
 
@@ -50,6 +51,8 @@ export interface StarterPhase {
   souls: number;
   /** Items this phase adds, in pick order. */
   items: ReadonlyArray<Item>;
+  /** Earlier items this phase's upgrades consumed (they leave the build). */
+  consumed: ReadonlyArray<Item>;
   /** The basket run behind this phase: per-pick reasons, coverage, stop reason. */
   basket: BasketResult;
 }
@@ -96,8 +99,12 @@ export function buildStarterBuild(input: StarterBuildInputs): StarterBuild | nul
       if (!item) throw new Error(`starterBuild: pick ${p.item.itemId} is not in allItems`);
       return item;
     });
-    phases.push({ phase, boonLevel, souls, items, basket: run.basket });
-    owned = [...owned, ...items];
+    // Upgrades consume their held components (the planner's resolveAddItem does
+    // the same), so those leave the build before the next phase.
+    const consumedIds = new Set(run.basket.picks.flatMap((p) => [...p.consumes]));
+    const consumed = owned.filter((i) => consumedIds.has(i.id));
+    phases.push({ phase, boonLevel, souls, items, consumed, basket: run.basket });
+    owned = [...owned.filter((i) => !consumedIds.has(i.id)), ...items];
   }
 
   return { ownedItems: input.ownedItems, phases };

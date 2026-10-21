@@ -17,8 +17,10 @@
 // guarantee for budgeted maximum coverage (strictly, for the coverage term
 // alone: `synergyTerm` and `pairTerm` are supermodular, and pairTerm's
 // negative values make the objective non-monotone, so the bound is approximate
-// once they are enabled; their small caps keep the deviation small). Exactness is not worth the
-// determinism and explainability cost here.
+// once they are enabled; their small caps keep the deviation small). An upgrade
+// that consumes a held component can also LOWER coverage in a category (its stats
+// replace the component's), another source of non-monotonicity. Exactness is not
+// worth the determinism and explainability cost here.
 //
 // Design constraints (CLAUDE.md + scoring-engine-dev skill, non-negotiable):
 // - PURE. Same inputs → same output. No Date.now(), no Math.random(), no
@@ -45,7 +47,7 @@ import {
   isApproachingSignificantBonus,
 } from "../categoryBonuses";
 import type { ItemCategory } from "../items";
-import { pairLiftIn } from "./pairLift";
+import { componentClosure, pairLiftIn } from "./pairLift";
 import type { PairLiftEntry } from "./pairLift";
 import { findSynergyRules } from "./synergy";
 import type {
@@ -68,7 +70,7 @@ import { SCORE_CATEGORIES } from "./types";
  * `ItemCandidate.categoryValues` (which run roughly 0–100 per category).
  *
  * WHAT THIS CONTROLS: where diminishing returns kick in. `makeBasketContext`
- * spreads `coverageTargetPerSlot × maxItems` across the categories in
+ * spreads `coverageTargetPerSlot × targetSlots` across the categories in
  * proportion to the need vector; once a category's cumulative coverage reaches
  * its share, further items in that category stop earning coverage value and the
  * basket is pushed to spread elsewhere.
@@ -242,12 +244,14 @@ function formatSouls(souls: number): string {
  * Recovers `coverageTargetPerSlot` from a context.
  *
  * `BasketContext` stores the already-scaled `target`, not the raw option, so
- * the per-slot scale is read back as `sum(target) / maxItems`. Every bounded
+ * the per-slot scale is read back as `sum(target) / targetSlots`. Every bounded
  * term is expressed as a fraction of this so the terms stay in proportion to
  * each other no matter how the scale is tuned.
  */
 function coverageScalePerSlot(ctx: BasketContext): number {
-  if (ctx.maxItems <= 0) return 0;
+  // The target spans owned + free slots (ctx.targetSlots), not free slots alone.
+  const slots = ctx.targetSlots;
+  if (slots <= 0) return 0;
 
   let totalTarget = 0;
   for (const cat of SCORE_CATEGORIES) {
@@ -255,7 +259,7 @@ function coverageScalePerSlot(ctx: BasketContext): number {
     if (Number.isFinite(t)) totalTarget += t;
   }
 
-  return totalTarget / ctx.maxItems;
+  return totalTarget / slots;
 }
 
 /** Reads a candidate's value for one category, guarding untrusted numbers. */
@@ -273,7 +277,7 @@ function candidateValue(candidate: ItemCandidate, cat: ScoreCategory): number {
  * weights (a hero needing "twice as much spirit damage as mobility"), while
  * `ItemCandidate.categoryValues` are raw magnitudes. Comparing them directly
  * would be meaningless, so the need vector is normalized to sum to 1 and then
- * scaled by `coverageTargetPerSlot × maxItems`, producing a per-category target
+ * scaled by `coverageTargetPerSlot × targetSlots` (owned + free slots), producing a per-category target
  * expressed in the same units as `categoryValues`.
  *
  * Degenerate input is handled without dividing by zero: an all-zero (or
@@ -294,6 +298,12 @@ export function makeBasketContext(opts: {
   ownedItemNames?: ReadonlyMap<string, string>;
   /** See BasketContext.pairLift. Omitted => pairTerm inert, hand rules never overridden. */
   pairLift?: BasketContext["pairLift"];
+  /**
+   * Items already owned, valued like the candidates. Their coverage and souls
+   * seed the basket and an upgrade can consume them. Omitted => nothing owned,
+   * and the context is exactly what it was before owned coverage existed.
+   */
+  ownedCandidates?: ReadonlyArray<ItemCandidate>;
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -315,7 +325,14 @@ export function makeBasketContext(opts: {
     needSum += value;
   }
 
-  const totalTarget = perSlot * maxItems;
+  // Sorted by itemId so the caller's owned order is never load-bearing.
+  const owned = sanitizeCandidates(opts.ownedCandidates ?? []).sort((a, b) =>
+    a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0,
+  );
+  // Owned coverage counts toward the target, so the target spans the whole
+  // build (owned + free slots). With nothing owned this is maxItems, as before.
+  const targetSlots = maxItems + owned.length;
+  const totalTarget = perSlot * targetSlots;
   const target = zeroCoverage();
 
   if (needSum > 0) {
@@ -347,7 +364,91 @@ export function makeBasketContext(opts: {
         : undefined,
     ownedItemNames: opts.ownedItemNames,
     pairLift: opts.pairLift,
+    owned,
+    targetSlots,
   };
+}
+
+// ─── Upgrade components ──────────────────────────────────────────────────────
+
+/**
+ * What `candidate` costs given what is held, and which held items it consumes.
+ *
+ * Verified 2026-10-20 (deadlock.wiki/Items, /Shop; live /v1/assets/items):
+ * buying an upgrade consumes its DIRECT components that you hold, and the price
+ * drops by exactly their cost. Only direct components count (every chain
+ * upgrades one step at a time), matching `getEffectiveAddCost` in buildUtils.
+ * Never below 0.
+ */
+export function effectiveCost(
+  candidate: ItemCandidate,
+  held: ReadonlyArray<ItemCandidate>,
+): { cost: number; consumes: ItemCandidate[] } {
+  const componentIds = candidate.componentIds ?? [];
+  if (componentIds.length === 0) return { cost: candidate.cost, consumes: [] };
+  const wanted = new Set(componentIds);
+  const consumes = held.filter((h) => wanted.has(h.itemId));
+  const discount = consumes.reduce((sum, c) => sum + c.cost, 0);
+  return { cost: Math.max(0, candidate.cost - discount), consumes };
+}
+
+function heldOf(state: BasketState): ReadonlyArray<ItemCandidate> {
+  return state.held ?? state.picked;
+}
+
+/**
+ * The state before the first pick: owned items seed coverage, investment souls
+ * and the held set. `spent` is the basket's own spend, starting at 0, because
+ * the caller already took owned costs out of `soulBudget`. Exported so
+ * basketProbe's first-pick ranking starts exactly where `constructBasket` does.
+ */
+export function initialBasketState(ctx: BasketContext): BasketState {
+  const coverage = zeroCoverage();
+  const soulsPerCategory = zeroSoulsPerCategory();
+  for (const o of ctx.owned) {
+    for (const cat of SCORE_CATEGORIES) coverage[cat] += candidateValue(o, cat);
+    soulsPerCategory[o.category] += o.cost;
+  }
+  return { picked: [], held: [...ctx.owned], coverage, soulsPerCategory, spent: 0 };
+}
+
+/**
+ * Transitive component closures for every item in `items`, computed once.
+ * `componentClosure` excludes the item itself.
+ */
+export function componentClosures(
+  items: ReadonlyArray<ItemCandidate>,
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const direct = new Map<string, ReadonlyArray<string>>();
+  for (const c of items)
+    if (c.componentIds && c.componentIds.length > 0) direct.set(c.itemId, c.componentIds);
+  const out = new Map<string, ReadonlySet<string>>();
+  for (const c of items)
+    out.set(
+      c.itemId,
+      componentClosure(c.itemId, (x) => direct.get(x)),
+    );
+  return out;
+}
+
+/**
+ * H2 (docs/starter-build-use-cases.md): one basket never PICKS an item together
+ * with its own component, and never buys a component of something already held.
+ * Upgrading an OWNED component is the normal upgrade path and is allowed. Only
+ * direct components are consumed (verified game rule), so an owned
+ * grand-component (A in A→B→C) can stay held next to C.
+ */
+export function blockedByComponents(
+  candidate: ItemCandidate,
+  state: BasketState,
+  closures: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
+  for (const h of heldOf(state)) {
+    if (closures.get(h.itemId)?.has(candidate.itemId)) return true;
+  }
+  const own = closures.get(candidate.itemId);
+  if (own) for (const p of state.picked) if (own.has(p.itemId)) return true;
+  return false;
 }
 
 // ─── Marginal value terms ────────────────────────────────────────────────────
@@ -385,21 +486,27 @@ function computeCoverageGain(
   let total = 0;
   const perCategory: Array<{ cat: ScoreCategory; gain: number }> = [];
 
+  // An upgrade's stats REPLACE the components it consumes (Arctic Blast's
+  // TechResist 10 vs Cold Front's 6 is not 16), so their coverage comes off.
+  const { consumes } = effectiveCost(candidate, heldOf(state));
+
   for (const cat of SCORE_CATEGORIES) {
     const itemValue = candidateValue(candidate, cat);
-    if (itemValue === 0) continue;
+    let consumedValue = 0;
+    for (const c of consumes) consumedValue += candidateValue(c, cat);
+    if (itemValue === 0 && consumedValue === 0) continue;
 
     const target = Number.isFinite(ctx.target[cat]) ? ctx.target[cat] : 0;
     const covered = Number.isFinite(state.coverage[cat]) ? state.coverage[cat] : 0;
 
     const before = Math.min(target, covered);
-    const after = Math.min(target, covered + itemValue);
+    const after = Math.min(target, Math.max(0, covered - consumedValue) + itemValue);
     const catGain = after - before;
 
-    if (catGain > 0) {
-      total += catGain;
-      perCategory.push({ cat, gain: catGain });
-    }
+    // A consumed component can make a category's gain negative; it still
+    // counts toward the total, but only positive gains are named in reasons.
+    total += catGain;
+    if (catGain > 0) perCategory.push({ cat, gain: catGain });
   }
 
   perCategory.sort((a, b) => {
@@ -468,7 +575,9 @@ export const categoryBonusTerm: MarginalTermFn = {
     const scale = coverageScalePerSlot(ctx);
     if (scale <= 0) return null;
 
-    const cost = Number.isFinite(candidate.cost) && candidate.cost > 0 ? candidate.cost : 0;
+    // Souls actually paid: an upgrade of a held component costs the difference.
+    const paid = effectiveCost(candidate, heldOf(state)).cost;
+    const cost = Number.isFinite(paid) && paid > 0 ? paid : 0;
     if (cost === 0) return null;
 
     if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
@@ -706,14 +815,28 @@ function measuredPair(
 }
 
 /**
- * Items a candidate can pair with: everything the player already owns plus
- * everything this basket already picked (owned items are never candidates, so
- * they never appear in `state.picked`). itemId -> display name. Never other
- * not-yet-picked candidates: that would make selection circular.
+ * Items a candidate can pair with: everything currently HELD (owned items plus
+ * this basket's picks, minus components an upgrade consumed), excluding the
+ * components this candidate would itself consume. itemId -> display name. Never
+ * other not-yet-picked candidates: that would make selection circular.
+ *
+ * Without `ctx.owned` (callers that pass only names) it falls back to
+ * `ownedItemNames` plus picks, as before owned coverage existed.
  */
-function pairPartners(state: BasketState, ctx: BasketContext): Map<string, string> {
-  const partners = new Map<string, string>(ctx.ownedItemNames ?? []);
-  for (const p of state.picked) partners.set(p.itemId, p.name);
+function pairPartners(
+  candidate: ItemCandidate,
+  state: BasketState,
+  ctx: BasketContext,
+): Map<string, string> {
+  if (ctx.owned.length === 0) {
+    const partners = new Map<string, string>(ctx.ownedItemNames ?? []);
+    for (const p of state.picked) partners.set(p.itemId, p.name);
+    return partners;
+  }
+  const held = heldOf(state);
+  const consumed = new Set(effectiveCost(candidate, held).consumes.map((c) => c.itemId));
+  const partners = new Map<string, string>();
+  for (const h of held) if (!consumed.has(h.itemId)) partners.set(h.itemId, h.name);
   return partners;
 }
 
@@ -732,7 +855,7 @@ export const synergyTerm: MarginalTermFn = {
   termId: "synergy",
 
   evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
-    const partnerNames = pairPartners(state, ctx);
+    const partnerNames = pairPartners(candidate, state, ctx);
 
     const lift = ctx.pairLift;
     const rules = findSynergyRules(candidate.itemId, new Set(partnerNames.keys())).filter(
@@ -794,7 +917,7 @@ export const pairTerm: MarginalTermFn = {
     const lift = ctx.pairLift;
     if (!lift) return null;
 
-    const partners = pairPartners(state, ctx);
+    const partners = pairPartners(candidate, state, ctx);
     const hits: Array<{ name: string; entry: PairLiftEntry }> = [];
     // Code-unit order: deterministic sum and reason, whatever the Map order.
     for (const id of [...partners.keys()].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))) {
@@ -912,7 +1035,8 @@ function makeResult(
  * Stop reasons, in the precedence the loop applies them:
  * - `"no-candidates"` — nothing to consider before the first pick (empty list,
  *   or everything filtered out by `sanitizeCandidates`).
- * - `"slots"` — the basket reached `ctx.maxItems`.
+ * - `"slots"` — no free slot is left (`ctx.maxItems`, net of slots freed by
+ *   consumed components) and nothing slot-neutral is worth buying.
  * - `"budget"` — no remaining candidate fits in `soulBudget − spent`. This also
  *   covers exhausting the pool after at least one pick: the spec reserves
  *   `"no-candidates"` for the pre-first-pick case, and "nothing left that fits"
@@ -926,11 +1050,21 @@ export function constructBasket(
   ctx: BasketContext,
   terms: ReadonlyArray<MarginalTermFn> = DEFAULT_BASKET_TERMS,
 ): BasketResult {
-  const remaining = sanitizeCandidates(candidates);
+  // Owned items are never candidates (H7). Callers filter them already; the
+  // engine enforces it too.
+  const ownedIds = new Set(ctx.owned.map((o) => o.itemId));
+  const remaining = sanitizeCandidates(candidates).filter((c) => !ownedIds.has(c.itemId));
 
-  let coverage = zeroCoverage();
-  let soulsPerCategory = zeroSoulsPerCategory();
+  const initial = initialBasketState(ctx);
+  let held: ItemCandidate[] = [...(initial.held ?? [])];
+  let coverage: Record<ScoreCategory, number> = { ...initial.coverage };
+  let soulsPerCategory: Record<ItemCategory, number> = { ...initial.soulsPerCategory };
   let spent = 0;
+  // Free slots. A pick takes one; every component it consumes gives one back,
+  // so upgrading a held component is slot-neutral and fits even when full.
+  let slotsLeft = ctx.maxItems;
+
+  const closures = componentClosures([...ctx.owned, ...remaining]);
 
   const picks: BasketPick[] = [];
   const picked: ItemCandidate[] = [];
@@ -942,26 +1076,36 @@ export function constructBasket(
   let stopReason: BasketResult["stopReason"] = "budget";
 
   for (;;) {
-    if (picks.length >= ctx.maxItems) {
-      stopReason = "slots";
-      break;
-    }
-
     const budgetLeft = ctx.soulBudget - spent;
 
-    // Snapshot: `picked` is appended to below, so copy it rather than handing
-    // terms a reference to an array that will mutate under them. Bounded by
-    // MAX_ACTIVE_ITEMS, so the copy is free.
-    const state: BasketState = { picked: [...picked], coverage, soulsPerCategory, spent };
+    // Snapshot: `picked` and `held` change below, so copy them rather than
+    // handing terms references to arrays that will mutate under them. Both are
+    // bounded by MAX_ACTIVE_ITEMS, so the copies are free.
+    const state: BasketState = {
+      picked: [...picked],
+      held: [...held],
+      coverage,
+      soulsPerCategory,
+      spent,
+    };
 
     let bestIndex = -1;
     let bestValue = 0;
     let bestTerms: MarginalTerm[] = [];
+    let bestCost = { cost: 0, consumes: [] as ItemCandidate[] };
     let sawAffordable = false;
+    let sawOverBudget = false;
 
     for (let i = 0; i < remaining.length; i += 1) {
       const candidate = remaining[i];
-      if (candidate.cost > budgetLeft) continue;
+      if (blockedByComponents(candidate, state, closures)) continue;
+
+      const eff = effectiveCost(candidate, held);
+      if (eff.cost > budgetLeft) {
+        sawOverBudget = true;
+        continue;
+      }
+      if (slotsLeft - 1 + eff.consumes.length < 0) continue;
       sawAffordable = true;
 
       const candidateTerms: MarginalTerm[] = [];
@@ -979,34 +1123,48 @@ export function constructBasket(
         bestIndex = i;
         bestValue = value;
         bestTerms = candidateTerms;
+        bestCost = eff;
       }
     }
 
     if (!sawAffordable) {
-      stopReason = "budget";
+      // Out of free slots takes precedence, as before owned coverage existed.
+      // With slots left, "budget" means something was too expensive; if every
+      // remaining candidate was excluded by H2 instead, nothing useful is left.
+      stopReason = slotsLeft <= 0 ? "slots" : sawOverBudget ? "budget" : "no-positive-value";
       break;
     }
 
     if (bestIndex === -1 || bestValue <= 0) {
-      stopReason = "no-positive-value";
+      // A full build where only a worthless slot-neutral upgrade fits is still
+      // "full" to the player, not "nothing would help".
+      stopReason = slotsLeft <= 0 ? "slots" : "no-positive-value";
       break;
     }
 
     const chosen = remaining[bestIndex];
+    const consumedIds = new Set(bestCost.consumes.map((c) => c.itemId));
 
     // Immutable state advance: terms only ever see a snapshot, so a term cannot
-    // observe a half-updated basket regardless of evaluation order.
+    // observe a half-updated basket regardless of evaluation order. Consumed
+    // components leave the held set and their coverage comes off.
     const nextCoverage = zeroCoverage();
     for (const cat of SCORE_CATEGORIES) {
-      nextCoverage[cat] = coverage[cat] + candidateValue(chosen, cat);
+      let consumedValue = 0;
+      for (const c of bestCost.consumes) consumedValue += candidateValue(c, cat);
+      nextCoverage[cat] = Math.max(0, coverage[cat] - consumedValue) + candidateValue(chosen, cat);
     }
 
+    // Investment counts souls actually paid; a consumed component's souls were
+    // already counted when it was bought, so they stay.
     const nextSouls = { ...soulsPerCategory };
-    nextSouls[chosen.category] += chosen.cost;
+    nextSouls[chosen.category] += bestCost.cost;
 
     coverage = nextCoverage;
     soulsPerCategory = nextSouls;
-    spent += chosen.cost;
+    spent += bestCost.cost;
+    slotsLeft += bestCost.consumes.length - 1;
+    held = [...held.filter((h) => !consumedIds.has(h.itemId)), chosen];
 
     picked.push(chosen);
     picks.push({
@@ -1014,6 +1172,8 @@ export function constructBasket(
       marginalValue: bestValue,
       terms: bestTerms,
       coverageAfter: nextCoverage,
+      effectiveCost: bestCost.cost,
+      consumes: bestCost.consumes.map((c) => c.itemId),
       cumulativeCost: spent,
     });
 
