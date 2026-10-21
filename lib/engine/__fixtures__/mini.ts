@@ -24,6 +24,7 @@ import {
   makeBasketContext,
   PAIR_LIFT_MAX_FRACTION,
   pairTerm,
+  rankingPrice,
   procPlatformTerm,
   SYNERGY_MAX_FRACTION,
   synergyTerm,
@@ -37,9 +38,15 @@ import {
   flooredShares,
   heroCategorySplit,
   MAX_ACCURACY_RATIO,
+  EARLY_PHASE_MAX_SOULS,
+  MID_PHASE_MAX_SOULS,
+  PROFILE_CATEGORIES,
+  applyStatProfile,
+  phaseForSouls,
+  phaseView,
   MIN_FAMILY_SHARE,
 } from "../categorySplit";
-import type { CategorySplitTable } from "../categorySplit";
+import type { CategorySplitTable, HeroCategorySplit } from "../categorySplit";
 import {
   componentClosure,
   estimateTau2,
@@ -3518,6 +3525,164 @@ console.log("\n18. Measured category split (need-vector PR)");
       Math.floor(committed.method.minAverageBadge / 10) >= 1,
     "heroCategorySplit.json: window spans method.days, generated = window.to, rank fields set",
     `days ${days}, generated ${committed.generated}`,
+  );
+}
+
+console.log("\n19. Ranking by value per binding resource (coverage-model PR 1)");
+{
+  // a. rankingPrice: per soul when souls are tight, a slot's share when slots bind.
+  assert(
+    rankingPrice(1600, 5900, 12) === 1600 &&
+      rankingPrice(800, 24000, 6) === 4000 &&
+      rankingPrice(6400, 24000, 6) === 6400 &&
+      rankingPrice(0, 0, 0) === 1,
+    "rankingPrice: max(effective cost, souls per free slot), never below 1",
+  );
+
+  // b. Tight souls: an efficient cheap item beats a pricier all-rounder that
+  //    only has more total value (the old raw-value ranking picked the latter).
+  const need = { ...zeroValues(), gunDamage: 1, spiritDamage: 1, sustain: 1 };
+  const cheap = mkCandidate("cheap_eff", 701, "gun", 800, { gunDamage: 30 });
+  const allRounder = mkCandidate("big_round", 702, "gun", 3200, {
+    gunDamage: 30,
+    spiritDamage: 25,
+    sustain: 25,
+  });
+  const tight = makeBasketContext({ needVector: need, soulBudget: 3200, maxItems: 12 });
+  const tightPick = constructBasket([cheap, allRounder], tight).picks[0]?.item.itemId;
+  assert(
+    tightPick === "cheap_eff",
+    "ranking: with tight souls, value per soul wins (800 item at 30 beats 3200 item at 80)",
+    `Got ${tightPick}`,
+  );
+
+  // c. Slots binding: plenty of souls per free slot, so the high-value item wins.
+  const roomy = makeBasketContext({ needVector: need, soulBudget: 30000, maxItems: 2 });
+  const roomyPick = constructBasket([cheap, allRounder], roomy).picks[0]?.item.itemId;
+  assert(
+    roomyPick === "big_round",
+    "ranking: when slots bind (souls per slot above both prices), value per slot wins",
+    `Got ${roomyPick}`,
+  );
+
+  // d. The stop rule still uses raw value: nothing worthless is bought just
+  //    because it is cheap.
+  const worthless = mkCandidate("worthless", 703, "gun", 100, {});
+  const onlyWorthless = constructBasket([worthless], tight);
+  assert(
+    onlyWorthless.picks.length === 0 && onlyWorthless.stopReason === "no-positive-value",
+    "ranking: a cheap item with no value is never picked",
+    `Got ${onlyWorthless.picks.length} picks, ${onlyWorthless.stopReason}`,
+  );
+
+  // e. Deterministic and order-independent.
+  assert(
+    JSON.stringify(constructBasket([cheap, allRounder, worthless], tight)) ===
+      JSON.stringify(constructBasket([worthless, allRounder, cheap], tight)),
+    "ranking: same result whatever the candidate order",
+  );
+}
+
+console.log("\n20. Phase-aware split and measured stat profile (coverage-model PR 2)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+  // a. Phase from souls: 10 and 20 minute marks on the net-worth curve.
+  assert(
+    phaseForSouls(5900) === "early" &&
+      phaseForSouls(EARLY_PHASE_MAX_SOULS) === "early" &&
+      phaseForSouls(16700) === "mid" &&
+      phaseForSouls(MID_PHASE_MAX_SOULS + 1) === "late",
+    "phaseForSouls: starter checkpoints 5,900 / 16,700 / 30,000 fall in early / mid / late",
+  );
+
+  // b. applyStatProfile: profile categories take the profile's share, total kept,
+  //    the rest keep their ratios; no profile => unchanged.
+  const need = {
+    ...zeroValues(),
+    gunDamage: 2,
+    spiritDamage: 1,
+    bonusHealth: 1,
+    antiHeal: 1,
+    sustain: 1,
+    utility: 1,
+    economy: 1,
+    mobility: 1,
+  };
+  const profile = {
+    ...zeroValues(),
+    gunDamage: 0.5,
+    sustain: 0.2,
+    economy: 0.1,
+    mobility: 0.05,
+    antiHeal: 0.05,
+    utility: 0.1,
+  };
+  const out = applyStatProfile(need, profile);
+  const sum = (v: Readonly<Record<ScoreCategory, number>>) =>
+    SCORE_CATEGORIES.reduce((s, c) => s + v[c], 0);
+  const profileTotal = (v: Readonly<Record<ScoreCategory, number>>) =>
+    PROFILE_CATEGORIES.reduce((s, c) => s + v[c], 0);
+  assert(
+    applyStatProfile(need, null) === need &&
+      near(sum(out), sum(need)) &&
+      near(profileTotal(out) / sum(out), 0.5) &&
+      near(out.sustain / out.economy, 2) &&
+      near(out.gunDamage / out.spiritDamage, 2),
+    "applyStatProfile: profile categories get the measured share and mix; total and the rest's ratios kept",
+    JSON.stringify(out),
+  );
+
+  // c. A profile category the players never cover still gets the floor.
+  const noAntiHeal = { ...profile, antiHeal: 0 };
+  const floored = applyStatProfile(need, noAntiHeal);
+  assert(
+    floored.antiHeal > 0,
+    "applyStatProfile: a profile category with 0 share is floored above zero",
+  );
+
+  // d. phaseView: early/mid use the purchase splits, late the final split; no
+  //    phase data => the whole-game split and no profile.
+  const base: HeroCategorySplit = {
+    gun: 0.2,
+    spirit: 0.5,
+    vitality: 0.3,
+    matches: 5000,
+    scope: "Oracle+ players (last 30 days)",
+    rankTier: 8,
+  };
+  const withPhases: HeroCategorySplit = {
+    ...base,
+    phases: {
+      early: { gun: 0.6, spirit: 0.2, vitality: 0.2 },
+      mid: { gun: 0.3, spirit: 0.4, vitality: 0.3 },
+      profile: { early: profile, mid: profile, late: profile },
+    },
+  };
+  assert(
+    phaseView(withPhases, "early").shares.gun === 0.6 &&
+      phaseView(withPhases, "mid").shares.gun === 0.3 &&
+      phaseView(withPhases, "late").shares.gun === 0.2 &&
+      phaseView(base, "early").profile === null &&
+      phaseView(base, "early").shares.gun === 0.2,
+    "phaseView: per-phase split and profile when present; whole-game split otherwise",
+  );
+
+  // e. The term's reason names what the shares measure: early / mid purchases
+  //    are not what players end games with (audit, 2026-10-20).
+  assert(
+    phaseView(withPhases, "early").basis === "buy in the first 10 minutes" &&
+      phaseView(withPhases, "mid").basis === "buy from minute 10 to 20" &&
+      phaseView(withPhases, "late").basis === "end games with" &&
+      phaseView(base, "early").basis === "end games with",
+    "phaseView: basis matches the shares (phase purchases vs final inventory)",
+  );
+
+  // f. No family need to rescale: the need comes back unchanged, total kept.
+  const familyless = { ...zeroValues(), sustain: 1, economy: 1 };
+  assert(
+    applyStatProfile(familyless, profile) === familyless,
+    "applyStatProfile: with no family need the need is returned as is",
   );
 }
 

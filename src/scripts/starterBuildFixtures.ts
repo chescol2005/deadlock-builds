@@ -2,7 +2,8 @@
 // "Start from a suggested build" feature (lib/engine/starterBuild.ts).
 //
 // Spec: docs/starter-build-use-cases.md (APPROVED). Hard rules H1-H9 are plain
-// asserts. Expected leans L1-L6 go through the ratchet in section 6: a failing
+// asserts. Expected leans L4-L6 and the measured phase expectations M1-M3
+// (which replaced L1-L3, doc §4.3) go through the ratchet in section 6: a failing
 // lean must be listed in KNOWN_LEAN_GAPS, and a listed lean that starts passing
 // fails the harness until it is removed.
 //
@@ -12,7 +13,8 @@
 import type { Item } from "@/lib/items";
 import { MAX_ACTIVE_ITEMS } from "@/lib/buildUtils";
 import { componentClosure, heroPairLift } from "@/lib/engine/pairLift";
-import { heroCategorySplit } from "@/lib/engine/categorySplit";
+import { heroCategorySplit, heroPhaseSplits } from "@/lib/engine/categorySplit";
+import type { CategoryShares } from "@/lib/engine/categorySplit";
 import { buildStarterBuild } from "@/lib/engine/starterBuild";
 import type { StarterBuild, StarterBuildInputs } from "@/lib/engine/starterBuild";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
@@ -37,20 +39,33 @@ const REFERENCE_HEROES = [
  * passing, the fixture fails until its key is removed here.
  */
 const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
-  // Measured 2026-10-20 after the need-vector PR (measured category split).
-  // Removed so far: L3 and L4 Seven/Haze by PR 2c (owned coverage); L2 Haze and
-  // L6 by the category-split PR. L6 passes for real now: Seven upgrades Grit
-  // into Guardian Ward at the difference.
-  //
-  // L1 remains: Seven and Lady Geist still put more souls into gun-shop and
-  // vitality-shop items than spirit-shop ones early and mid, because the
-  // coverage model prizes all-rounder items whose shop is not their stat
-  // (Infuser is vitality but mostly spirit and sustain; Spiritual Overflow is
-  // gun but spirit). Overriding that is a coverage-model redesign, not a
-  // weight tweak (docs/starter-build-use-cases.md §5.5).
-  "L1:Seven",
-  "L1:Lady Geist",
+  // State after coverage-model PRs 1+2 (value per soul, phase-aware split + stat
+  // profile), 2026-10-20: 11 of 24 M1 keys pass (6 before). APPROVED EXCEPTION
+  // (user, 2026-10-20): Wraith:early, Abrams:early, Abrams:late and Warden:early
+  // passed before and are listed here as accepted regressions. Cause: categories
+  // valued in different units (doc §5.6); the item scoring review removes them.
+  "M1:Seven:mid",
+  "M1:Lady Geist:early",
+  "M1:Lady Geist:mid",
+  "M1:Haze:early",
+  "M1:Haze:mid",
+  "M1:Haze:late",
+  "M1:Wraith:early",
+  "M1:Wraith:late",
+  "M1:Infernus:mid",
+  "M1:Abrams:early",
+  "M1:Abrams:late",
+  "M1:Warden:early",
+  "M1:Deadman Danny:early",
+  // M2 already failed on main (one item in every early phase): not a regression.
+  "M2",
 ]);
+
+/**
+ * M3 baseline: mean pairwise Jaccard of the reference heroes' mid phases. May
+ * only be lowered (docs/starter-build-use-cases.md §4.3).
+ */
+const MID_OVERLAP_BASELINE = 0.38; // main 0.377; PR 1+2 measure 0.373 (2026-10-20)
 
 const sum = (xs: ReadonlyArray<number>) => xs.reduce((a, b) => a + b, 0);
 
@@ -348,17 +363,6 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     }
   };
 
-  const phaseNames = ["early", "mid", "late"];
-  const cumShares = (name: string) => {
-    const b = builds.get(name);
-    if (!b) return [];
-    return b.phases.map((_, k) => soulsByCategory(cumulativeItems(b, k)));
-  };
-  const fmtShares = (name: string) =>
-    cumShares(name)
-      .map((s, k) => `${phaseNames[k]} gun ${s.gun} spirit ${s.spirit}`)
-      .join("; ");
-
   // Kit-only reference (informational, never asserted): the same reference
   // heroes with no measured split, so it stays visible how much of each lean
   // comes from the engine's own reasoning versus the population prior.
@@ -375,36 +379,82 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     );
   }
 
-  // L1 — spirit casters lean spirit in every phase.
-  for (const name of ["Seven", "Lady Geist"]) {
-    const shares = cumShares(name);
-    ratchet(
-      `L1:${name}`,
-      shares.length > 0 && shares.every((s) => s.spirit >= s.gun),
-      fmtShares(name),
-    );
+  // M1 — phase fidelity (doc §4.3, replaces L1–L3): each reference hero's
+  // early / mid / late shop split is within L1 0.30 of Oracle+ play. Early and
+  // mid compare the items that phase ADDS with what players BUY in 0–10 / 10–20
+  // min; late compares everything held with the final inventory.
+  const M1_TOLERANCE = 0.3;
+  const sharesOf = (items: ReadonlyArray<Item>) => {
+    const s = soulsByCategory(items);
+    const t = s.gun + s.spirit + s.vitality;
+    return t > 0
+      ? { gun: s.gun / t, spirit: s.spirit / t, vitality: s.vitality / t }
+      : { gun: 0, spirit: 0, vitality: 0 };
+  };
+  const l1 = (a: CategoryShares, b: CategoryShares) =>
+    Math.abs(a.gun - b.gun) + Math.abs(a.spirit - b.spirit) + Math.abs(a.vitality - b.vitality);
+  const fmtSplit = (s: CategoryShares) =>
+    `${Math.round(s.gun * 100)}/${Math.round(s.spirit * 100)}/${Math.round(s.vitality * 100)}`;
+  for (const name of REFERENCE_HEROES) {
+    const b = builds.get(name);
+    const kit = kits.get(name);
+    const real = kit ? heroPhaseSplits(d.categorySplitTable, kit.hero.id) : null;
+    assert(real !== null, `M1 setup: measured phase splits exist for ${name}`);
+    if (!b || !real) continue;
+    const engine = {
+      early: sharesOf(b.phases[0].items),
+      mid: sharesOf(b.phases[1].items),
+      late: sharesOf(cumulativeItems(b, b.phases.length - 1)),
+    };
+    for (const phase of ["early", "mid", "late"] as const) {
+      const dist = l1(engine[phase], real[phase]);
+      ratchet(
+        `M1:${name}:${phase}`,
+        dist <= M1_TOLERANCE,
+        `${phase} real ${fmtSplit(real[phase])} engine ${fmtSplit(engine[phase])} d=${dist.toFixed(2)} (need <= ${M1_TOLERANCE})`,
+      );
+    }
   }
 
-  // L2 — Haze leans gun in every phase.
+  // M2 — early diversity: >= 4 distinct early phases across the reference
+  // heroes, and no single item in every one of them.
   {
-    const shares = cumShares("Haze");
+    const earlies = [...builds.values()].map((b) => b.phases[0].items.map((i) => i.id).sort());
+    const distinct = new Set(earlies.map((e) => e.join(","))).size;
+    const counts = new Map<string, number>();
+    for (const e of earlies) for (const id of e) counts.set(id, (counts.get(id) ?? 0) + 1);
+    const everywhere = [...counts].filter(([, n]) => n === earlies.length).map(([id]) => id);
     ratchet(
-      "L2:Haze",
-      shares.length > 0 && shares.every((s) => s.gun >= s.spirit),
-      fmtShares("Haze"),
+      "M2",
+      earlies.length > 0 && distinct >= 4 && everywhere.length === 0,
+      `${distinct} distinct early phases of ${earlies.length} (need >= 4); in every early phase: ${everywhere.join(", ") || "none"}`,
     );
   }
 
-  // L3 — tanks get durability: late vitality >= 30% of late souls.
-  for (const name of ["Abrams", "Warden"]) {
-    const shares = cumShares(name);
-    const late = shares[shares.length - 1];
-    const total = late ? late.gun + late.spirit + late.vitality : 0;
-    const frac = total > 0 && late ? late.vitality / total : 0;
-    ratchet(
-      `L3:${name}`,
-      total > 0 && frac >= 0.3,
-      `late vitality ${late?.vitality ?? 0} / ${total} = ${(frac * 100).toFixed(1)}% (need 30%)`,
+  // M3 — mid-game overlap only falls: mean pairwise Jaccard of the reference
+  // heroes' mid phases stays <= the recorded baseline, which may only be lowered.
+  // A value well under the baseline fails too, until the baseline is lowered
+  // to it, so an improvement is locked in rather than silently given back.
+  {
+    const mids = [...builds.values()].map((b) => new Set(b.phases[1].items.map((i) => i.id)));
+    let sumJ = 0;
+    let pairs = 0;
+    for (let x = 0; x < mids.length; x++) {
+      for (let y = x + 1; y < mids.length; y++) {
+        const inter = [...mids[x]].filter((id) => mids[y].has(id)).length;
+        const union = new Set([...mids[x], ...mids[y]]).size;
+        sumJ += union > 0 ? inter / union : 1;
+        pairs++;
+      }
+    }
+    const overlap = pairs > 0 ? sumJ / pairs : 1;
+    assert(
+      overlap <= MID_OVERLAP_BASELINE + 1e-9,
+      `M3 mid-phase overlap ${overlap.toFixed(3)} <= baseline ${MID_OVERLAP_BASELINE}`,
+    );
+    assert(
+      overlap >= MID_OVERLAP_BASELINE - 0.02,
+      `M3 mid-phase overlap ${overlap.toFixed(3)} has not fallen well below the baseline (lower MID_OVERLAP_BASELINE to lock it in)`,
     );
   }
 
