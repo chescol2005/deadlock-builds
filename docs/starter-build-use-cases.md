@@ -126,6 +126,62 @@ section 6.
 - **L6 Upgrade paths appear.** Across the reference set, at least one later phase
   upgrades an earlier phase's component.
 
+> **L1–L3 are retired** by §4.3 (approved 2026-10-20). They were hand-written
+> direction rules, and high-rank data shows they are partly wrong. Oracle+ Seven players
+> lean GUN in the first 10 minutes (44% gun vs 30% spirit), and lean spirit only later. L4,
+> L5 and L6 stay.
+
+### 4.3 Measured phase expectations (APPROVED 2026-10-20)
+
+These replace L1–L3 with expectations measured from Oracle+ play. Everything goes through
+the same ratchet (§6): a failing key must be listed in `KNOWN_LEAN_GAPS`, and a listed key
+that starts passing must be removed.
+
+**Real phase splits.** A phase split is the share of item souls per shop category
+(gun / spirit / vitality), from `/v1/analytics/item-stats` with `hero_ids`,
+`min_average_badge=80` and the last 30 days:
+
+| Phase | Measured from (real play)                                                     | Compared with (engine)               |
+| ----- | ----------------------------------------------------------------------------- | ------------------------------------ |
+| Early | items **bought** in 0–10 min (`max_bought_at_s=600`), Σ purchases × cost      | items the early phase adds           |
+| Mid   | items **bought** in 10–20 min (`min_bought_at_s=600`, `max_bought_at_s=1200`) | items the mid phase adds             |
+| Late  | **final inventory**, (bought − sold) × cost (`heroCategorySplit.json`)        | everything held after the late phase |
+
+The checkpoints line up: 5,900 souls is about 9–10 minutes and 16,700 about 19–20
+minutes (§2.1). The early and mid splits get committed alongside the final one, refreshed
+by `npm run fit-category-split`.
+
+- **M1 Phase fidelity.** For each reference hero and each phase, the engine's phase split
+  is within an L1 distance of **0.30** of the real one. For example, 15 points off in two
+  categories just passes. Keys are `M1:<hero>:<phase>`.
+- **M2 Early diversity.** Across the 8 reference heroes there are at least **4 distinct
+  early phases**, and no single item is in **all 8** early phases.
+- **M3 Mid-game overlap only falls.** Mean pairwise Jaccard of the reference heroes' mid
+  phases is at most a recorded baseline. The baseline lives in the fixture and can only be
+  lowered (a numeric ratchet).
+
+**Baseline, 2026-10-20** (`main` at `d7dc373`): real vs engine split, gun/spirit/vitality %,
+with L1 distance.
+
+| Hero          | Early: real → engine (d)   | Mid: real → engine (d)     | Late: real → engine (d)    |
+| ------------- | -------------------------- | -------------------------- | -------------------------- |
+| Seven         | 44/30/26 → 57/43/0 (0.52)  | 16/52/31 → 31/0/69 (1.04)  | 17/48/35 → 22/8/70 (0.80)  |
+| Lady Geist    | 18/62/20 → 57/43/0 (0.79)  | 28/38/34 → 31/8/62 (0.61)  | 28/41/31 → 22/11/68 (0.74) |
+| Haze          | 62/16/22 → 86/14/0 (0.47)  | 44/25/31 → 31/0/69 (0.76)  | 54/15/30 → 27/24/49 (0.55) |
+| Wraith        | 48/38/14 → 57/43/0 (0.27)  | 43/29/28 → 31/0/69 (0.82)  | 46/28/26 → 22/32/46 (0.49) |
+| Infernus      | 36/40/24 → 57/43/0 (0.48)  | 33/36/31 → 31/0/69 (0.77)  | 36/37/27 → 22/41/38 (0.29) |
+| Abrams        | 59/15/27 → 57/29/14 (0.28) | 29/25/45 → 29/29/43 (0.07) | 30/21/49 → 43/16/41 (0.26) |
+| Warden        | 71/14/15 → 57/29/14 (0.30) | 24/42/35 → 31/8/62 (0.68)  | 38/30/33 → 22/30/49 (0.33) |
+| Deadman Danny | 49/29/22 → 57/43/0 (0.45)  | 25/39/36 → 31/0/69 (0.79)  | 24/47/29 → 43/32/24 (0.38) |
+
+5 of the 24 M1 keys pass today. Every hero's early phase is Blood Tribute + Cold Front +
+one other, so M2 fails. The worst gap is the mid phase: real players spend 25–52% on
+spirit there, while the engine's mid phase usually buys none.
+
+**Plan** (approved 2026-10-20). PR 1: value per soul in the basket, plus the phase data and
+the M fixtures. PR 2: a per-phase measured stat profile replacing the five flat
+placeholder categories. Both PRs are scoring changes and are audited.
+
 ## 5. What today's engine does
 
 These are probe results on live data, 2026-10-20 (`npm run probe`), with the engine
