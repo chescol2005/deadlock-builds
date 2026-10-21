@@ -126,12 +126,12 @@ section 6.
 - **L6 Upgrade paths appear.** Across the reference set, at least one later phase
   upgrades an earlier phase's component.
 
-> **L1–L3 are retired** by §4.3 (DRAFT, awaiting sign-off). They were hand-written
+> **L1–L3 are retired** by §4.3 (approved 2026-10-20). They were hand-written
 > direction rules, and high-rank data shows they are partly wrong. Oracle+ Seven players
 > lean GUN in the first 10 minutes (44% gun vs 30% spirit), and lean spirit only later. L4,
 > L5 and L6 stay.
 
-### 4.3 Measured phase expectations (DRAFT, awaiting sign-off)
+### 4.3 Measured phase expectations (APPROVED 2026-10-20)
 
 These replace L1–L3 with expectations measured from Oracle+ play. Everything goes through
 the same ratchet (§6): a failing key must be listed in `KNOWN_LEAN_GAPS`, and a listed key
