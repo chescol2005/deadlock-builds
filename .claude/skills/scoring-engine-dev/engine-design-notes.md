@@ -1280,6 +1280,47 @@ efficient for everyone, which PR 2's measured phase profile replaces. The two PR
 stacked and merge together (user decision), so `main`'s ratchet never regresses. The
 probe ranks the same way and prints value per 1k of price.
 
+## Phase-aware split and measured stat profile (coverage-model PR 2)
+
+Real purchases differ by phase much more than the whole-game split shows. Oracle+ Seven
+buys 44% gun in the first 10 minutes but holds 17% gun at the end; Abrams buys 59% gun
+early and 30% overall. `heroCategorySplit.json` now carries, per hero:
+
+- the early (0–10 min) and mid (10–20 min) PURCHASE splits, using exact
+  `min/max_bought_at_s` filters, not net of sells;
+- a measured 12-category STAT PROFILE per phase: purchases (or the final inventory for
+  late) × each item's unscaled category values, as shares.
+
+`runHeroBasket` picks the phase from current souls (`phaseForSouls`: 6,950 and 17,550
+souls are the 10- and 20-minute marks on the net-worth curve), then:
+
+- **Phase split:** uses that phase's split for the family rescale and the term.
+- **Profile categories:** `applyStatProfile` sets antiHeal, sustain, utility, economy and
+  mobility, which the kit cannot derive, from the phase profile. Those were a flat
+  placeholder holding about 45% of every target. The other seven categories keep their
+  kit and split proportions and fill the rest; the total is kept, and each profile
+  category is floored at 1%.
+
+**Stacked result with PR 1** (live, reference heroes):
+
+- M1: 6 → 11 of 24 (different keys from PR 1 alone).
+- Mid overlap: 0.377 → 0.373.
+- L4, L5 and L6 still pass, with 28 upgrade paths.
+
+**Not yet at the merge gate.** Wraith early, Abrams early and late, and Warden early still
+fail against `main`, and M2 fails: one item is in every early phase. The cause is ITEM
+VALUATION, not the need. Haze's need is now strongly gun (gunDamage target 204 of 589),
+but the gun items Oracle+ Haze players actually open with (Rapid Rounds, Swift Striker,
+Active Reload: fire rate, reload, ammo) score little coverage per soul in
+`itemAdapter`. Spirit and vitality items win early anyway.
+
+Two things were tried and rejected:
+
+- **Raising `CATEGORY_SPLIT_MAX_FRACTION`** (0.5 / 1 / 2 / 4) changed nothing.
+- **A per-category value-per-soul reconciliation over the catalogue** made builds very
+  diverse (mid overlap 0.18, 8 distinct early phases), but less like real play (M1 5/24),
+  and gun stayed about 14% early.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical

@@ -38,9 +38,15 @@ import {
   flooredShares,
   heroCategorySplit,
   MAX_ACCURACY_RATIO,
+  EARLY_PHASE_MAX_SOULS,
+  MID_PHASE_MAX_SOULS,
+  PROFILE_CATEGORIES,
+  applyStatProfile,
+  phaseForSouls,
+  phaseView,
   MIN_FAMILY_SHARE,
 } from "../categorySplit";
-import type { CategorySplitTable } from "../categorySplit";
+import type { CategorySplitTable, HeroCategorySplit } from "../categorySplit";
 import {
   componentClosure,
   estimateTau2,
@@ -3574,6 +3580,92 @@ console.log("\n19. Ranking by value per binding resource (coverage-model PR 1)")
     JSON.stringify(constructBasket([cheap, allRounder, worthless], tight)) ===
       JSON.stringify(constructBasket([worthless, allRounder, cheap], tight)),
     "ranking: same result whatever the candidate order",
+  );
+}
+
+console.log("\n20. Phase-aware split and measured stat profile (coverage-model PR 2)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+  // a. Phase from souls: 10 and 20 minute marks on the net-worth curve.
+  assert(
+    phaseForSouls(5900) === "early" &&
+      phaseForSouls(EARLY_PHASE_MAX_SOULS) === "early" &&
+      phaseForSouls(16700) === "mid" &&
+      phaseForSouls(MID_PHASE_MAX_SOULS + 1) === "late",
+    "phaseForSouls: starter checkpoints 5,900 / 16,700 / 30,000 fall in early / mid / late",
+  );
+
+  // b. applyStatProfile: profile categories take the profile's share, total kept,
+  //    the rest keep their ratios; no profile => unchanged.
+  const need = {
+    ...zeroValues(),
+    gunDamage: 2,
+    spiritDamage: 1,
+    bonusHealth: 1,
+    antiHeal: 1,
+    sustain: 1,
+    utility: 1,
+    economy: 1,
+    mobility: 1,
+  };
+  const profile = {
+    ...zeroValues(),
+    gunDamage: 0.5,
+    sustain: 0.2,
+    economy: 0.1,
+    mobility: 0.05,
+    antiHeal: 0.05,
+    utility: 0.1,
+  };
+  const out = applyStatProfile(need, profile);
+  const sum = (v: Readonly<Record<ScoreCategory, number>>) =>
+    SCORE_CATEGORIES.reduce((s, c) => s + v[c], 0);
+  const profileTotal = (v: Readonly<Record<ScoreCategory, number>>) =>
+    PROFILE_CATEGORIES.reduce((s, c) => s + v[c], 0);
+  assert(
+    applyStatProfile(need, null) === need &&
+      near(sum(out), sum(need)) &&
+      near(profileTotal(out) / sum(out), 0.5) &&
+      near(out.sustain / out.economy, 2) &&
+      near(out.gunDamage / out.spiritDamage, 2),
+    "applyStatProfile: profile categories get the measured share and mix; total and the rest's ratios kept",
+    JSON.stringify(out),
+  );
+
+  // c. A profile category the players never cover still gets the floor.
+  const noAntiHeal = { ...profile, antiHeal: 0 };
+  const floored = applyStatProfile(need, noAntiHeal);
+  assert(
+    floored.antiHeal > 0,
+    "applyStatProfile: a profile category with 0 share is floored above zero",
+  );
+
+  // d. phaseView: early/mid use the purchase splits, late the final split; no
+  //    phase data => the whole-game split and no profile.
+  const base: HeroCategorySplit = {
+    gun: 0.2,
+    spirit: 0.5,
+    vitality: 0.3,
+    matches: 5000,
+    scope: "Oracle+ players (last 30 days)",
+    rankTier: 8,
+  };
+  const withPhases: HeroCategorySplit = {
+    ...base,
+    phases: {
+      early: { gun: 0.6, spirit: 0.2, vitality: 0.2 },
+      mid: { gun: 0.3, spirit: 0.4, vitality: 0.3 },
+      profile: { early: profile, mid: profile, late: profile },
+    },
+  };
+  assert(
+    phaseView(withPhases, "early").shares.gun === 0.6 &&
+      phaseView(withPhases, "mid").shares.gun === 0.3 &&
+      phaseView(withPhases, "late").shares.gun === 0.2 &&
+      phaseView(base, "early").profile === null &&
+      phaseView(base, "early").shares.gun === 0.2,
+    "phaseView: per-phase split and profile when present; whole-game split otherwise",
   );
 }
 
