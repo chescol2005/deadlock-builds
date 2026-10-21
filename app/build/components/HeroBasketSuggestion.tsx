@@ -112,9 +112,16 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString("en-US");
 }
 
+// Terms that report what OTHER players do (population data). They stay visible
+// in the advanced breakdown, but the simplified view's single headline reason is
+// always about this hero and this build, never "because others buy it".
+const POPULATION_TERMS: ReadonlySet<string> = new Set(["category-split", "analytics"]);
+
 function bestTerm(terms: ReadonlyArray<MarginalTerm>): MarginalTerm | null {
-  if (terms.length === 0) return null;
-  return terms.reduce((best, t) => (t.value > best.value ? t : best), terms[0]);
+  const own = terms.filter((t) => !POPULATION_TERMS.has(t.termId));
+  const pool = own.length > 0 ? own : terms;
+  if (pool.length === 0) return null;
+  return pool.reduce((best, t) => (t.value > best.value ? t : best), pool[0]);
 }
 
 function CoverageRow({

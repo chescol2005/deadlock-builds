@@ -240,6 +240,44 @@ not a bug fix.
 signal is a separate scoring item after the need-vector PR. Known gaps after 2c: L1 Seven
 and Lady Geist, L2 Haze, L6.
 
+### 5.5 After the need-vector PR (measured category split)
+
+F1's cause is confirmed: the kit measures what TYPE of scaling a hero has, and nearly every
+ability scales off spirit. High-rank final inventories separate heroes clearly instead,
+for example Haze 54% gun, Kelvin 72% spirit, Abrams 49% vitality. That split is now
+committed (`lib/engine/data/heroCategorySplit.json`, `npm run fit-category-split`) and
+applied as a prior in three steps: the gun share is adjusted for the player's rank, the
+need families are rescaled, and a bounded `categorySplitTerm` is added. See "Measured
+category split" in engine-design-notes.md.
+
+| Hero          | Early (5,900)                              | + Mid (16,700)                                                                      | + Late (30,000)                                                                |
+| ------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Seven         | Blood Tribute, Cold Front, Spirit Strike   | Infuser, Cultist Sacrifice, Grit                                                    | Cheat Death, Inhibitor, Guardian Ward (upgrades Grit)                          |
+| Lady Geist    | Blood Tribute, Cold Front, Spirit Strike   | Cultist Sacrifice, Infuser, Mystic Expansion                                        | Cheat Death, Inhibitor, Grit                                                   |
+| Haze          | Blood Tribute, Kinetic Dash, Spirit Strike | Leech, Cultist Sacrifice, Grit                                                      | Spirit Burn, Inhibitor, Spirit Shielding (upgrades Grit)                       |
+| Wraith        | Blood Tribute, Cold Front, Spirit Strike   | Cultist Sacrifice, Healing Tempo, Grit                                              | Inhibitor, Spirit Burn, Mystic Expansion                                       |
+| Infernus      | Blood Tribute, Cold Front, Spirit Strike   | Cultist Sacrifice, Leech, Grit                                                      | Spirit Burn, Superior Duration, Stamina Mastery, Guardian Ward (upgrades Grit) |
+| Abrams        | Blood Tribute, Cold Front, Grit            | Cultist Sacrifice, Fury Trance, Superior Duration, Spirit Shielding (upgrades Grit) | Cheat Death, Crippling Headshot, Healing Rite                                  |
+| Warden        | Blood Tribute, Cold Front, Extra Health    | Healing Tempo, Cultist Sacrifice, Mystic Expansion                                  | Spirit Burn, Juggernaut, Grit                                                  |
+| Deadman Danny | Blood Tribute, Cold Front, Spirit Strike   | Infuser, Cultist Sacrifice, Grit                                                    | Spirit Burn, Crippling Headshot, Mystic Expansion                              |
+
+Leans now: **L2, L3, L4 and L6 pass.** L6 is a real upgrade, priced at the difference:
+four chains upgrade Grit. Across all heroes, the mid/late basket's shop split moved closer
+to the measured split (mean L1 0.458 → 0.336).
+
+**Still failing or weak:**
+
+- **L1** (Seven and Lady Geist lean spirit).
+- **Early-game sameness:** every reference hero still opens Blood Tribute + Cold Front,
+  because the term is neutral on a first pick by design.
+- **Mid-game sameness:** 8 distinct baskets at slider 22, against 10 on `main`.
+
+The cause is in the coverage model. All-rounder items whose shop is not their stat
+(Infuser, Spiritual Overflow, Cultist Sacrifice) score highly for everyone, and five
+stubbed neutral categories hold about 45% of every hero's target. That needs a
+coverage-model change, so whether 2d waits for it is an open question for the user.
+Known gaps: L1 Seven, L1 Lady Geist.
+
 ## 6. Known failures (the ratchet)
 
 Fixtures check every hard rule and every lean:

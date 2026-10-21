@@ -12,6 +12,9 @@ import { mapHeroAbilities } from "@/lib/abilityCoefficients";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import type { PairLiftTable } from "@/lib/engine/pairLift";
 import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
+import { heroCategorySplit } from "@/lib/engine/categorySplit";
+import type { CategorySplitTable } from "@/lib/engine/categorySplit";
+import categorySplitTableJson from "@/lib/engine/data/heroCategorySplit.json";
 
 export default async function BuildHeroPage({
   params,
@@ -74,6 +77,13 @@ export default async function BuildHeroPage({
   // fitted (the basket's pairTerm is then inert).
   const pairLift = heroPairLift(pairLiftTableJson as unknown as PairLiftTable, heroIdNum);
 
+  // Measured gun / spirit / vitality split (npm run fit-category-split), sliced
+  // the same way. null when the hero's data is too thin (kit-only need vector).
+  const categorySplit = heroCategorySplit(
+    categorySplitTableJson as unknown as CategorySplitTable,
+    heroIdNum,
+  );
+
   let initialState: BuildState | null = null;
   if (build) {
     try {
@@ -97,6 +107,7 @@ export default async function BuildHeroPage({
       heroAccuracy={heroAccuracy}
       rankTiers={rankTiers}
       pairLift={pairLift}
+      categorySplit={categorySplit}
     />
   );
 }

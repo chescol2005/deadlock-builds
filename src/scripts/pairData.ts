@@ -48,7 +48,7 @@ async function throttle(): Promise<void> {
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
 
-async function getJson<T>(path: string, params: Params): Promise<T> {
+export async function getJson<T>(path: string, params: Params): Promise<T> {
   const qs = Object.entries(params)
     .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
     .join("&");

@@ -49,6 +49,7 @@ import { HeroBasketSuggestion } from "@/app/build/components/HeroBasketSuggestio
 import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
 import type { HeroPairLift } from "@/lib/engine/pairLift";
+import type { HeroCategorySplit } from "@/lib/engine/categorySplit";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 
 const VIEW_MODE_TABS = [
@@ -84,6 +85,7 @@ export default function BuildClient({
   heroAccuracy,
   rankTiers = [],
   pairLift = null,
+  categorySplit = null,
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
@@ -108,6 +110,8 @@ export default function BuildClient({
   /** This hero's slice of the measured pair-lift table (Milestone F), sliced
    * server-side. null => the basket's pairTerm is inert. */
   pairLift?: HeroPairLift | null;
+  /** Measured gun/spirit/vitality split for this hero (server-sliced); null = kit only. */
+  categorySplit?: HeroCategorySplit | null;
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
@@ -427,6 +431,7 @@ export default function BuildClient({
         heroAccuracy,
         rankTier: selectedRankTier,
         pairLift: pairLift ?? undefined,
+        categorySplit: categorySplit ?? undefined,
       })?.basket ?? null
     );
   }, [
@@ -442,6 +447,7 @@ export default function BuildClient({
     totalSpiritPower,
     manualBoonLevel,
     pairLift,
+    categorySplit,
   ]);
 
   const ultimateUnlocked = manualBoonLevel >= 7;
