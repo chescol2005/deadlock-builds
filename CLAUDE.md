@@ -699,6 +699,9 @@ throwaway script for this — and if that pipeline changes, update the probe.
 12. Tier 5 items: exclude from standard build planner
 13. Boon level 0: `getBoonThreshold(0)` returns boonLevel 1
 14. Consumed components: tracked after upgrade, size === 1
+15. Fail-open fetch `catch`: call `unstable_rethrow(err)` (from `next/navigation`)
+    first. Next marks routes dynamic by throwing from `fetch`; swallowing it
+    prerendered `/items` with zero items. Fixture 14 enforces this
 
 ---
 

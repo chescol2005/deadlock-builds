@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import { fetchHeroStats } from "@/lib/api/deadlockApi";
 import type { HeroBaseStats } from "@/lib/heroStats";
 
@@ -12,6 +13,7 @@ export async function getHeroStats(heroId: number): Promise<HeroBaseStats | null
     heroStatsCache.set(heroId, stats);
     return stats;
   } catch (err) {
+    unstable_rethrow(err);
     console.error(`[heroStore] getHeroStats ${heroId} failed:`, err);
     return null;
   }

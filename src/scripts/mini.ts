@@ -19,7 +19,7 @@ import {
 import { normalizeItem } from "@/lib/itemNormalizer";
 import { ANTI_SYNERGY_RULES, detectAntiSynergies } from "@/lib/scoring/antiSynergy";
 import { componentClosure } from "@/lib/engine/pairLift";
-import type { UpgradeV2Raw } from "@/lib/api/deadlockApi";
+import { fetchAllItems, type UpgradeV2Raw } from "@/lib/api/deadlockApi";
 import { CATEGORY_BONUS_TIERS } from "@/lib/categoryBonuses";
 import { LANE_STRUCTURES, LANE_MINIMAP_MARKERS, LANES } from "@/lib/lanes/laneData";
 import { BOON_PHASE_CARDS } from "@/lib/boons/boonsGuideData";
@@ -869,6 +869,46 @@ async function run() {
   // expected-lean ratchet (KNOWN_LEAN_GAPS) from the approved spec.
   console.log("\n13. Starter build (docs/starter-build-use-cases.md)");
   await runStarterBuildFixtures(assert);
+
+  // -----------------------------------------------
+  // Fixture 14: Fail-open fetchers rethrow Next's internal errors
+  // -----------------------------------------------
+  // Next marks a route dynamic by throwing from fetch during static
+  // generation. fetchAllItems swallowed that, returned [], and /items shipped
+  // prerendered with zero items. Fail-open must mean "API down", never this.
+  console.log("\n14. Fail-open fetchers rethrow Next's internal errors");
+
+  const FAIL_OPEN_FILES = ["lib/api/deadlockApi.ts", "lib/api/analyticsApi.ts", "lib/heroStore.ts"];
+  for (const relPath of FAIL_OPEN_FILES) {
+    const src = readFileSync(relPath, "utf-8");
+    const catches = src.match(/\} catch \(err\) \{\n\s*\S[^\n]*/g) ?? [];
+    const unguarded = catches.filter((c) => !c.includes("unstable_rethrow(err);"));
+    assert(
+      catches.length > 0 && unguarded.length === 0,
+      `${relPath}: every catch calls unstable_rethrow(err) first (${catches.length} found)`,
+      unguarded.join(" | "),
+    );
+  }
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = () =>
+      Promise.reject(Object.assign(new Error("dynamic"), { digest: "DYNAMIC_SERVER_USAGE" }));
+    const rethrown = await fetchAllItems().then(
+      () => false,
+      (err: unknown) => (err as { digest?: string }).digest === "DYNAMIC_SERVER_USAGE",
+    );
+    assert(rethrown, "fetchAllItems rethrows Next's DYNAMIC_SERVER_USAGE instead of returning []");
+
+    globalThis.fetch = () => Promise.reject(new Error("network down"));
+    const failedOpen = await fetchAllItems().then(
+      (r) => r.length === 0,
+      () => false,
+    );
+    assert(failedOpen, "fetchAllItems still fails open ([]) on a real network error");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 
   // -----------------------------------------------
   // Fixture: anti-synergy rules (reviewed 2026-10-19)
