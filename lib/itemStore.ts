@@ -20,8 +20,10 @@ export async function getItems(): Promise<Item[]> {
   const normalized = raw.map(normalizeItem);
   const withUpgradesInto = deriveUpgradesInto(normalized);
   console.log(`[itemStore] loaded ${withUpgradesInto.length} items from API`);
-  cachedItems = withUpgradesInto;
-  return cachedItems;
+  // An empty list means the fetch failed open: don't pin it for the life of
+  // the process, retry on the next call instead.
+  if (withUpgradesInto.length > 0) cachedItems = withUpgradesInto;
+  return withUpgradesInto;
 }
 
 export function getItemByClassname(classname: string, items: Item[]): Item | undefined {

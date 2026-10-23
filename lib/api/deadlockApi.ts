@@ -1,4 +1,10 @@
+import { unstable_rethrow } from "next/navigation";
 import type { HeroBaseStats } from "@/lib/heroStats";
+
+// Fail-open fetchers below must call unstable_rethrow(err) first in their
+// catch. Next signals "this route is dynamic" by THROWING from fetch (e.g. a
+// no-store fetch during static generation); swallowing that returned [] and
+// prerendered /items with zero items (mini.ts Fixture 14 enforces the call).
 
 const BASE_URL = "https://api.deadlock-api.com/v1/assets";
 
@@ -103,6 +109,7 @@ async function fetchWeaponInfo(
     const weapon = (await res.json()) as WeaponItemRaw;
     return weapon.weapon_info;
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[deadlockApi] fetchWeaponInfo error:", err);
     return undefined;
   }
@@ -210,6 +217,7 @@ export async function fetchHeroAbilityItems(heroId: number): Promise<HeroAbility
     const all = (await res.json()) as HeroAbilityRaw[];
     return all.filter((it) => it.ability_type === "signature" || it.ability_type === "ultimate");
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[deadlockApi] fetchHeroAbilityItems error:", err);
     return [];
   }
@@ -276,6 +284,7 @@ export async function fetchAllItems(): Promise<UpgradeV2Raw[]> {
         it.type === "upgrade" && it.shopable === true && it.disabled !== true && it.item_tier <= 4,
     );
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[deadlockApi] fetchAllItems error:", err);
     return [];
   }

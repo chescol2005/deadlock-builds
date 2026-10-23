@@ -5,6 +5,9 @@
 // aggregate win/pick data derived from real matches — enrichment, not core
 // functionality — so every fetcher here FAILS OPEN (logs and returns []).
 // A dead analytics endpoint must never take down the build planner.
+// Each catch calls unstable_rethrow first: see the note in deadlockApi.ts.
+
+import { unstable_rethrow } from "next/navigation";
 
 const ANALYTICS_BASE = "https://api.deadlock-api.com/v1/analytics";
 
@@ -75,6 +78,7 @@ export async function fetchHeroStatsRows(): Promise<HeroStatsRowRaw[]> {
     }
     return (await res.json()) as HeroStatsRowRaw[];
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[analyticsApi] fetchHeroStatsRows error:", err);
     return [];
   }
@@ -105,6 +109,7 @@ export async function fetchHeroStatsByBadgeRows(): Promise<HeroStatsRowRaw[]> {
     }
     return (await res.json()) as HeroStatsRowRaw[];
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[analyticsApi] fetchHeroStatsByBadgeRows error:", err);
     return [];
   }
@@ -132,6 +137,7 @@ export async function fetchRankTiers(): Promise<RankTierRaw[]> {
     }
     return (await res.json()) as RankTierRaw[];
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[analyticsApi] fetchRankTiers error:", err);
     return [];
   }
@@ -148,6 +154,7 @@ export async function fetchItemStatsRows(): Promise<ItemStatsRowRaw[]> {
     }
     return (await res.json()) as ItemStatsRowRaw[];
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[analyticsApi] fetchItemStatsRows error:", err);
     return [];
   }
