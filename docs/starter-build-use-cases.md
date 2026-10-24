@@ -182,6 +182,23 @@ spirit there, while the engine's mid phase usually buys none.
 the M fixtures. PR 2: a per-phase measured stat profile replacing the five flat
 placeholder categories. Both PRs are scoring changes and are audited.
 
+**Real-play overlap (added 2026-10-24, with the value-scale stack).** Measured against
+`heroPhaseItems.json`: per hero and phase, the share of Oracle+ matches in which the hero
+bought each item (same window as the split, `npm run fit-category-split`).
+
+- **O1 Real openers.** Each reference hero's early phase has at least **2** items from
+  the hero's real top 10 early buys. Keys `O1:<hero>`.
+- **O2 Real mid buys.** The share of the reference heroes' mid picks that are in the
+  hero's real 10–20 minute top 10 is at least a recorded baseline. The baseline lives in
+  the fixture and can only be raised (a numeric ratchet).
+- **T1 Tempo.** The early phase's share of souls in 3,200+ items is within **15 points**
+  of real play. Keys `T1:<hero>`. Saving for a 3,200 item leaves a laner weak; real
+  Oracle+ early buys put 1–14% of souls into such items, except deliberate rushes.
+
+O1 and O2 read the same table as the engine's `phaseItemTerm`, so they check the engine
+follows real play without breaking M1–M3 and the hard rules. They do not judge it on its
+own.
+
 ## 5. What today's engine does
 
 These are probe results on live data, 2026-10-20 (`npm run probe`), with the engine
@@ -370,6 +387,55 @@ sustain, mobility, utility and economy are raw stat sums, several times larger p
 Putting every category on one value scale is the next step (pulled forward from the item
 scoring review). Details in "Hero-relative damage and soft saturation" in
 engine-design-notes.md.
+
+### 5.7 After the value-scale stack (one value scale, spend like real players, phase items)
+
+Three stacked PRs, landed together (user decision 2026-10-24):
+
+1. **One value scale.** Every item stat and effect is priced in % of this hero's fight
+   value in a 10 s trade. Damage goes through the hero's own weapon and kit; health,
+   resist, healing, CC and economy through named identities and exchange rates.
+   Coverage saturates instead of hitting a hard cap. Eight valuation bugs were fixed on
+   the way.
+2. **Spend like real players.** Each shop takes its measured phase share of the souls
+   (+15% slack, leftovers pooled). In the laning phase, expensive items cost more per
+   soul (tempo). Each phase lists picks cheapest first.
+3. **What players on this hero buy.** A bounded nudge from Oracle+ buy rates per hero and
+   phase, which captures kit synergies item maths cannot see.
+
+| Measure                             | `main` before | After the stack                                   |
+| ----------------------------------- | ------------- | ------------------------------------------------- |
+| M1 phase fidelity                   | 11 / 24       | **24 / 24** (the 4 accepted regressions are back) |
+| M2 early diversity                  | ❌            | ✅                                                |
+| M3 mid overlap                      | 0.373         | **0.093**                                         |
+| Mean L1 to real play (24 keys)      | 0.336         | **0.108**                                         |
+| O1 early picks in the real top 10   | —             | 8 / 8 heroes, 42 picks (18 without the signal)    |
+| O2 mid picks in the real top 10     | —             | 37 / 53 (3 / 50 without)                          |
+| T1 early 3,200+ share within 15 pts | —             | 5 / 8                                             |
+
+Early phase (5,900 souls), cheapest first:
+
+| Hero       | Early build                                                                                                    | Real top early buys (% of matches)                                                 |
+| ---------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Haze       | Rapid Rounds, Extra Spirit, Extra Health, Extended Magazine, Headshot Booster, Active Reload                   | Rapid Rounds 89, Swift Striker 84, Active Reload 76, Extra Spirit 74               |
+| Abrams     | Close Quarters, Melee Lifesteal, Extra Regen, Monster Rounds, Spirit Strike, Stalker                           | Close Quarters 84, Melee Charge 73, Melee Lifesteal 63, Extra Regen 59, Stalker 58 |
+| Lady Geist | Mystic Regeneration, Extra Regen, Mystic Burst, Monster Rounds, Extra Spirit, Mystic Expansion, Extra Charge   | Mystic Regeneration 91, Extra Regen 76, Mystic Burst 67, Radiant Regeneration 62   |
+| Wraith     | Monster Rounds, Rapid Rounds, Extra Spirit, Extra Regen, High-Velocity Rounds, Quicksilver Reload              | Quicksilver Reload 94, Monster Rounds 89, Rapid Rounds 62                          |
+| Warden     | High-Velocity Rounds, Extended Magazine, Monster Rounds, Rapid Rounds, Extra Regen, Extra Spirit, Sprint Boots | High-Velocity Rounds 89, Opening Rounds 86, Extended Magazine 60                   |
+
+Later phases follow real upgrade paths: Rapid Rounds → Swift Striker / Burst Fire,
+Mystic Regeneration → Radiant Regeneration, Quicksilver Reload → Mercurial Magnum,
+High-Velocity Rounds → Express Shot, Close Quarters → Point Blank.
+
+**Known gaps (in the ratchet):** T1 for Seven, Lady Geist and Wraith. Real players rush
+one 3,200 item early (Cultist Sacrifice, Radiant Regeneration, Tesla Bullets). The shop
+budget keeps it out of the early phase, so it arrives a phase later as an upgrade.
+
+**Left for the item scoring review:** Haze's mid phase still misses Surge of Power (54% of
+real Haze players buy it at 10–20 min). The phase stat profile was fitted in the old
+units. A few stat keys keep heuristic weights in hero mode. M1 keys near the 0.30 line
+(Lady Geist late, 0.27–0.32 across settings) flip with small changes, so read the mean
+L1 alongside the pass count.
 
 ## 6. Known failures (the ratchet)
 

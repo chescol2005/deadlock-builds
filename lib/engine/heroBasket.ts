@@ -31,8 +31,11 @@ import {
   applyStatProfile,
   phaseForSouls,
   phaseView,
+  FINAL_SPLIT_BASIS,
 } from "./categorySplit";
 import type { HeroCategorySplit } from "./categorySplit";
+import { phaseItemBasis } from "./phaseItems";
+import type { HeroPhaseItems } from "./phaseItems";
 import type { BasketContext, BasketResult, HeroNeedVector, ItemCandidate } from "./types";
 
 export interface HeroBasketInputs {
@@ -63,6 +66,11 @@ export interface HeroBasketInputs {
    * data) => the kit-only need vector, unchanged.
    */
   categorySplit?: HeroCategorySplit;
+  /**
+   * This hero's per-phase item buy rates (heroPhaseItems.json slice). Omitted
+   * (too few matches, or the table failed to load) => phaseItemTerm inert.
+   */
+  phaseItems?: HeroPhaseItems;
   /**
    * Ablation switch for before/after checks (basketProbe): apply the split to
    * the need vector only, to the basket term only, or both (default).
@@ -204,6 +212,20 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     ownedCandidates,
     categorySplit: mode === "need-only" ? undefined : split,
     phase: phaseForSouls(input.souls),
+    laningSouls: input.souls,
+    // The late phase (and a hero with no phase data) uses the FINAL split: a
+    // cumulative share, so the budgets count souls already held per shop.
+    splitBasis: view?.basis === FINAL_SPLIT_BASIS ? "cumulative" : "increment",
+    // An empty phase (no item above the table's floor) is "no signal", not
+    // "nobody buys anything".
+    phaseItems:
+      input.phaseItems && Object.keys(input.phaseItems[phaseForSouls(input.souls)]).length > 0
+        ? {
+            rates: input.phaseItems[phaseForSouls(input.souls)],
+            scope: input.phaseItems.scope,
+            basis: phaseItemBasis(phaseForSouls(input.souls)),
+          }
+        : undefined,
     // Spend each shop's measured phase share (shop budgets); the split term's
     // nudge is inert then. The ablation modes keep the old nudge.
     spendByShop: mode === "both",

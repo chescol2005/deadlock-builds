@@ -27,6 +27,7 @@ import {
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import { heroCategorySplit } from "@/lib/engine/categorySplit";
+import { heroPhaseItems } from "@/lib/engine/phaseItems";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
 import type { ItemCandidate, MarginalTerm } from "@/lib/engine/types";
@@ -48,6 +49,8 @@ Options:
                   no category-split term), for before/after
   --split-need-only  apply the split to the need vector only (ablation)
   --split-term-only  apply the split as the basket term only (ablation)
+  --no-phase-items  omit what high-rank players on this hero buy per phase
+                  (phaseItemTerm inert), for before/after
 `;
 
 interface ProbeArgs {
@@ -59,6 +62,7 @@ interface ProbeArgs {
   top: number;
   pairLift: boolean;
   categorySplit: boolean;
+  phaseItems: boolean;
   splitMode: "both" | "need-only" | "term-only";
 }
 
@@ -85,6 +89,7 @@ function parseArgs(argv: string[]): ProbeArgs {
     top: 15,
     pairLift: true,
     categorySplit: true,
+    phaseItems: true,
     splitMode: "both",
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -111,6 +116,8 @@ function parseArgs(argv: string[]): ProbeArgs {
       out.pairLift = false;
     } else if (a === "--no-category-split") {
       out.categorySplit = false;
+    } else if (a === "--no-phase-items") {
+      out.phaseItems = false;
     } else if (a === "--split-need-only") {
       out.splitMode = "need-only";
     } else if (a === "--split-term-only") {
@@ -210,6 +217,10 @@ async function main(): Promise<void> {
       ? (heroCategorySplit(data.categorySplitTable, hero.id) ?? undefined)
       : undefined,
     categorySplitMode: args.splitMode,
+    // Sliced like page.tsx; --no-phase-items turns phaseItemTerm off.
+    phaseItems: args.phaseItems
+      ? (heroPhaseItems(data.phaseItemsTable, hero.id) ?? undefined)
+      : undefined,
   });
   if (!run) fail(`${hero.name} has no ability data or the item list is empty`);
   const { basket, ctx, candidates, needVector, procPlatformFactor, hitReliabilityFactor } = run;
@@ -241,6 +252,8 @@ async function main(): Promise<void> {
       }
       const effective = effectiveCost(candidate, startHeld);
       // Same ranking as the loop: value per unit of the binding resource.
+      // (Shop budgets are not applied here: an item ranked first can still be
+      // skipped by the loop's first pass when its shop's share is spent.)
       const score =
         value /
         rankingPrice(
