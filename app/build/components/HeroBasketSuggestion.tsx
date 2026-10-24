@@ -115,7 +115,11 @@ function fmt(n: number): string {
 // Terms that report what OTHER players do (population data). They stay visible
 // in the advanced breakdown, but the simplified view's single headline reason is
 // always about this hero and this build, never "because others buy it".
-const POPULATION_TERMS: ReadonlySet<string> = new Set(["category-split", "analytics"]);
+const POPULATION_TERMS: ReadonlySet<string> = new Set([
+  "category-split",
+  "analytics",
+  "phase-item",
+]);
 
 function bestTerm(terms: ReadonlyArray<MarginalTerm>): MarginalTerm | null {
   const own = terms.filter((t) => !POPULATION_TERMS.has(t.termId));

@@ -26,6 +26,12 @@ import {
   pairTerm,
   rankingPrice,
   saturate,
+  LANING_TEMPO,
+  PHASE_ITEM_BASELINE,
+  PHASE_ITEM_PENALTY_MAX_SHARE,
+  PHASE_ITEM_WEIGHT,
+  phaseItemTerm,
+  SHOP_BUDGET_SLACK,
   procPlatformTerm,
   SYNERGY_MAX_FRACTION,
   synergyTerm,
@@ -74,6 +80,9 @@ import type {
 import { findSynergyRules, SYNERGY_RULES } from "../synergy";
 import { ANTI_SYNERGY_RULES } from "../../scoring/antiSynergy";
 import { estimateEffectValues } from "../effectEstimator";
+import { heroPhaseItems, PHASE_ITEM_MIN_RATE, phaseItemBasis } from "../phaseItems";
+import type { PhaseItemsTable } from "../phaseItems";
+import { buyOrder } from "../starterBuild";
 import {
   abilityDps,
   castsPerTrade,
@@ -4019,6 +4028,322 @@ console.log("\n21. One value scale (hero-relative damage and fight value)");
       noKit === undefined,
     "deriveHeroDamageModel: unknown health = no survival model (heuristic kept); no damaging ability = no model",
     JSON.stringify({ survival: known?.survival, noHealth: noHealth?.survival, noKit }),
+  );
+}
+
+console.log("\n22. Spend like real players (shop budgets, laning tempo, buy order)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+  // a. Laning tempo: in the laning phase an item's ranking price grows by its
+  //    share of the phase's souls; without laning souls nothing changes.
+  assert(
+    near(rankingPrice(3200, 5900, 12, 5900), 3200 * (1 + LANING_TEMPO * (3200 / 5900))) &&
+      near(rankingPrice(800, 5900, 12, 5900), 800 * (1 + LANING_TEMPO * (800 / 5900))) &&
+      rankingPrice(3200, 5900, 12) === 3200 &&
+      rankingPrice(3200, 5900, 12, 5900) / 3200 > rankingPrice(800, 5900, 12, 5900) / 800,
+    "rankingPrice: laning tempo charges a big share of the phase's souls more per soul",
+  );
+
+  // b. Shop budgets: each shop may take its measured share x (1 + slack); the
+  //    split term's nudge is inert then (the budgets already spend the split).
+  const need = { ...zeroValues(), gunDamage: 1, spiritDamage: 1 };
+  const split = { gun: 0.25, spirit: 0.65, vitality: 0.1, scope: "test players" };
+  const budgetCtx = makeBasketContext({
+    needVector: need,
+    soulBudget: 4000,
+    maxItems: 6,
+    categorySplit: split,
+    spendByShop: true,
+  });
+  const nudgeCtx = makeBasketContext({
+    needVector: need,
+    soulBudget: 4000,
+    maxItems: 6,
+    categorySplit: split,
+  });
+  const bigGun = mkCandidate("big_gun", 9201, "gun", 1600, { gunDamage: 60 });
+  const smallGun = mkCandidate("small_gun", 9202, "gun", 800, { gunDamage: 20 });
+  const spiritA = mkCandidate("spirit_a", 9203, "spirit", 800, { spiritDamage: 12 });
+  const spiritB = mkCandidate("spirit_b", 9204, "spirit", 800, { spiritDamage: 11 });
+  const spiritC = mkCandidate("spirit_c", 9205, "spirit", 800, { spiritDamage: 10 });
+  const gunBudget = 4000 * 0.25 * (1 + SHOP_BUDGET_SLACK);
+  assert(
+    budgetCtx.shopBudgets !== undefined &&
+      near(budgetCtx.shopBudgets.gun, gunBudget) &&
+      nudgeCtx.shopBudgets === undefined &&
+      categorySplitTerm.evaluate(spiritA, initialBasketState(budgetCtx), budgetCtx) === null,
+    "makeBasketContext: spendByShop sets shop budgets (split x budget x 1.15) and silences the split nudge",
+    JSON.stringify(budgetCtx.shopBudgets),
+  );
+
+  // c. While another shop can still pay, a shop never exceeds its budget: the
+  //    1,600 gun item is the best value but the gun shop holds 1,150 souls, and
+  //    the spirit shop (2,990) pays for all three spirit items.
+  const budgeted = constructBasket([bigGun, smallGun, spiritA, spiritB, spiritC], budgetCtx);
+  const gunSouls = budgeted.picks
+    .filter((p) => p.item.category === "gun")
+    .reduce((s, p) => s + p.effectiveCost, 0);
+  assert(
+    !budgeted.picks.some((p) => p.item.itemId === "big_gun") &&
+      gunSouls <= gunBudget &&
+      budgeted.picks.length === 4,
+    "constructBasket: a shop stays within its budget while other shops can still pay",
+    budgeted.picks.map((p) => p.item.itemId).join(", "),
+  );
+
+  // d. Leftover souls are one shared pool: with only gun items on offer, the
+  //    basket still spends past the gun shop's budget instead of stopping.
+  const pooled = constructBasket([bigGun, smallGun], budgetCtx);
+  assert(
+    pooled.picks.length === 2 && pooled.totalCost === 2400,
+    "constructBasket: when no shop has room for a useful pick, the leftover souls are pooled",
+    `${pooled.picks.map((p) => p.item.itemId).join(", ")} = ${pooled.totalCost}`,
+  );
+
+  // e. Tempo applies only when the context is in the laning phase: the same
+  //    candidates, priced per soul, rank the big item lower in lane.
+  const tempoNeed = { ...zeroValues(), gunDamage: 1 };
+  const big = mkCandidate("big", 9211, "gun", 3200, { gunDamage: 44 });
+  const small = mkCandidate("small", 9212, "gun", 800, { gunDamage: 10 });
+  // Coverage only, 12 slots (souls bind, not slots): mid ranks by value per
+  // soul (44 / 3,200 > 10 / 800), lane adds the tempo premium.
+  const ctxFor = (phase?: "early" | "mid") =>
+    makeBasketContext({ needVector: tempoNeed, soulBudget: 4000, maxItems: 12, phase });
+  const first = (phase: "early" | "mid") =>
+    constructBasket([big, small], ctxFor(phase), [coverageTerm]).picks[0]?.item.itemId;
+  const laneFirst = first("early");
+  const midFirst = first("mid");
+  assert(
+    laneFirst === "small" && midFirst === "big",
+    "constructBasket: laning tempo prefers the cheap item in lane, not after it",
+    `lane ${laneFirst}, mid ${midFirst}`,
+  );
+
+  // f. Buy order: cheapest first by souls paid; an upgrade always after a
+  //    component it consumes from the same phase, even when it costs less.
+  const item = (id: string, cost: number): Item => ({
+    id,
+    numericId: cost,
+    name: id,
+    category: "gun",
+    tier: 1,
+    cost,
+    tags: [],
+    stats: {},
+    statScaling: {},
+  });
+  const order = buyOrder(
+    [
+      { effectiveCost: 3200, consumes: [] },
+      { effectiveCost: 800, consumes: [] },
+      { effectiveCost: 500, consumes: ["comp"] },
+      { effectiveCost: 800, consumes: [] },
+    ],
+    [item("big", 3200), item("cheap", 800), item("upg", 1300), item("comp", 800)],
+  ).map((i) => i.id);
+  assert(
+    order.join(",") === "cheap,comp,upg,big",
+    "buyOrder: cheapest first, components before the upgrade that consumes them",
+    order.join(","),
+  );
+}
+
+console.log("\n23. What players on this hero buy (phase items)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+  // a. The slice keeps only finite rates in (0, 1]; a missing hero is null
+  //    ("no signal"), never an empty table that reads as "nobody buys this".
+  const table: PhaseItemsTable = {
+    version: 1,
+    generated: "2026-10-24",
+    window: { from: "2026-09-24", to: "2026-10-24" },
+    method: {
+      minAverageBadge: 80,
+      minRankName: "Oracle",
+      days: 30,
+      minMatches: 2000,
+      minRate: PHASE_ITEM_MIN_RATE,
+      measure: "test",
+    },
+    heroes: {
+      "7": {
+        matches: 5000,
+        early: { popular: 0.9, rare: 0.05, bad: Number.NaN, over: 1.5, neg: -0.2 },
+        mid: { mid_item: 0.4 },
+        late: {},
+      },
+    },
+  };
+  const slice = heroPhaseItems(table, 7);
+  assert(
+    slice !== null &&
+      JSON.stringify(slice.early) === JSON.stringify({ popular: 0.9, rare: 0.05 }) &&
+      slice.scope === "Oracle+ players (last 30 days)" &&
+      heroPhaseItems(table, 99) === null &&
+      phaseItemBasis("early") === "buy it in the first 10 minutes" &&
+      phaseItemBasis("late") === "buy it after minute 20",
+    "heroPhaseItems: valid rates only, null for an unfitted hero; reason wording per phase",
+    JSON.stringify(slice),
+  );
+
+  // b. phaseItemTerm: PHASE_ITEM_WEIGHT x one slot's coverage x (rate −
+  //    baseline). A popular item gains, a rarely bought one (below the
+  //    baseline, or unlisted) gets a mild penalty; no table = inert.
+  const need = { ...zeroValues(), gunDamage: 1 };
+  const withTable = makeBasketContext({
+    needVector: need,
+    soulBudget: 4000,
+    maxItems: 6,
+    phaseItems: {
+      rates: slice?.early ?? {},
+      scope: slice?.scope ?? "",
+      basis: phaseItemBasis("early"),
+    },
+  });
+  const noTable = makeBasketContext({ needVector: need, soulBudget: 4000, maxItems: 6 });
+  const state = initialBasketState(withTable);
+  const popular = mkCandidate("popular", 9301, "gun", 800, { gunDamage: 20 });
+  const rare = mkCandidate("rare", 9302, "gun", 800, { gunDamage: 20 });
+  const unlisted = mkCandidate("unlisted", 9303, "gun", 800, { gunDamage: 20 });
+  const scale = (withTable.target.gunDamage / withTable.targetSlots) * 1;
+  const up = phaseItemTerm.evaluate(popular, state, withTable);
+  const down = phaseItemTerm.evaluate(rare, state, withTable);
+  const none = phaseItemTerm.evaluate(unlisted, state, withTable);
+  assert(
+    up !== null &&
+      near(up.value, PHASE_ITEM_WEIGHT * scale * (0.9 - PHASE_ITEM_BASELINE)) &&
+      up.reason.includes("90% of Oracle+ players") &&
+      down !== null &&
+      down.value < 0 &&
+      none !== null &&
+      none.value < down.value &&
+      phaseItemTerm.evaluate(popular, initialBasketState(noTable), noTable) === null,
+    "phaseItemTerm: popular items gain, rarely bought ones get a mild penalty, no table is inert",
+    JSON.stringify({ up, down, none, scale }),
+  );
+
+  // c. Relevance-gated: never a reason to buy an item that covers no need.
+  const offNeed = mkCandidate("popular", 9304, "gun", 800, { economy: 20 });
+  assert(
+    phaseItemTerm.evaluate(offNeed, state, withTable) === null,
+    "phaseItemTerm: an item covering nothing the hero needs gets no nudge, however popular",
+  );
+}
+
+console.log("\n24. Audit follow-ups: cumulative budgets, pooled reasons, capped penalty");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const need = { ...zeroValues(), gunDamage: 1, spiritDamage: 1 };
+  const split = { gun: 0.5, spirit: 0.4, vitality: 0.1, scope: "test players" };
+
+  // a. A cumulative (final-inventory) split tops each shop up to its share of
+  //    owned + basket souls: 3,000 gun souls already held fill the gun share of
+  //    6,000, so the gun shop gets nothing more. An increment split ignores them.
+  const ownedGun = mkCandidate("owned_gun", 9401, "gun", 3000, { gunDamage: 30 });
+  const ctxFor = (splitBasis: "increment" | "cumulative") =>
+    makeBasketContext({
+      needVector: need,
+      soulBudget: 3000,
+      maxItems: 6,
+      categorySplit: split,
+      spendByShop: true,
+      splitBasis,
+      ownedCandidates: [ownedGun],
+    });
+  const cumulative = ctxFor("cumulative").shopBudgets;
+  const increment = ctxFor("increment").shopBudgets;
+  assert(
+    cumulative !== undefined &&
+      cumulative.gun === 0 &&
+      near(cumulative.spirit, 0.4 * 6000 * (1 + SHOP_BUDGET_SLACK)) &&
+      increment !== undefined &&
+      near(increment.gun, 0.5 * 3000 * (1 + SHOP_BUDGET_SLACK)),
+    "shop budgets: a cumulative split counts owned souls per shop; an increment split does not",
+    JSON.stringify({ cumulative, increment }),
+  );
+
+  // b. Shares are normalised: a split summing to 2 gives the same budgets.
+  const doubled = makeBasketContext({
+    needVector: need,
+    soulBudget: 3000,
+    maxItems: 6,
+    categorySplit: { gun: 1, spirit: 0.8, vitality: 0.2, scope: "test" },
+    spendByShop: true,
+  }).shopBudgets;
+  assert(
+    doubled !== undefined && near(doubled.gun, 0.5 * 3000 * (1 + SHOP_BUDGET_SLACK)),
+    "shop budgets: shares are normalised to sum to 1",
+  );
+
+  // c. A pick bought from the shared pool says so (zero-value reason).
+  const gunOnly = makeBasketContext({
+    needVector: need,
+    soulBudget: 4000,
+    maxItems: 6,
+    categorySplit: { gun: 0.1, spirit: 0.8, vitality: 0.1, scope: "test" },
+    spendByShop: true,
+  });
+  const pooled = constructBasket(
+    [mkCandidate("g1", 9411, "gun", 1600, { gunDamage: 30 })],
+    gunOnly,
+  );
+  const reason = pooled.picks[0]?.terms.find((t) => t.termId === "shop-budget");
+  assert(
+    reason !== undefined && reason.value === 0 && reason.reason.includes("shared pool"),
+    "constructBasket: a pick from the shared pool carries a zero-value reason saying so",
+    JSON.stringify(pooled.picks[0]?.terms),
+  );
+
+  // d. Laning tempo prices an item's share of the phase's souls, not of what
+  //    is left after owned items.
+  const lane = makeBasketContext({
+    needVector: need,
+    soulBudget: 2000,
+    maxItems: 6,
+    phase: "early",
+    laningSouls: 5900,
+  });
+  const notLane = makeBasketContext({
+    needVector: need,
+    soulBudget: 2000,
+    maxItems: 6,
+    phase: "mid",
+    laningSouls: 5900,
+  });
+  assert(
+    lane.laningSouls === 5900 && notLane.laningSouls === undefined,
+    "makeBasketContext: laning souls are kept in the laning phase only",
+  );
+
+  // e. The rarely-bought penalty is capped at half the item's coverage gain:
+  //    it reorders useful items but never pushes one to <= 0.
+  const rates = { popular: 0.9 };
+  const piCtx = makeBasketContext({
+    needVector: { ...zeroValues(), gunDamage: 1 },
+    soulBudget: 4000,
+    maxItems: 6,
+    phaseItems: { rates, scope: "test players", basis: "buy it in the first 10 minutes" },
+  });
+  const st = initialBasketState(piCtx);
+  const small = mkCandidate("unlisted", 9421, "gun", 800, { gunDamage: 2 });
+  const cov = coverageTerm.evaluate(small, st, piCtx);
+  const pen = phaseItemTerm.evaluate(small, st, piCtx);
+  assert(
+    cov !== null &&
+      pen !== null &&
+      pen.value < 0 &&
+      near(
+        -pen.value,
+        Math.min(
+          PHASE_ITEM_WEIGHT * (piCtx.target.gunDamage / piCtx.targetSlots) * PHASE_ITEM_BASELINE,
+          PHASE_ITEM_PENALTY_MAX_SHARE * cov.value,
+        ),
+      ) &&
+      cov.value + pen.value > 0,
+    "phaseItemTerm: the rarely-bought penalty is capped at half the coverage gain (never <= 0)",
+    `coverage ${cov?.value}, penalty ${pen?.value}`,
   );
 }
 

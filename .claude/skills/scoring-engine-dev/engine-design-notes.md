@@ -1385,9 +1385,9 @@ raw value), so it only ever set where the curve bends.
   Burst Fire's +10% fire rate is innate; its on-hit burst is not. A section with no
   `section_type` (common in live data) is NOT innate. No tooltip sections at all =
   `innateStats` undefined (unknown), treated as conditional.
-- **Relevance gate** (`coversNeed`, `RELEVANCE_MIN_GAIN_FRACTION` = 5% of a slot): the
-  saturating curve never returns exactly 0, so "covers nothing" now means a gain under 5%
-  of one slot's coverage. Without the threshold every bounded term could promote an item
+- **Relevance gate** (`coversNeed`, `RELEVANCE_MIN_GAIN_FRACTION` = 2% of a slot): the
+  saturating curve never returns exactly 0, so "covers nothing" now means a gain under 2%
+  of one slot's coverage (best of 0 / 2 / 5 / 10% with the full stack). Without the threshold every bounded term could promote an item
   whose real gain is ~0 (audit 2026-10-24).
 - **Missing data is not zero:** `deriveHeroDamageModel` returns no model when the weapon or
   the ability kit does not parse (live 2026-10-24: Solomon only; every spirit item would
@@ -1424,6 +1424,77 @@ Alone, the value scale does not meet the phase gate (live, 2026-10-24: M1 12/24)
 correct values, a hero's strongest category wins every early pick (Haze opened 86% gun).
 The value scale decides WHICH items; "Spend like real players" (below) decides how much
 of each shop.
+
+## Spend like real players (shop budgets, laning tempo, buy order)
+
+With one value scale, a hero's strongest category wins every pick, and real builds are a
+mix. `categorySplitTerm` only nudged toward the measured shop split. Five attempts to get
+the mix through the coverage caps traded one failure for another (see the sections
+above), so the mix is now spent directly:
+
+- **Shop budgets** (`BasketContext.shopBudgets`, set when `runHeroBasket` passes
+  `spendByShop`): each shop may take its measured phase share × 1.15
+  (`SHOP_BUDGET_SLACK`, best of 0 / 15 / 30%), shares normalised to sum to 1. Early / mid
+  shares are PURCHASES in that window ("increment": they split this basket's souls). The
+  late phase and heroes without phase data use the FINAL split ("cumulative": each shop
+  is topped up to its share of owned + basket souls, so souls already held count; the
+  first version split only the increment and ignored owned items, audit 2026-10-24). The greedy loop first considers only
+  items their shop can still pay for. When no shop has room for a useful pick, the
+  leftover souls become one shared pool (second pass), so a phase still spends its
+  budget (L5); such a pick carries a zero-value `shop-budget` reason saying so.
+  `categorySplitTerm` is inert when budgets are set, since the budgets already spend the
+  split. The probe's `--split-need-only` / `--split-term-only`
+  ablations keep the old nudge.
+- **Laning tempo** (`rankingPrice`, `LANING_TEMPO` = 1, `ctx.phase === "early"` only,
+  priced on the phase's souls `ctx.laningSouls`, not on what is left after owned items).
+  Souls saved toward an item give nothing until it is bought, which is when a laner is
+  punished. A 3,200 item at 5,900 souls needs ~54% more value per soul than at no tempo.
+  Real Oracle+ early purchases put 3–9% of souls into 3,200+ items for most heroes. The
+  exceptions are deliberate rushes: Seven's Cultist Sacrifice 26%, Lady Geist's Radiant
+  Regeneration 36%. Applied in every phase, tempo also penalised normal late-game 6,400
+  buys and broke late fidelity, so it is laning only.
+- **Buy order** (`StarterPhase.buyOrder`): each phase's picks cheapest first by souls
+  paid, components before the upgrade that consumes them. It changes display order only,
+  never which items are picked.
+
+Live, with the value scale (2026-10-24): M1 23/24 (the four accepted regressions all
+come back), mean L1 to real play 0.146 (`main` 0.336). Which items fill each shop is the
+next section's job.
+
+## What players on this hero buy (phaseItems.ts, phaseItemTerm)
+
+Value scale and shop budgets decide how much of each shop and which items are strong in
+general. They cannot see kit synergies: Abrams opens melee (Close Quarters 84%, Melee
+Charge 73%), Lady Geist regen (Mystic Regeneration 91%: her abilities cost health),
+Wraith Quicksilver Reload (94%, it pairs with her imbue), Haze fire rate (Rapid Rounds
+89%, then Swift Striker). Without this signal only 17 of ~50 early picks and 3 of 50 mid
+picks were in the hero's real top 10.
+
+- **Table** (`lib/engine/data/heroPhaseItems.json`, written by `npm run fit-category-split`
+  from the same purchase queries as the split): per hero and phase (0–10 / 10–20 / 20+
+  min), the share of Oracle+ matches in which the hero BOUGHT each item. Items under 2%
+  are left out. It is sliced per hero in `page.tsx` (`heroPhaseItems`, null = not fitted)
+  and passed through BuildClient, the starter build and the probe (`--no-phase-items` for
+  before/after).
+- **Term** (`phaseItemTerm`): `PHASE_ITEM_WEIGHT` (2) × one slot's coverage × (buy rate −
+  `PHASE_ITEM_BASELINE` 0.1). A popular item gains; one bought in under 10% of matches
+  (or unlisted) gets a mild penalty. That baseline fixed Headshot Booster appearing in 3
+  of 8 early builds. The bonus is relevance-gated (`coversNeed`): popularity never buys
+  an item covering under 2% of a slot. The penalty needs no gate and is capped at half the
+  item's own coverage gain (`PHASE_ITEM_PENALTY_MAX_SHARE`), so it never pushes a useful
+  item to ≤ 0. It is strong (up to 1.8 slots at a 100% buy rate) and it is population
+  data: `HeroBasketSuggestion` never makes it the headline reason in the simplified view.
+  An empty phase in the table is "no signal", not "nobody buys anything".
+- **Trade-off:** picks partly follow the current meta. That is what a new player starting
+  a build wants, and the reason line names it as such ("89% of Oracle+ players on this
+  hero buy it in the first 10 minutes"). Laning tempo is always on in the laning phase;
+  for heroes too thin for the table it is the only thing keeping 3,200 rushes out.
+
+Live, full stack (2026-10-24): M1 24/24, M2 passes, mid overlap 0.093 (`main` 0.373), mean
+L1 to real play 0.108 (`main` 0.336). O1 passes for 8/8 heroes (42 early picks in the real
+top 10) and O2 is 37/53. O1/O2 read the table the term is tuned on, so Fixture 13 also
+logs them without the signal (18 early, 3/50 mid): that gap is the signal's contribution. T1 fails for the three real rushes (Seven, Lady Geist, Wraith):
+the shop budget defers the rush to the next phase as an upgrade.
 
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 

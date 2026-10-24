@@ -50,6 +50,7 @@ import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
 import type { HeroPairLift } from "@/lib/engine/pairLift";
 import type { HeroCategorySplit } from "@/lib/engine/categorySplit";
+import type { HeroPhaseItems } from "@/lib/engine/phaseItems";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 
 const VIEW_MODE_TABS = [
@@ -86,6 +87,7 @@ export default function BuildClient({
   rankTiers = [],
   pairLift = null,
   categorySplit = null,
+  phaseItems = null,
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
@@ -112,6 +114,8 @@ export default function BuildClient({
   pairLift?: HeroPairLift | null;
   /** Measured gun/spirit/vitality split for this hero (server-sliced); null = kit only. */
   categorySplit?: HeroCategorySplit | null;
+  /** What high-rank players on this hero buy per phase (server-sliced); null = inert. */
+  phaseItems?: HeroPhaseItems | null;
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
@@ -432,6 +436,7 @@ export default function BuildClient({
         rankTier: selectedRankTier,
         pairLift: pairLift ?? undefined,
         categorySplit: categorySplit ?? undefined,
+        phaseItems: phaseItems ?? undefined,
       })?.basket ?? null
     );
   }, [
@@ -448,6 +453,7 @@ export default function BuildClient({
     manualBoonLevel,
     pairLift,
     categorySplit,
+    phaseItems,
   ]);
 
   const ultimateUnlocked = manualBoonLevel >= 7;
