@@ -626,10 +626,12 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
     for (const category of ["gunDamage", "spiritDamage"] as const) {
       out.push({
         category,
-        value: -outgoingPenalty * CONDITIONAL_SCALE * 0.5 * EFFECT_CONFIDENCE,
+        // Published, not inferred: no EFFECT_CONFIDENCE discount. Split
+        // evenly across the two damage categories (hero-agnostic value).
+        value: -outgoingPenalty * CONDITIONAL_SCALE * 0.5,
         basis: `reduces your own damage output by ${outgoingPenalty}%`,
         unit: "selfDamageCutPercent",
-        quantity: outgoingPenalty * EFFECT_CONFIDENCE,
+        quantity: outgoingPenalty,
       });
     }
   }

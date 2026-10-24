@@ -49,6 +49,18 @@ const SPRINT_PER_SPEED_PERCENT = 0.25;
 const STAMINA_CHARGE_VALUE = 10; // +1 of 3 dash charges
 const CHARGE_UPTIME = 0.3; // +1 ability charge ≈ +30% of that ability's uptime
 const FARM_TO_FIGHT = 0.5; // 1% faster farming ≈ 0.5% fight value later
+const PROC_DEFLECT_SHARE = 0.1; // on-hit prevention: share of bullet damage it can stop
+const CC_RESIST_RATE = 0.1; // 1% debuff / slow resist ≈ 0.1% fight value
+const OUT_OF_COMBAT_SHARE = 0.5; // share of a trade spent out of combat (regen ticks)
+const CHANNEL_HEAL_RATE = 0.25; // channelled heal (Rescue Beam) % ≈ 0.25% per point
+const STAMINA_REGEN_RATE = 0.2; // 1% stamina regen ≈ 0.2% fight value
+const AIR_MOVE_RATE = 0.1; // 1% air dash / jump distance ≈ 0.1% fight value
+const REACH_RATE = 0.25; // 1% ability range / radius ≈ 0.25% of the ability share
+const CREEP_RESIST_FARM_RATE = 0.2; // 1% bullet resist vs creeps ≈ 0.2% faster farming
+const STACKS_HELD = 3; // typical stacks of a per-stack creep-damage bonus
+const DASH_DENIAL_RATE = 0.1; // 1% enemy dash reduction ≈ 0.1% fight value
+const CONDITIONAL_SOULS_RATE = 0.02; // 1% bonus souls on a specific trigger ≈ 0.02% fight value
+const SPIRIT_CUT_RATE = 0.5; // 1 point of enemy spirit power / damage cut ≈ 0.5% of their spirit damage
 
 /** Stat keys `fightValues` prices; itemAdapter skips its heuristic for them in hero mode. */
 export const HERO_FIGHT_KEYS: ReadonlySet<string> = new Set([
@@ -104,7 +116,9 @@ export function fightValues(
   const abilityShare = m.abilityDps / dps;
   // A stat on an item with a cooldown is conditional unless the API lists it
   // as INNATE (always on).
-  const cond = (k: string) => (s("AbilityCooldown") > 0 && !innate?.has(k) ? CONDITIONAL : 1);
+  // Same rule as heroDamage.damageValues: cooldown OR a timed effect.
+  const timed = s("AbilityCooldown") > 0 || s("AbilityDuration") > 0;
+  const cond = (k: string) => (timed && !innate?.has(k) ? CONDITIONAL : 1);
   const out: Partial<Record<ScoreCategory, number>> = {};
 
   // bonusHealth: % more HP.
@@ -118,10 +132,10 @@ export function fightValues(
   const rm = clampPct(s("MeleeResistPercent"));
   resist += INCOMING_MELEE * CONDITIONAL * (rm / (1 - rm)) * 100;
   resist += INCOMING_BULLET * CONDITIONAL * clampPct(s("DeflectionPercent")) * 100;
-  resist += INCOMING_BULLET * 0.1 * clampPct(s("BulletProcDeflectionPercent")) * 100;
+  resist += INCOMING_BULLET * PROC_DEFLECT_SHARE * clampPct(s("BulletProcDeflectionPercent")) * 100;
   // Debuff / slow resist: shortens CC; a small fixed rate.
   resist +=
-    0.1 *
+    CC_RESIST_RATE *
     (s("StatusResistancePercent") * cond("StatusResistancePercent") +
       s("InnateStatusResistancePercent") +
       s("SlowResistancePercent") * CONDITIONAL);
@@ -135,25 +149,25 @@ export function fightValues(
   // sustain: healing over a trade, as % of HP.
   const healPerSecond =
     s("BonusHealthRegen") +
-    CONDITIONAL * s("OutOfCombatHealthRegen") * 0.5 +
-    CONDITIONAL * 0.5 * (s("HealLifePercentOutOfCombat") / 100) * hp +
+    CONDITIONAL * OUT_OF_COMBAT_SHARE * s("OutOfCombatHealthRegen") +
+    CONDITIONAL * OUT_OF_COMBAT_SHARE * (s("HealLifePercentOutOfCombat") / 100) * hp +
     (s("BulletLifestealPercent") / 100) * m.gunDps * cond("BulletLifestealPercent") +
     (s("AbilityLifestealPercentHero") / 100) * m.abilityDps * cond("AbilityLifestealPercentHero") +
     CONDITIONAL * (s("ImbueAbilityLifesteal") / 100) * m.abilityDps;
   let sustain = ((healPerSecond * FIGHT_SECONDS) / hp) * 100;
-  sustain += CONDITIONAL * 0.25 * s("HealPercentAmount");
+  sustain += CONDITIONAL * CHANNEL_HEAL_RATE * s("HealPercentAmount");
   if (sustain) out.sustain = sustain;
 
   // mobility: exchange rate on % move speed, sprint and dash charges.
-  const speed = m.moveSpeed > 0 ? m.moveSpeed : 7;
+  const speed = m.moveSpeed > 0 ? m.moveSpeed : 0;
+  const perSpeed = (mps: number) => (speed > 0 ? (mps / speed) * 100 : 0);
   const mobility =
     MOBILITY_PER_SPEED_PERCENT *
-      ((s("BonusMoveSpeed") + CONDITIONAL * s("ActiveBonusMoveSpeed")) / speed) *
-      100 +
-    SPRINT_PER_SPEED_PERCENT * (s("BonusSprintSpeed") / speed) * 100 +
+      perSpeed(s("BonusMoveSpeed") + CONDITIONAL * s("ActiveBonusMoveSpeed")) +
+    SPRINT_PER_SPEED_PERCENT * perSpeed(s("BonusSprintSpeed")) +
     STAMINA_CHARGE_VALUE * s("Stamina") +
-    0.2 * s("StaminaCooldownReduction") +
-    0.1 * s("AirMoveIncreasePercent");
+    STAMINA_REGEN_RATE * s("StaminaCooldownReduction") +
+    AIR_MOVE_RATE * s("AirMoveIncreasePercent");
   if (mobility) out.mobility = mobility;
 
   // utility: cooldown, charges, duration and reach act on ability damage.
@@ -162,14 +176,14 @@ export function fightValues(
     abilityShare * (cdr / (1 - cdr)) * 100 +
     abilityShare * CHARGE_UPTIME * 100 * s("BonusAbilityCharges") * cond("BonusAbilityCharges") +
     abilityShare * CONDITIONAL * s("BonusAbilityDurationPercent") +
-    abilityShare * 0.25 * Math.max(s("TechRangeMultiplier"), s("TechRadiusMultiplier"));
+    abilityShare * REACH_RATE * Math.max(s("TechRangeMultiplier"), s("TechRadiusMultiplier"));
   if (utility) out.utility = utility;
 
   // economy: faster farming (creep-only damage and resist) via an exchange rate.
   const farm =
     gunShare * s("NonPlayerBonusWeaponPower") +
-    0.2 * s("NonPlayerBulletResist") +
-    gunShare * CONDITIONAL * s("WeaponPowerPerStackNonHero") * 3;
+    CREEP_RESIST_FARM_RATE * s("NonPlayerBulletResist") +
+    gunShare * CONDITIONAL * s("WeaponPowerPerStackNonHero") * STACKS_HELD;
   if (farm) out.economy = FARM_TO_FIGHT * farm;
 
   return out;
@@ -209,7 +223,7 @@ export function estimateFightValue(
   // Share of trades the effect is ready for, and share of a trade it lasts.
   const ready = cooldown > 0 ? Math.min(1, TRADE_GAP_SECONDS / cooldown) : 1;
   const lasts = duration > 0 ? Math.min(1, duration / FIGHT_SECONDS) : 1;
-  const speed = m.moveSpeed > 0 ? m.moveSpeed : 7;
+  const speed = m.moveSpeed > 0 ? m.moveSpeed : 0;
   switch (e.unit) {
     case "heal": {
       const regen = num(stats.RegenDuration);
@@ -238,7 +252,7 @@ export function estimateFightValue(
     case "fireRateSlowPercent":
       return INCOMING_BULLET * q * lasts * ready;
     case "dashDenialPercent":
-      return 0.1 * q * ready;
+      return DASH_DENIAL_RATE * q * ready;
     case "enemyDamageCutPercent": {
       // A debuff lasts its DebuffDuration (Inhibitor 5 s, Haunting Shot 4 s).
       const debuff = num(stats.DebuffDuration);
@@ -252,7 +266,7 @@ export function estimateFightValue(
       return -q * share * on;
     }
     case "enemySpiritCut":
-      return INCOMING_SPIRIT * 0.5 * q * ready;
+      return INCOMING_SPIRIT * SPIRIT_CUT_RATE * q * ready;
     case "healCutPercent":
       return ENEMY_HEAL_SHARE * q;
     case "farmPercent":
@@ -260,11 +274,11 @@ export function estimateFightValue(
     case "soulsPerMinute":
       return FARM_TO_FIGHT * (q / REFERENCE_SOULS_PER_MINUTE) * 100;
     case "soulsPercentConditional":
-      return 0.02 * q;
+      return CONDITIONAL_SOULS_RATE * q;
     case "sprintSpeed":
-      return SPRINT_PER_SPEED_PERCENT * (q / speed) * 100;
+      return speed > 0 ? SPRINT_PER_SPEED_PERCENT * (q / speed) * 100 : null;
     case "abilityReachPercent":
-      return abilityShare * 0.25 * q;
+      return abilityShare * REACH_RATE * q;
     case "abilityReset":
       return abilityShare * (100 / ABILITIES_PER_HERO) * q * ready;
     default:

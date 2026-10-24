@@ -88,6 +88,7 @@ import {
 import type { HeroDamageModel } from "../heroDamage";
 import { estimateFightValue, fightValues } from "../heroFight";
 import { normalizeItem } from "../../itemNormalizer";
+import { deriveHeroDamageModel } from "../heroBasket";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
 import { resolveScaledStats, toItemCandidate } from "../itemAdapter";
@@ -1921,6 +1922,16 @@ console.log("\n14. ── Positive synergy ──");
   const offNeed = unneeded
     ? { ...mkCandidate(idB, 8105, "gun", 1000, { [unneeded]: 20 }), name: "Alchemical Fire" }
     : null;
+  // And one whose category is already covered far past its target: the
+  // saturating gain is under RELEVANCE_MIN_GAIN_FRACTION of a slot.
+  const farPast: BasketState = {
+    ...stateWith(candA),
+    coverage: { ...ctx.target, gunDamage: ctx.target.gunDamage * 20 },
+  };
+  assert(
+    synergyTerm.evaluate(candB, farPast, ctx) === null,
+    "relevance gate: a paired candidate in a category covered far past its target gets no synergy",
+  );
   assert(
     offNeed !== null && synergyTerm.evaluate(offNeed, stateWith(candA), ctx) === null,
     "relevance gate: a paired candidate that only covers categories the hero does not need gets no synergy",
@@ -3971,6 +3982,43 @@ console.log("\n21. One value scale (hero-relative damage and fight value)");
       saturate(20, 10) > saturate(10, 10) &&
       saturate(1e6, 10) <= 10,
     "saturate: 0 at 0, increasing and concave, never above the target",
+  );
+
+  // o. Missing data is not zero (audit 2026-10-24): unknown health gives no
+  //    survival model (non-damage stats keep the heuristic, not 0), and a kit
+  //    with no parsable damaging ability gives no hero model at all.
+  const heroBase = mkHero(90, 800, 7);
+  const kit: HeroAbility[] = [{ ...mkAbility(1, null), cooldown: 10 }];
+  const modelFor = (base: HeroBaseStats, abilities: HeroAbility[]) =>
+    deriveHeroDamageModel({
+      baseStats: base,
+      abilities,
+      boonLevel: 0,
+      spiritPower: 0,
+      accuracy: 1,
+    });
+  const known = modelFor(heroBase, kit);
+  const noHealth = modelFor({ ...heroBase, maxHealth: 0, maxHealthPerBoon: 0 }, kit);
+  const noKit = modelFor(heroBase, [{ ...mkAbility(1, null), baseDamage: null, cooldown: 10 }]);
+  const healthItem: Item = {
+    id: "hp",
+    numericId: 1,
+    name: "hp",
+    category: "vitality",
+    tier: 1,
+    cost: 800,
+    tags: [],
+    stats: { BonusHealth: 200 },
+    statScaling: {},
+  };
+  assert(
+    known?.survival?.maxHealth === 800 &&
+      noHealth !== undefined &&
+      noHealth.survival === undefined &&
+      toItemCandidate(healthItem, { heroDamage: noHealth }).categoryValues.bonusHealth > 0 &&
+      noKit === undefined,
+    "deriveHeroDamageModel: unknown health = no survival model (heuristic kept); no damaging ability = no model",
+    JSON.stringify({ survival: known?.survival, noHealth: noHealth?.survival, noKit }),
   );
 }
 

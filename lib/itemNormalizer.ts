@@ -112,13 +112,14 @@ function mapCategory(slot: "weapon" | "vitality" | "spirit"): ItemCategory {
   return slot === "weapon" ? "gun" : slot;
 }
 
-// `??` only falls through on null/undefined, not "" — the API can return an
-// empty-string icon field alongside a valid fallback, so an explicit
-// non-empty-string check is required or the empty string silently wins.
-/** Keys listed in the INNATE tooltip section (see Item.innateStats). */
-function parseInnateStats(raw: UpgradeV2Raw): string[] {
+/**
+ * Keys listed in the INNATE tooltip section (see Item.innateStats). Undefined
+ * when the item carries no tooltip sections at all (unknown), [] when it has
+ * sections but nothing innate. A section with no `section_type` is not innate.
+ */
+function parseInnateStats(raw: UpgradeV2Raw): string[] | undefined {
   const sections = raw["tooltip_sections"];
-  if (!Array.isArray(sections)) return [];
+  if (!Array.isArray(sections)) return undefined;
   const keys = new Set<string>();
   for (const section of sections as Array<Record<string, unknown>>) {
     if (section?.["section_type"] !== "innate") continue;
@@ -134,6 +135,9 @@ function parseInnateStats(raw: UpgradeV2Raw): string[] {
   return [...keys].sort();
 }
 
+// `??` only falls through on null/undefined, not "" — the API can return an
+// empty-string icon field alongside a valid fallback, so an explicit
+// non-empty-string check is required or the empty string silently wins.
 function firstNonEmpty(...vals: Array<string | null | undefined>): string | undefined {
   return vals.find((v): v is string => typeof v === "string" && v.length > 0);
 }
@@ -141,6 +145,7 @@ function firstNonEmpty(...vals: Array<string | null | undefined>): string | unde
 export function normalizeItem(raw: UpgradeV2Raw): Item {
   const parsedStats = parseStats(raw);
   const tags = deriveTags(raw, parsedStats);
+  const innateStats = parseInnateStats(raw);
 
   return {
     id: raw.class_name,
@@ -152,7 +157,7 @@ export function normalizeItem(raw: UpgradeV2Raw): Item {
     tags: tags.length > 0 ? tags : ["utility"],
     stats: parsedStats,
     statScaling: parseStatScaling(raw, parsedStats),
-    innateStats: parseInnateStats(raw),
+    ...(innateStats ? { innateStats } : {}),
     icon: firstNonEmpty(
       raw.shop_image_webp,
       raw.shop_image,

@@ -404,13 +404,14 @@ function deriveHitShare(stats: ItemStats, flag: "perHit" | "requiresHit"): numbe
 }
 
 /**
- * Scales hero-relative damage (% of the hero's total DPS) onto the magnitude
- * the rest of the category values use, so damage vs defence keeps the balance
- * the weight table had: chosen so the MEAN damage value over every hero ×
- * item is what it was under the hero-agnostic valuation. Only the
- * distribution between heroes moves. Calibrated 2026-10-20 over 44 heroes ×
- * 156 items at slider 15 (mean 13.92 hero-agnostic vs 9.27 at scale 1); see
- * "Hero-relative damage valuation" in engine-design-notes.md.
+ * Scales fight value (% of the hero's fight value: damage via heroDamage.ts,
+ * everything else via heroFight.ts) onto the magnitude the coverage targets
+ * use. First calibrated on damage alone: the MEAN damage value over every hero
+ * × item matches the old hero-agnostic valuation (44 heroes × 156 items at
+ * slider 15, 13.92 vs 9.27 at scale 1, 2026-10-20). It is now applied to every
+ * category alike, so the balance BETWEEN categories comes from the fight-value
+ * identities, not from this number; the target per slot (basketSelect.ts) was
+ * re-swept with it. See "One value scale" in engine-design-notes.md.
  */
 export const HERO_DAMAGE_SCALE = 1.5;
 
@@ -449,13 +450,12 @@ function estimateDps(
       return ((e.perSecond ?? 0) / 100) * REFERENCE_ENEMY_HEALTH * accuracy;
     case "damage":
       if (e.perHit) return e.value * landedShotsPerSecond;
-      if (TRADE_SECONDS > 0) {
-        // Same trade model as hero abilities (heroDamage.castsPerTrade).
-        const casts = castsPerTrade(cooldown > 0 ? cooldown : DEFAULT_CAST_INTERVAL_S);
-        return ((e.value * casts) / TRADE_SECONDS) * (e.requiresHit ? accuracy : 1);
-      }
-      if (e.requiresHit) return cooldown > 0 ? (e.value / cooldown) * accuracy : 0;
-      return e.value / (cooldown > 0 ? cooldown : DEFAULT_CAST_INTERVAL_S);
+      // Same trade model as hero abilities (heroDamage.castsPerTrade).
+      return (
+        ((e.value * castsPerTrade(cooldown > 0 ? cooldown : DEFAULT_CAST_INTERVAL_S)) /
+          TRADE_SECONDS) *
+        (e.requiresHit ? accuracy : 1)
+      );
     case "spiritPercent":
       return (e.value / 100) * dps.ability;
     default:
@@ -559,6 +559,10 @@ function deriveCategoryValues(
  */
 export function toItemCandidate(item: Item, ctx?: ItemValuationContext): ItemCandidate {
   const stats = resolveScaledStats(item, ctx);
+  // Same condition as deriveCategoryValues' hero mode: when the hero deals no
+  // measurable damage the values fall back to hero-agnostic estimates, and the
+  // proc / hit terms must scale them as before.
+  const heroValued = ctx?.heroDamage !== undefined && heroDps(ctx.heroDamage).total > 0;
   return {
     itemId: item.id,
     numericId: item.numericId,
@@ -574,8 +578,8 @@ export function toItemCandidate(item: Item, ctx?: ItemValuationContext): ItemCan
     // this hero's fire rate and accuracy (estimateDps), so the hero-relative
     // basket terms must not scale them again: zero reliance makes procPlatformTerm
     // and hitReliabilityTerm inert for this item.
-    procReliance: ctx?.heroDamage ? 0 : deriveProcReliance(stats),
-    hitDependence: ctx?.heroDamage ? 0 : deriveHitDependence(stats),
+    procReliance: heroValued ? 0 : deriveProcReliance(stats),
+    hitDependence: heroValued ? 0 : deriveHitDependence(stats),
     tags: item.tags,
     // Only set when present, so items without components are shaped as before.
     ...(item.componentItems && item.componentItems.length > 0

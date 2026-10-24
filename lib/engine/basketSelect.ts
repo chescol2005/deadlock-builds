@@ -73,9 +73,9 @@ import { SCORE_CATEGORIES } from "./types";
  *
  * WHAT THIS CONTROLS: where diminishing returns kick in. `makeBasketContext`
  * spreads `coverageTargetPerSlot × targetSlots` across the categories in
- * proportion to the need vector; once a category's cumulative coverage reaches
- * its share, further items in that category stop earning coverage value and the
- * basket is pushed to spread elsewhere.
+ * proportion to the need vector; as a category's cumulative coverage approaches
+ * its share, further items in that category earn less and less (`saturate`)
+ * and the basket is pushed to spread elsewhere.
  *
  * WHAT THIS DOES NOT CONTROL: the relative ordering of items WITHIN a single
  * category. Two gun items are ranked against each other by their raw
@@ -543,6 +543,31 @@ function computeCoverageGain(
   return { total, perCategory };
 }
 
+/**
+ * Smallest coverage gain, as a fraction of one slot's coverage, that counts as
+ * "covers some need" for the relevance gates (`coversNeed`). With the hard cap
+ * a full category gained exactly 0; the saturating curve never quite reaches 0,
+ * so without a threshold every bounded term (category bonus, synergy, pair
+ * lift, analytics, ...) could promote an item whose real gain is ~0 (audit
+ * 2026-10-24).
+ */
+export const RELEVANCE_MIN_GAIN_FRACTION = 0.05;
+
+/**
+ * The relevance gate shared by every adjustment term: true when the candidate's
+ * coverage gain is at least RELEVANCE_MIN_GAIN_FRACTION of one slot's coverage.
+ * Adjustment terms are reasons to prefer one useful item over another, never a
+ * reason to buy one that covers (almost) nothing.
+ */
+export function coversNeed(
+  candidate: ItemCandidate,
+  state: BasketState,
+  ctx: BasketContext,
+): boolean {
+  const gain = computeCoverageGain(candidate, state, ctx).total;
+  return gain > RELEVANCE_MIN_GAIN_FRACTION * coverageScalePerSlot(ctx);
+}
+
 export const coverageTerm: MarginalTermFn = {
   termId: "coverage",
 
@@ -586,8 +611,8 @@ export const coverageTerm: MarginalTermFn = {
  * additive-bonus pattern in `lib/scoring/scoreItems.ts`: recorded as its own
  * term for explainability, never folded into or mutating the coverage value.
  *
- * RELEVANCE GATE: the bonus only applies to a candidate that also delivers some
- * un-met coverage. Without the gate an item with zero relevance to the hero
+ * RELEVANCE GATE (`coversNeed`): the bonus only applies to a candidate that also
+ * delivers a real share of un-met coverage. Without the gate an item with zero relevance to the hero
  * could be bought purely because its price tag happens to tip a category over a
  * tier line, which is a bad recommendation and would also mask the
  * `"no-positive-value"` stop reason (every item would stay positive forever).
@@ -606,7 +631,7 @@ export const categoryBonusTerm: MarginalTermFn = {
     const cost = Number.isFinite(paid) && paid > 0 ? paid : 0;
     if (cost === 0) return null;
 
-    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+    if (!coversNeed(candidate, state, ctx)) return null;
 
     const rawBefore = state.soulsPerCategory[candidate.category];
     const before = Number.isFinite(rawBefore) && rawBefore > 0 ? rawBefore : 0;
@@ -675,7 +700,7 @@ export const analyticsTerm: MarginalTermFn = {
     const analytics = ctx.itemAnalytics;
     if (!analytics) return null;
 
-    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+    if (!coversNeed(candidate, state, ctx)) return null;
 
     const entry = analytics.get(candidate.numericId);
     if (!entry) return null;
@@ -746,7 +771,7 @@ export const procPlatformTerm: MarginalTermFn = {
     const reliance = candidate.procReliance;
     if (!Number.isFinite(reliance) || reliance <= 0) return null;
 
-    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+    if (!coversNeed(candidate, state, ctx)) return null;
 
     // Relative to a roster-average platform. Exactly average contributes
     // nothing, which keeps this a differential signal rather than a blanket
@@ -801,7 +826,7 @@ export const hitReliabilityTerm: MarginalTermFn = {
     const dependence = candidate.hitDependence;
     if (!Number.isFinite(dependence) || dependence <= 0) return null;
 
-    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+    if (!coversNeed(candidate, state, ctx)) return null;
 
     const delta = factor - 1;
     if (delta === 0) return null;
@@ -889,7 +914,7 @@ export const synergyTerm: MarginalTermFn = {
     );
     if (rules.length === 0) return null;
 
-    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+    if (!coversNeed(candidate, state, ctx)) return null;
 
     const scale = coverageScalePerSlot(ctx);
     if (scale <= 0) return null;
@@ -954,7 +979,7 @@ export const pairTerm: MarginalTermFn = {
     }
     if (hits.length === 0) return null;
 
-    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+    if (!coversNeed(candidate, state, ctx)) return null;
 
     const scale = coverageScalePerSlot(ctx);
     if (scale <= 0) return null;
@@ -1049,7 +1074,7 @@ export const categorySplitTerm: MarginalTermFn = {
     if (scale <= 0) return null;
     const paid = effectiveCost(candidate, heldOf(state)).cost;
     if (!(paid > 0)) return null;
-    if (computeCoverageGain(candidate, state, ctx).total <= 0) return null;
+    if (!coversNeed(candidate, state, ctx)) return null;
 
     const gain = splitGain(state.soulsPerCategory, split, candidate.category, paid);
     if (Math.abs(gain) < CATEGORY_SPLIT_MIN_GAIN) return null;

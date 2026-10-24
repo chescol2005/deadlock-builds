@@ -76,7 +76,8 @@ export type Item = {
   /**
    * Stat keys the API lists in the item's INNATE tooltip section: always on,
    * even when the item also has a cooldown-gated active or passive (Burst
-   * Fire's +10% fire rate vs its on-hit burst). Absent = unknown.
+   * Fire's +10% fire rate vs its on-hit burst). Absent = unknown (no tooltip
+   * sections): every stat on a timed item is then treated as conditional.
    */
   innateStats?: string[];
   description?: string;

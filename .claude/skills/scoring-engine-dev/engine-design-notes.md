@@ -1324,11 +1324,11 @@ Two things were tried and rejected:
   diverse (mid overlap 0.18, 8 distinct early phases), but less like real play (M1 5/24),
   and gun stayed about 14% early.
 
-## Hero-relative damage and soft saturation (tried, NOT merged)
+## Hero-relative damage and soft saturation (tried alone, then superseded)
 
-Two follow-ups to the four regressions above, both measured against the same gate and
-both short of it. Kept as reference on branches `feat/item-valuation` (pushed, no PR) and
-`proto/soft-saturation` (local).
+Two follow-ups to the four regressions above, each measured alone against the same gate
+and each short of it. Both are now part of "One value scale" below; this section records
+why neither works on its own.
 
 - **Hero-relative damage (PR 3):** `heroDamage.ts` prices gun and spirit stats as % of
   this hero's sustained DPS. Correct in isolation, and it fixed four stat bugs (reload
@@ -1346,8 +1346,8 @@ target the need cancels out; it only sets where the curve bends. Since PR 3, dam
 "% of DPS", but sustain, mobility, utility and economy are still raw stat sums and come
 out several times larger per soul. Lady Geist at 5,900 souls (spiritDamage target 128,
 her largest): Extra Spirit is worth 7.4, Monster Rounds 21.1 (18 of it economy), Healing
-Rite 19.6. Do not re-sweep caps or curves; put every category on one value scale first
-(item scoring review).
+Rite 19.6. That diagnosis led to "One value scale" and "Spend like real players" below.
+Do not re-sweep caps or curves to fix the build mix: the mix is spent by shop budgets.
 
 ## One value scale (heroDamage.ts, heroFight.ts)
 
@@ -1372,8 +1372,9 @@ raw value), so it only ever set where the curve bends.
   is HP over the trade; CC is the share of the trade the enemy can't fight. Mobility,
   utility and economy have no identity and use named exchange rates (`FARM_TO_FIGHT`,
   `MOBILITY_PER_SPEED_PERCENT`, ...). Each effect estimate carries a `unit` + `quantity`
-  (`effectEstimator.ts`) and converts in `estimateFightValue`. Engine fixture 21l fails if
-  a new non-damage estimate lands without a conversion.
+  (`effectEstimator.ts`) and converts in `estimateFightValue`. Engine fixture 21l checks a
+  bag of the known estimator keys; add a new estimator key to that bag, since an unlisted
+  one would slip through.
 - **Coverage curve:** `saturate(c, T) = T(1 − e^(−c/T))` replaces `min(T, c)`. With
   hero-relative values a gun hero's first gun items hit the clamp, and further gun was
   worth 0 (Haze bought 0% gun mid-game). The target per slot went from 50 to 75 (best of a
@@ -1382,7 +1383,29 @@ raw value), so it only ever set where the curve bends.
   effect's buff (× 0.4) unless the API lists it in the item's INNATE tooltip section
   (`Item.innateStats`, parsed in `itemNormalizer.ts`; 136 of 156 shop items have one).
   Burst Fire's +10% fire rate is innate; its on-hit burst is not. A section with no
-  `section_type` (common in live data) is NOT innate.
+  `section_type` (common in live data) is NOT innate. No tooltip sections at all =
+  `innateStats` undefined (unknown), treated as conditional.
+- **Relevance gate** (`coversNeed`, `RELEVANCE_MIN_GAIN_FRACTION` = 5% of a slot): the
+  saturating curve never returns exactly 0, so "covers nothing" now means a gain under 5%
+  of one slot's coverage. Without the threshold every bounded term could promote an item
+  whose real gain is ~0 (audit 2026-10-24).
+- **Missing data is not zero:** `deriveHeroDamageModel` returns no model when the weapon or
+  the ability kit does not parse (live 2026-10-24: Solomon only; every spirit item would
+  otherwise price at 0). It sets `survival` only when health and move speed are known, so
+  defence keeps the heuristic rather than pricing at 0.
+
+**Not yet on the scale (known follow-ups for the item scoring review):**
+
+- A few stat keys still add heuristic weights next to the fight values in hero mode
+  (`BonusMeleeDamagePercent`, `MaxHealthDamage`, `MagicIncreasePerStack`,
+  `BonusSpiritForChargedAbilities`).
+- The phase stat profile in `heroCategorySplit.json` (which sets the targets of antiHeal,
+  sustain, utility, economy, mobility) was fitted with hero-agnostic values, in the old
+  units. The shop budgets now carry most of the mix, but refit the profile with
+  fight-value units in the scoring review.
+- Several fixes apply only with a hero model: the flat headshot bonus, Kinetic Dash's timed
+  fire rate and the once-per-cooldown melee heal. The hero-agnostic path (no weapon data)
+  keeps the old reading for those.
 
 **Bugs found on the way** (data-verifier 2026-10-24, live item text):
 

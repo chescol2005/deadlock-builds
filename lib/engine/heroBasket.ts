@@ -233,8 +233,12 @@ function resolveHeroAccuracy(
 
 /**
  * The hero's damage and survival model at this boon level and spirit power, or
- * undefined when it has no usable weapon data (the valuation then stays
- * hero-agnostic).
+ * undefined when its weapon or ability kit does not parse (the valuation then
+ * stays hero-agnostic: missing data is not zero). Without a damaging ability,
+ * every spirit-power item would price at 0 and drop behind the relevance gate
+ * (audit 2026-10-24). `survival` is set only when health and move speed are
+ * known; otherwise non-damage stats keep the hero-agnostic valuation instead
+ * of all pricing at 0.
  */
 export function deriveHeroDamageModel(input: {
   baseStats: HeroBaseStats;
@@ -250,6 +254,12 @@ export function deriveHeroDamageModel(input: {
   const clip = baseStats.ammo;
   const reload = baseStats.reloadTime;
   if (!(perShot > 0 && rate > 0 && clip > 0 && reload >= 0)) return undefined;
+  const damaging = input.abilities.some((a) => (a.baseDamage ?? 0) > 0 && (a.cooldown ?? 0) > 0);
+  if (!damaging) return undefined;
+  const maxHealth = atBoon.maxHealth;
+  const moveSpeed = baseStats.moveSpeed;
+  const survivalKnown =
+    Number.isFinite(maxHealth) && maxHealth > 0 && Number.isFinite(moveSpeed) && moveSpeed > 0;
   // The API's with-reload DPS includes a small per-clip delay beyond
   // clip / rate + reload (~0.25 s, data-verifier 2026-10-20). Recover it from
   // the BASE stats so the model reproduces the API's own sustained DPS.
@@ -265,6 +275,6 @@ export function deriveHeroDamageModel(input: {
       cooldown: a.cooldown,
     })),
     spiritPower: input.spiritPower,
-    survival: { maxHealth: atBoon.maxHealth, moveSpeed: baseStats.moveSpeed },
+    ...(survivalKnown ? { survival: { maxHealth, moveSpeed } } : {}),
   };
 }
