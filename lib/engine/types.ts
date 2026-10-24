@@ -241,6 +241,11 @@ export interface BasketContext {
    */
   phase?: "early" | "mid" | "late";
   /**
+   * The laning phase's souls (the player's total souls at this checkpoint),
+   * which laning tempo prices an item's share of. Set with `phase` "early".
+   */
+  laningSouls?: number;
+  /**
    * Souls each shop may take in this basket: the measured phase split × the
    * basket's budget × (1 + SHOP_BUDGET_SLACK). Set only when the caller asks
    * to spend by shop (makeBasketContext `spendByShop`) and a split is known;

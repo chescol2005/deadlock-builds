@@ -218,11 +218,14 @@ function validProfile(p: StatProfile | undefined): boolean {
  * The split and stat profile for the phase a basket is shopping in. Without
  * per-phase data: the whole-game split and no profile (the PR-1 behaviour).
  */
+/** phaseView basis of the FINAL (whole-game, cumulative) split. */
+export const FINAL_SPLIT_BASIS = "end games with";
+
 export function phaseView(
   split: HeroCategorySplit,
   phase: GamePhase,
 ): { shares: CategoryShares; profile: StatProfile | null; basis: string } {
-  const final = "end games with";
+  const final = FINAL_SPLIT_BASIS;
   if (!split.phases) return { shares: split, profile: null, basis: final };
   const profile = split.phases.profile[phase];
   if (phase === "early")

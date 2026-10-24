@@ -407,10 +407,10 @@ Three stacked PRs, landed together (user decision 2026-10-24):
 | ----------------------------------- | ------------- | ------------------------------------------------- |
 | M1 phase fidelity                   | 11 / 24       | **24 / 24** (the 4 accepted regressions are back) |
 | M2 early diversity                  | ❌            | ✅                                                |
-| M3 mid overlap                      | 0.373         | **0.080**                                         |
-| Mean L1 to real play (24 keys)      | 0.336         | **0.129**                                         |
-| O1 early picks in the real top 10   | —             | 8 / 8 heroes, 43 picks                            |
-| O2 mid picks in the real top 10     | —             | 38 / 52                                           |
+| M3 mid overlap                      | 0.373         | **0.093**                                         |
+| Mean L1 to real play (24 keys)      | 0.336         | **0.108**                                         |
+| O1 early picks in the real top 10   | —             | 8 / 8 heroes, 42 picks (18 without the signal)    |
+| O2 mid picks in the real top 10     | —             | 37 / 53 (3 / 50 without)                          |
 | T1 early 3,200+ share within 15 pts | —             | 5 / 8                                             |
 
 Early phase (5,900 souls), cheapest first:

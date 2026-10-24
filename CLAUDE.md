@@ -628,7 +628,7 @@ are the recommendation numbers in `docs/competitive-analysis.md`):
    pass) → coverage-model PRs 1+2 ✅ (value per soul, phase-aware split and stat
    profile: M1 phase fidelity 6 → 11 of 24, with four keys accepted as regressions)
    → **value-scale stack** ✅ (one value scale, shop budgets + laning tempo, phase
-   items: M1 24/24, M2 passes, mid overlap 0.373 → 0.080; use-case doc §5.7) →
+   items: M1 24/24, M2 passes, mid overlap 0.373 → 0.093; use-case doc §5.7) →
    **2d UI next**. Left for the scoring review: phase stat profile still in the old
    units, a few stat keys on heuristic weights, real 3,200 rushes (T1 known gaps).
 3. Per-page metadata / OG images (rec. 2) + mobile pass on `/build` (rec. 3)

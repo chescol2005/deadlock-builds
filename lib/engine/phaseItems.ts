@@ -67,7 +67,8 @@ function validRates(rates: unknown): Record<string, number> {
  * matches): missing data means "no signal", never "nobody buys anything".
  */
 export function heroPhaseItems(table: PhaseItemsTable, heroId: number): HeroPhaseItems | null {
-  const row = table.heroes[String(heroId)];
+  // A malformed table fails open (no signal) rather than throwing at render.
+  const row = table?.heroes?.[String(heroId)];
   if (!row) return null;
   return {
     early: validRates(row.early),

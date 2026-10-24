@@ -31,6 +31,7 @@ import {
   applyStatProfile,
   phaseForSouls,
   phaseView,
+  FINAL_SPLIT_BASIS,
 } from "./categorySplit";
 import type { HeroCategorySplit } from "./categorySplit";
 import { phaseItemBasis } from "./phaseItems";
@@ -211,13 +212,20 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     ownedCandidates,
     categorySplit: mode === "need-only" ? undefined : split,
     phase: phaseForSouls(input.souls),
-    phaseItems: input.phaseItems
-      ? {
-          rates: input.phaseItems[phaseForSouls(input.souls)],
-          scope: input.phaseItems.scope,
-          basis: phaseItemBasis(phaseForSouls(input.souls)),
-        }
-      : undefined,
+    laningSouls: input.souls,
+    // The late phase (and a hero with no phase data) uses the FINAL split: a
+    // cumulative share, so the budgets count souls already held per shop.
+    splitBasis: view?.basis === FINAL_SPLIT_BASIS ? "cumulative" : "increment",
+    // An empty phase (no item above the table's floor) is "no signal", not
+    // "nobody buys anything".
+    phaseItems:
+      input.phaseItems && Object.keys(input.phaseItems[phaseForSouls(input.souls)]).length > 0
+        ? {
+            rates: input.phaseItems[phaseForSouls(input.souls)],
+            scope: input.phaseItems.scope,
+            basis: phaseItemBasis(phaseForSouls(input.souls)),
+          }
+        : undefined,
     // Spend each shop's measured phase share (shop budgets); the split term's
     // nudge is inert then. The ablation modes keep the old nudge.
     spendByShop: mode === "both",

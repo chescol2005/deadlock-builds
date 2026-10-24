@@ -28,6 +28,7 @@ import {
   saturate,
   LANING_TEMPO,
   PHASE_ITEM_BASELINE,
+  PHASE_ITEM_PENALTY_MAX_SHARE,
   PHASE_ITEM_WEIGHT,
   phaseItemTerm,
   SHOP_BUDGET_SLACK,
@@ -4228,6 +4229,121 @@ console.log("\n23. What players on this hero buy (phase items)");
   assert(
     phaseItemTerm.evaluate(offNeed, state, withTable) === null,
     "phaseItemTerm: an item covering nothing the hero needs gets no nudge, however popular",
+  );
+}
+
+console.log("\n24. Audit follow-ups: cumulative budgets, pooled reasons, capped penalty");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const need = { ...zeroValues(), gunDamage: 1, spiritDamage: 1 };
+  const split = { gun: 0.5, spirit: 0.4, vitality: 0.1, scope: "test players" };
+
+  // a. A cumulative (final-inventory) split tops each shop up to its share of
+  //    owned + basket souls: 3,000 gun souls already held fill the gun share of
+  //    6,000, so the gun shop gets nothing more. An increment split ignores them.
+  const ownedGun = mkCandidate("owned_gun", 9401, "gun", 3000, { gunDamage: 30 });
+  const ctxFor = (splitBasis: "increment" | "cumulative") =>
+    makeBasketContext({
+      needVector: need,
+      soulBudget: 3000,
+      maxItems: 6,
+      categorySplit: split,
+      spendByShop: true,
+      splitBasis,
+      ownedCandidates: [ownedGun],
+    });
+  const cumulative = ctxFor("cumulative").shopBudgets;
+  const increment = ctxFor("increment").shopBudgets;
+  assert(
+    cumulative !== undefined &&
+      cumulative.gun === 0 &&
+      near(cumulative.spirit, 0.4 * 6000 * (1 + SHOP_BUDGET_SLACK)) &&
+      increment !== undefined &&
+      near(increment.gun, 0.5 * 3000 * (1 + SHOP_BUDGET_SLACK)),
+    "shop budgets: a cumulative split counts owned souls per shop; an increment split does not",
+    JSON.stringify({ cumulative, increment }),
+  );
+
+  // b. Shares are normalised: a split summing to 2 gives the same budgets.
+  const doubled = makeBasketContext({
+    needVector: need,
+    soulBudget: 3000,
+    maxItems: 6,
+    categorySplit: { gun: 1, spirit: 0.8, vitality: 0.2, scope: "test" },
+    spendByShop: true,
+  }).shopBudgets;
+  assert(
+    doubled !== undefined && near(doubled.gun, 0.5 * 3000 * (1 + SHOP_BUDGET_SLACK)),
+    "shop budgets: shares are normalised to sum to 1",
+  );
+
+  // c. A pick bought from the shared pool says so (zero-value reason).
+  const gunOnly = makeBasketContext({
+    needVector: need,
+    soulBudget: 4000,
+    maxItems: 6,
+    categorySplit: { gun: 0.1, spirit: 0.8, vitality: 0.1, scope: "test" },
+    spendByShop: true,
+  });
+  const pooled = constructBasket(
+    [mkCandidate("g1", 9411, "gun", 1600, { gunDamage: 30 })],
+    gunOnly,
+  );
+  const reason = pooled.picks[0]?.terms.find((t) => t.termId === "shop-budget");
+  assert(
+    reason !== undefined && reason.value === 0 && reason.reason.includes("shared pool"),
+    "constructBasket: a pick from the shared pool carries a zero-value reason saying so",
+    JSON.stringify(pooled.picks[0]?.terms),
+  );
+
+  // d. Laning tempo prices an item's share of the phase's souls, not of what
+  //    is left after owned items.
+  const lane = makeBasketContext({
+    needVector: need,
+    soulBudget: 2000,
+    maxItems: 6,
+    phase: "early",
+    laningSouls: 5900,
+  });
+  const notLane = makeBasketContext({
+    needVector: need,
+    soulBudget: 2000,
+    maxItems: 6,
+    phase: "mid",
+    laningSouls: 5900,
+  });
+  assert(
+    lane.laningSouls === 5900 && notLane.laningSouls === undefined,
+    "makeBasketContext: laning souls are kept in the laning phase only",
+  );
+
+  // e. The rarely-bought penalty is capped at half the item's coverage gain:
+  //    it reorders useful items but never pushes one to <= 0.
+  const rates = { popular: 0.9 };
+  const piCtx = makeBasketContext({
+    needVector: { ...zeroValues(), gunDamage: 1 },
+    soulBudget: 4000,
+    maxItems: 6,
+    phaseItems: { rates, scope: "test players", basis: "buy it in the first 10 minutes" },
+  });
+  const st = initialBasketState(piCtx);
+  const small = mkCandidate("unlisted", 9421, "gun", 800, { gunDamage: 2 });
+  const cov = coverageTerm.evaluate(small, st, piCtx);
+  const pen = phaseItemTerm.evaluate(small, st, piCtx);
+  assert(
+    cov !== null &&
+      pen !== null &&
+      pen.value < 0 &&
+      near(
+        -pen.value,
+        Math.min(
+          PHASE_ITEM_WEIGHT * (piCtx.target.gunDamage / piCtx.targetSlots) * PHASE_ITEM_BASELINE,
+          PHASE_ITEM_PENALTY_MAX_SHARE * cov.value,
+        ),
+      ) &&
+      cov.value + pen.value > 0,
+    "phaseItemTerm: the rarely-bought penalty is capped at half the coverage gain (never <= 0)",
+    `coverage ${cov?.value}, penalty ${pen?.value}`,
   );
 }
 

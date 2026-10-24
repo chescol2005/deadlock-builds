@@ -123,6 +123,8 @@ export const PHASE_ITEM_WEIGHT = 2;
  * buy it early.
  */
 export const PHASE_ITEM_BASELINE = 0.1;
+/** The rarely-bought penalty is at most this share of the item's coverage gain. */
+export const PHASE_ITEM_PENALTY_MAX_SHARE = 0.5;
 
 /**
  * Hard ceiling on `categoryBonusTerm`, as a fraction of one slot's coverage
@@ -346,6 +348,15 @@ export function makeBasketContext(opts: {
   categorySplit?: CategoryShares & { scope: string; basis?: string };
   /** See BasketContext.phase. Omitted => no tempo pricing. */
   phase?: BasketContext["phase"];
+  /** See BasketContext.laningSouls. Omitted => the basket's soul budget. */
+  laningSouls?: number;
+  /**
+   * What the split's shares measure. "increment" (default): what players buy
+   * in this window (early / mid purchase splits), so the budgets split this
+   * basket's souls. "cumulative": what they hold (the final split), so the
+   * budgets top each shop up to its share of owned + basket souls.
+   */
+  splitBasis?: "increment" | "cumulative";
   /**
    * Spend each shop's measured share of the budget (BasketContext.shopBudgets)
    * instead of nudging toward it with categorySplitTerm. Needs categorySplit.
@@ -429,14 +440,13 @@ export function makeBasketContext(opts: {
         : undefined,
     phase: opts.phase,
     phaseItems: opts.phaseItems,
-    shopBudgets:
-      opts.spendByShop && opts.categorySplit && flooredShares(opts.categorySplit)
-        ? {
-            gun: soulBudget * opts.categorySplit.gun * (1 + SHOP_BUDGET_SLACK),
-            spirit: soulBudget * opts.categorySplit.spirit * (1 + SHOP_BUDGET_SLACK),
-            vitality: soulBudget * opts.categorySplit.vitality * (1 + SHOP_BUDGET_SLACK),
-          }
+    laningSouls:
+      opts.phase === "early"
+        ? safeNonNegative(opts.laningSouls, soulBudget) || undefined
         : undefined,
+    shopBudgets: opts.spendByShop
+      ? shopBudgetsFor(opts.categorySplit, soulBudget, owned, opts.splitBasis ?? "increment")
+      : undefined,
   };
 }
 
@@ -473,6 +483,31 @@ function heldOf(state: BasketState): ReadonlyArray<ItemCandidate> {
  * the caller already took owned costs out of `soulBudget`. Exported so
  * basketProbe's first-pick ranking starts exactly where `constructBasket` does.
  */
+/**
+ * Souls each shop may take in a basket (BasketContext.shopBudgets), or
+ * undefined when the split is missing or invalid (budgets off). Shares are
+ * normalised to sum to 1 (they are rounded and accuracy-adjusted upstream). A
+ * "cumulative" split (the final inventory) tops each shop up to its share of
+ * owned + basket souls, so souls already held per shop count; an "increment"
+ * split (purchases in this window) splits the basket's souls alone.
+ */
+function shopBudgetsFor(
+  split: (CategoryShares & { scope: string }) | undefined,
+  soulBudget: number,
+  owned: ReadonlyArray<ItemCandidate>,
+  basis: "increment" | "cumulative",
+): Readonly<Record<ItemCategory, number>> | undefined {
+  if (!split || !flooredShares(split)) return undefined;
+  const total = split.gun + split.spirit + split.vitality;
+  if (!(total > 0)) return undefined;
+  const ownedSouls: Record<ItemCategory, number> = { gun: 0, spirit: 0, vitality: 0 };
+  if (basis === "cumulative") for (const o of owned) ownedSouls[o.category] += o.cost;
+  const pool = soulBudget + ownedSouls.gun + ownedSouls.spirit + ownedSouls.vitality;
+  const budget = (cat: ItemCategory) =>
+    Math.max(0, (split[cat] / total) * pool - ownedSouls[cat]) * (1 + SHOP_BUDGET_SLACK);
+  return { gun: budget("gun"), spirit: budget("spirit"), vitality: budget("vitality") };
+}
+
 export function initialBasketState(ctx: BasketContext): BasketState {
   const coverage = zeroCoverage();
   const soulsPerCategory = zeroSoulsPerCategory();
@@ -1150,13 +1185,18 @@ export const categorySplitTerm: MarginalTermFn = {
 };
 
 /**
- * What high-rank players on THIS hero buy in THIS phase (heroPhaseItems.json),
- * as a bounded nudge: PHASE_ITEM_WEIGHT × one slot's coverage × (buy rate −
- * PHASE_ITEM_BASELINE). It captures kit synergies item maths cannot see (Abrams
- * opens melee items, Lady Geist regen, Wraith Quicksilver Reload). Relevance-
- * gated like categorySplitTerm: never a reason to buy an item that covers
- * nothing the hero needs. Population data, so HeroBasketSuggestion never makes
- * it the headline reason in the simplified view.
+ * What high-rank players on THIS hero buy in THIS phase (heroPhaseItems.json):
+ * PHASE_ITEM_WEIGHT × one slot's coverage × (buy rate − PHASE_ITEM_BASELINE).
+ * It captures kit synergies item maths cannot see (Abrams opens melee items,
+ * Lady Geist regen, Wraith Quicksilver Reload), and it is strong: up to 1.8
+ * slots of coverage at a 100% buy rate.
+ * - The bonus (rate above the baseline) is relevance-gated (`coversNeed`):
+ *   popularity never buys an item covering under 2% of a slot.
+ * - The penalty (rarely bought) needs no gate and is capped at half the item's
+ *   own coverage gain, so it reorders useful items but never pushes one to ≤ 0
+ *   (which would stop the basket with souls unspent) and has no cliff at the
+ *   gate (audit 2026-10-24).
+ * Population data, so HeroBasketSuggestion never makes it the headline reason.
  */
 export const phaseItemTerm: MarginalTermFn = {
   termId: "phase-item",
@@ -1168,8 +1208,15 @@ export const phaseItemTerm: MarginalTermFn = {
     const rate = typeof listed === "number" && listed > 0 ? Math.min(1, listed) : 0;
     const scale = coverageScalePerSlot(ctx);
     if (!(scale > 0)) return null;
-    if (!coversNeed(candidate, state, ctx)) return null;
-    const value = PHASE_ITEM_WEIGHT * scale * (rate - PHASE_ITEM_BASELINE);
+    const raw = PHASE_ITEM_WEIGHT * scale * (rate - PHASE_ITEM_BASELINE);
+    let value: number;
+    if (raw > 0) {
+      if (!coversNeed(candidate, state, ctx)) return null;
+      value = raw;
+    } else {
+      const gain = Math.max(0, computeCoverageGain(candidate, state, ctx).total);
+      value = -Math.min(-raw, PHASE_ITEM_PENALTY_MAX_SHARE * gain);
+    }
     if (!Number.isFinite(value) || value === 0) return null;
     return {
       termId: "phase-item",
@@ -1338,7 +1385,7 @@ export function constructBasket(
 
   // Souls each shop has paid in this basket (BasketContext.shopBudgets).
   const shopSpent: Record<ItemCategory, number> = { gun: 0, spirit: 0, vitality: 0 };
-  const laningSouls = ctx.phase === "early" ? ctx.soulBudget : undefined;
+  const laningSouls = ctx.phase === "early" ? (ctx.laningSouls ?? ctx.soulBudget) : undefined;
 
   for (;;) {
     const budgetLeft = ctx.soulBudget - spent;
@@ -1359,6 +1406,7 @@ export function constructBasket(
     let bestScore = 0;
     let bestTerms: MarginalTerm[] = [];
     let bestCost = { cost: 0, consumes: [] as ItemCandidate[] };
+    let bestPooled = false;
     let sawAffordable = false;
     let sawOverBudget = false;
 
@@ -1407,6 +1455,7 @@ export function constructBasket(
           bestScore = score;
           bestTerms = candidateTerms;
           bestCost = eff;
+          bestPooled = ctx.shopBudgets !== undefined && shopBudgets === null;
         }
       }
     }
@@ -1455,7 +1504,18 @@ export function constructBasket(
     picks.push({
       item: chosen,
       marginalValue: bestValue,
-      terms: bestTerms,
+      // A pick taken from the shared pool (its shop's share of the phase is
+      // spent) says so; the zero-value term never changes the ranking.
+      terms: bestPooled
+        ? [
+            ...bestTerms,
+            {
+              termId: "shop-budget",
+              value: 0,
+              reason: `Bought from the shared pool: this phase's ${chosen.category} share is already spent`,
+            },
+          ]
+        : bestTerms,
       coverageAfter: nextCoverage,
       effectiveCost: bestCost.cost,
       consumes: bestCost.consumes.map((c) => c.itemId),

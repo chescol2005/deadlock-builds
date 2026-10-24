@@ -252,6 +252,8 @@ async function main(): Promise<void> {
       }
       const effective = effectiveCost(candidate, startHeld);
       // Same ranking as the loop: value per unit of the binding resource.
+      // (Shop budgets are not applied here: an item ranked first can still be
+      // skipped by the loop's first pass when its shop's share is spent.)
       const score =
         value /
         rankingPrice(

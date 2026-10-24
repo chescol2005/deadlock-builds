@@ -1433,14 +1433,20 @@ the mix through the coverage caps traded one failure for another (see the sectio
 above), so the mix is now spent directly:
 
 - **Shop budgets** (`BasketContext.shopBudgets`, set when `runHeroBasket` passes
-  `spendByShop`): each shop may take its measured phase share × the basket's souls ×
-  1.15 (`SHOP_BUDGET_SLACK`, best of 0 / 15 / 30%). The greedy loop first considers only
+  `spendByShop`): each shop may take its measured phase share × 1.15
+  (`SHOP_BUDGET_SLACK`, best of 0 / 15 / 30%), shares normalised to sum to 1. Early / mid
+  shares are PURCHASES in that window ("increment": they split this basket's souls). The
+  late phase and heroes without phase data use the FINAL split ("cumulative": each shop
+  is topped up to its share of owned + basket souls, so souls already held count; the
+  first version split only the increment and ignored owned items, audit 2026-10-24). The greedy loop first considers only
   items their shop can still pay for. When no shop has room for a useful pick, the
   leftover souls become one shared pool (second pass), so a phase still spends its
-  budget (L5). `categorySplitTerm` is inert when budgets are set, since the budgets
-  already spend the split. The probe's `--split-need-only` / `--split-term-only`
+  budget (L5); such a pick carries a zero-value `shop-budget` reason saying so.
+  `categorySplitTerm` is inert when budgets are set, since the budgets already spend the
+  split. The probe's `--split-need-only` / `--split-term-only`
   ablations keep the old nudge.
-- **Laning tempo** (`rankingPrice`, `LANING_TEMPO` = 1, `ctx.phase === "early"` only).
+- **Laning tempo** (`rankingPrice`, `LANING_TEMPO` = 1, `ctx.phase === "early"` only,
+  priced on the phase's souls `ctx.laningSouls`, not on what is left after owned items).
   Souls saved toward an item give nothing until it is bought, which is when a laner is
   punished. A 3,200 item at 5,900 souls needs ~54% more value per soul than at no tempo.
   Real Oracle+ early purchases put 3–9% of souls into 3,200+ items for most heroes. The
@@ -1473,17 +1479,21 @@ picks were in the hero's real top 10.
 - **Term** (`phaseItemTerm`): `PHASE_ITEM_WEIGHT` (2) × one slot's coverage × (buy rate −
   `PHASE_ITEM_BASELINE` 0.1). A popular item gains; one bought in under 10% of matches
   (or unlisted) gets a mild penalty. That baseline fixed Headshot Booster appearing in 3
-  of 8 early builds. Relevance-gated (`coversNeed`), so popularity never buys an item
-  that covers nothing. It is population data: `HeroBasketSuggestion` never makes it the
-  headline reason in the simplified view.
+  of 8 early builds. The bonus is relevance-gated (`coversNeed`): popularity never buys
+  an item covering under 2% of a slot. The penalty needs no gate and is capped at half the
+  item's own coverage gain (`PHASE_ITEM_PENALTY_MAX_SHARE`), so it never pushes a useful
+  item to ≤ 0. It is strong (up to 1.8 slots at a 100% buy rate) and it is population
+  data: `HeroBasketSuggestion` never makes it the headline reason in the simplified view.
+  An empty phase in the table is "no signal", not "nobody buys anything".
 - **Trade-off:** picks partly follow the current meta. That is what a new player starting
   a build wants, and the reason line names it as such ("89% of Oracle+ players on this
-  hero buy it in the first 10 minutes"). Laning tempo stays as the fallback for heroes
-  too thin for the table.
+  hero buy it in the first 10 minutes"). Laning tempo is always on in the laning phase;
+  for heroes too thin for the table it is the only thing keeping 3,200 rushes out.
 
-Live, full stack (2026-10-24): M1 24/24, M2 passes, mid overlap 0.080 (`main` 0.373), mean
-L1 to real play 0.129 (`main` 0.336). O1 passes for 8/8 heroes (43 early picks in the real
-top 10) and O2 is 38/52. T1 fails for the three real rushes (Seven, Lady Geist, Wraith):
+Live, full stack (2026-10-24): M1 24/24, M2 passes, mid overlap 0.093 (`main` 0.373), mean
+L1 to real play 0.108 (`main` 0.336). O1 passes for 8/8 heroes (42 early picks in the real
+top 10) and O2 is 37/53. O1/O2 read the table the term is tuned on, so Fixture 13 also
+logs them without the signal (18 early, 3/50 mid): that gap is the signal's contribution. T1 fails for the three real rushes (Seven, Lady Geist, Wraith):
 the shop budget defers the rush to the next phase as an upgrade.
 
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
