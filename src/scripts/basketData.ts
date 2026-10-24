@@ -21,6 +21,8 @@ import type { PairLiftTable } from "@/lib/engine/pairLift";
 import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 import type { CategorySplitTable } from "@/lib/engine/categorySplit";
 import categorySplitTableJson from "@/lib/engine/data/heroCategorySplit.json";
+import type { PhaseItemsTable } from "@/lib/engine/phaseItems";
+import phaseItemsTableJson from "@/lib/engine/data/heroPhaseItems.json";
 
 export interface LiveBasketData {
   heroes: DeadlockHeroListItemEnriched[];
@@ -32,6 +34,7 @@ export interface LiveBasketData {
   heroRoster: HeroBaseStats[];
   pairLiftTable: PairLiftTable;
   categorySplitTable: CategorySplitTable;
+  phaseItemsTable: PhaseItemsTable;
 }
 
 export interface LiveHeroKit {
@@ -57,6 +60,7 @@ export async function loadLiveBasketData(): Promise<LiveBasketData> {
     heroRoster: heroes.flatMap((h) => (h.baseStats ? [h.baseStats] : [])),
     pairLiftTable: pairLiftTableJson as unknown as PairLiftTable,
     categorySplitTable: categorySplitTableJson as unknown as CategorySplitTable,
+    phaseItemsTable: phaseItemsTableJson as unknown as PhaseItemsTable,
   };
 }
 

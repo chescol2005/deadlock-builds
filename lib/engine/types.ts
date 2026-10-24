@@ -247,6 +247,18 @@ export interface BasketContext {
    * omitted = one shared budget.
    */
   shopBudgets?: Readonly<Record<ItemCategory, number>>;
+  /**
+   * Share of high-rank matches in which this hero buys each item (Item.id) in
+   * the current phase (heroPhaseItems.json). Drives `phaseItemTerm`; omitted
+   * => inert.
+   */
+  phaseItems?: {
+    rates: Readonly<Record<string, number>>;
+    /** e.g. "Oracle+ players (last 30 days)" — quoted in the reason. */
+    scope: string;
+    /** e.g. "buy it in the first 10 minutes" — quoted in the reason. */
+    basis: string;
+  };
 }
 
 /**

@@ -110,6 +110,21 @@ export const SHOP_BUDGET_SLACK = 0.15;
 export const LANING_TEMPO = 1;
 
 /**
+ * Weight of `phaseItemTerm`: at a 100% buy rate it is worth this many slots of
+ * coverage. 2 was the best of 0.25–2 against M1–M3 and the real-top-10 overlap
+ * (O1/O2) on 2026-10-24; at 1 the mid phase matched 32 of 50 real picks, at 2
+ * 39 of 53.
+ */
+export const PHASE_ITEM_WEIGHT = 2;
+/**
+ * Buy rate subtracted before weighting: items players on this hero rarely buy
+ * in this phase (under 10%, or unlisted = under 2%) get a mild penalty. Fixed
+ * Headshot Booster appearing in 3 of 8 early builds while real players rarely
+ * buy it early.
+ */
+export const PHASE_ITEM_BASELINE = 0.1;
+
+/**
  * Hard ceiling on `categoryBonusTerm`, as a fraction of one slot's coverage
  * scale. The category bonus is a deliberate COUNTERWEIGHT to coverage
  * (concentrate souls vs. spread them) — at 15% of a slot it can reorder two
@@ -336,6 +351,8 @@ export function makeBasketContext(opts: {
    * instead of nudging toward it with categorySplitTerm. Needs categorySplit.
    */
   spendByShop?: boolean;
+  /** See BasketContext.phaseItems. Omitted => phaseItemTerm inert. */
+  phaseItems?: BasketContext["phaseItems"];
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -411,6 +428,7 @@ export function makeBasketContext(opts: {
           }
         : undefined,
     phase: opts.phase,
+    phaseItems: opts.phaseItems,
     shopBudgets:
       opts.spendByShop && opts.categorySplit && flooredShares(opts.categorySplit)
         ? {
@@ -583,9 +601,11 @@ function computeCoverageGain(
  * a full category gained exactly 0; the saturating curve never quite reaches 0,
  * so without a threshold every bounded term (category bonus, synergy, pair
  * lift, analytics, ...) could promote an item whose real gain is ~0 (audit
- * 2026-10-24).
+ * 2026-10-24). 2% was the best of 0 / 2 / 5 / 10% against M1–M3 and O2 with
+ * the full stack (2026-10-24); it still rejects a category covered far past
+ * its target (the saturated-synergy relevance fixture).
  */
-export const RELEVANCE_MIN_GAIN_FRACTION = 0.05;
+export const RELEVANCE_MIN_GAIN_FRACTION = 0.02;
 
 /**
  * The relevance gate shared by every adjustment term: true when the candidate's
@@ -1129,10 +1149,44 @@ export const categorySplitTerm: MarginalTermFn = {
   },
 };
 
+/**
+ * What high-rank players on THIS hero buy in THIS phase (heroPhaseItems.json),
+ * as a bounded nudge: PHASE_ITEM_WEIGHT × one slot's coverage × (buy rate −
+ * PHASE_ITEM_BASELINE). It captures kit synergies item maths cannot see (Abrams
+ * opens melee items, Lady Geist regen, Wraith Quicksilver Reload). Relevance-
+ * gated like categorySplitTerm: never a reason to buy an item that covers
+ * nothing the hero needs. Population data, so HeroBasketSuggestion never makes
+ * it the headline reason in the simplified view.
+ */
+export const phaseItemTerm: MarginalTermFn = {
+  termId: "phase-item",
+
+  evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
+    const table = ctx.phaseItems;
+    if (!table) return null;
+    const listed = table.rates[candidate.itemId];
+    const rate = typeof listed === "number" && listed > 0 ? Math.min(1, listed) : 0;
+    const scale = coverageScalePerSlot(ctx);
+    if (!(scale > 0)) return null;
+    if (!coversNeed(candidate, state, ctx)) return null;
+    const value = PHASE_ITEM_WEIGHT * scale * (rate - PHASE_ITEM_BASELINE);
+    if (!Number.isFinite(value) || value === 0) return null;
+    return {
+      termId: "phase-item",
+      value,
+      reason:
+        rate > 0
+          ? `${Math.round(rate * 100)}% of ${table.scope} on this hero ${table.basis}`
+          : `Rarely bought by ${table.scope} on this hero at this point (under 2%)`,
+    };
+  },
+};
+
 export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
   coverageTerm,
   categoryBonusTerm,
   categorySplitTerm,
+  phaseItemTerm,
   procPlatformTerm,
   hitReliabilityTerm,
   synergyTerm,

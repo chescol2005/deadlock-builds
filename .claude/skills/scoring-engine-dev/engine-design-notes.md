@@ -1385,9 +1385,9 @@ raw value), so it only ever set where the curve bends.
   Burst Fire's +10% fire rate is innate; its on-hit burst is not. A section with no
   `section_type` (common in live data) is NOT innate. No tooltip sections at all =
   `innateStats` undefined (unknown), treated as conditional.
-- **Relevance gate** (`coversNeed`, `RELEVANCE_MIN_GAIN_FRACTION` = 5% of a slot): the
-  saturating curve never returns exactly 0, so "covers nothing" now means a gain under 5%
-  of one slot's coverage. Without the threshold every bounded term could promote an item
+- **Relevance gate** (`coversNeed`, `RELEVANCE_MIN_GAIN_FRACTION` = 2% of a slot): the
+  saturating curve never returns exactly 0, so "covers nothing" now means a gain under 2%
+  of one slot's coverage (best of 0 / 2 / 5 / 10% with the full stack). Without the threshold every bounded term could promote an item
   whose real gain is ~0 (audit 2026-10-24).
 - **Missing data is not zero:** `deriveHeroDamageModel` returns no model when the weapon or
   the ability kit does not parse (live 2026-10-24: Solomon only; every spirit item would
@@ -1454,6 +1454,37 @@ above), so the mix is now spent directly:
 Live, with the value scale (2026-10-24): M1 23/24 (the four accepted regressions all
 come back), mean L1 to real play 0.146 (`main` 0.336). Which items fill each shop is the
 next section's job.
+
+## What players on this hero buy (phaseItems.ts, phaseItemTerm)
+
+Value scale and shop budgets decide how much of each shop and which items are strong in
+general. They cannot see kit synergies: Abrams opens melee (Close Quarters 84%, Melee
+Charge 73%), Lady Geist regen (Mystic Regeneration 91%: her abilities cost health),
+Wraith Quicksilver Reload (94%, it pairs with her imbue), Haze fire rate (Rapid Rounds
+89%, then Swift Striker). Without this signal only 17 of ~50 early picks and 3 of 50 mid
+picks were in the hero's real top 10.
+
+- **Table** (`lib/engine/data/heroPhaseItems.json`, written by `npm run fit-category-split`
+  from the same purchase queries as the split): per hero and phase (0–10 / 10–20 / 20+
+  min), the share of Oracle+ matches in which the hero BOUGHT each item. Items under 2%
+  are left out. It is sliced per hero in `page.tsx` (`heroPhaseItems`, null = not fitted)
+  and passed through BuildClient, the starter build and the probe (`--no-phase-items` for
+  before/after).
+- **Term** (`phaseItemTerm`): `PHASE_ITEM_WEIGHT` (2) × one slot's coverage × (buy rate −
+  `PHASE_ITEM_BASELINE` 0.1). A popular item gains; one bought in under 10% of matches
+  (or unlisted) gets a mild penalty. That baseline fixed Headshot Booster appearing in 3
+  of 8 early builds. Relevance-gated (`coversNeed`), so popularity never buys an item
+  that covers nothing. It is population data: `HeroBasketSuggestion` never makes it the
+  headline reason in the simplified view.
+- **Trade-off:** picks partly follow the current meta. That is what a new player starting
+  a build wants, and the reason line names it as such ("89% of Oracle+ players on this
+  hero buy it in the first 10 minutes"). Laning tempo stays as the fallback for heroes
+  too thin for the table.
+
+Live, full stack (2026-10-24): M1 24/24, M2 passes, mid overlap 0.080 (`main` 0.373), mean
+L1 to real play 0.129 (`main` 0.336). O1 passes for 8/8 heroes (43 early picks in the real
+top 10) and O2 is 38/52. T1 fails for the three real rushes (Seven, Lady Geist, Wraith):
+the shop budget defers the rush to the next phase as an upgrade.
 
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 

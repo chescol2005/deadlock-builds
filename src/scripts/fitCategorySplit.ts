@@ -16,6 +16,10 @@
 // profile sets the five non-family categories. Heroes below --min matches are
 // left out and fall back to the kit-only vector.
 //
+// Also writes lib/engine/data/heroPhaseItems.json from the same purchase
+// queries: per hero and phase (0–10 / 10–20 / 20+ min), the share of matches in
+// which the hero BOUGHT each item (lib/engine/phaseItems.ts, phaseItemTerm).
+//
 // Refresh on the same monthly cadence as `npm run fit-pairs` (CLAUDE.md, Data
 // Verification Cadence) and review the diff before committing.
 //
@@ -27,6 +31,8 @@ import path from "node:path";
 import { fetchVisibleHeroesEnriched } from "@/lib/heroApi";
 import { getItems } from "@/lib/itemStore";
 import type { CategorySplitTable } from "@/lib/engine/categorySplit";
+import { PHASE_ITEM_MIN_RATE } from "@/lib/engine/phaseItems";
+import type { PhaseItemsTable } from "@/lib/engine/phaseItems";
 import { toItemCandidate } from "@/lib/engine/itemAdapter";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import type { ScoreCategory } from "@/lib/engine/types";
@@ -78,6 +84,9 @@ interface ItemStatsRow {
 }
 
 const round3 = (x: number) => Math.round(x * 1000) / 1000;
+/** Item rates sorted by item id, so refresh diffs are stable. */
+const sortedRates = (rates: Record<string, number>) =>
+  Object.fromEntries(Object.entries(rates).sort(([a], [b]) => a.localeCompare(b)));
 const round4 = (x: number) => Math.round(x * 10000) / 10000;
 
 /**
@@ -140,6 +149,21 @@ async function main(): Promise<void> {
     heroes: {},
   };
 
+  const phaseItems: PhaseItemsTable = {
+    version: 1,
+    generated: table.generated,
+    window: table.window,
+    method: {
+      minAverageBadge: table.method.minAverageBadge,
+      minRankName: table.method.minRankName,
+      days: table.method.days,
+      minMatches: table.method.minMatches,
+      minRate: PHASE_ITEM_MIN_RATE,
+      measure: "share of matches in which the hero bought the item in the phase window",
+    },
+    heroes: {},
+  };
+
   for (const hero of [...heroes].sort((a, b) => a.id - b.id)) {
     const matches = matchesByHero.get(hero.id) ?? 0;
     if (matches < args.minMatches) {
@@ -186,11 +210,15 @@ async function main(): Promise<void> {
       });
       const ps = { gun: 0, spirit: 0, vitality: 0 };
       const weighted: Array<{ item: Item; weight: number }> = [];
+      // Buy rate per item: matches with a purchase in this window / all matches.
+      const rates: Record<string, number> = {};
       for (const r of phaseRows) {
         const item = itemByNumericId.get(r.item_id);
         if (!item) continue;
         ps[item.category] += r.matches * item.cost;
         weighted.push({ item, weight: r.matches });
+        const rate = Math.min(1, r.matches / matches);
+        if (rate >= PHASE_ITEM_MIN_RATE) rates[item.id] = round3(rate);
       }
       const pt = ps.gun + ps.spirit + ps.vitality;
       const shares =
@@ -201,10 +229,17 @@ async function main(): Promise<void> {
               vitality: round3(ps.vitality / pt),
             }
           : undefined;
-      return { shares, profile: statProfile(weighted) };
+      return { shares, profile: statProfile(weighted), rates: sortedRates(rates) };
     };
     const earlyBought = await bought({ max_bought_at_s: 600 });
     const midBought = await bought({ min_bought_at_s: 600, max_bought_at_s: 1200 });
+    const lateBought = await bought({ min_bought_at_s: 1200 });
+    phaseItems.heroes[String(hero.id)] = {
+      matches,
+      early: earlyBought.rates,
+      mid: midBought.rates,
+      late: lateBought.rates,
+    };
     const early = earlyBought.shares;
     const mid = midBought.shares;
     // Late profile: the final inventory, (bought − sold), as for the late split.
@@ -259,6 +294,32 @@ async function main(): Promise<void> {
   } else {
     writeFileSync(out, text);
     console.log(`\nwrote ${Object.keys(table.heroes).length} heroes to ${out}`);
+  }
+
+  // Same layout and the same drop guard for the phase-item table.
+  const itemLines = Object.entries(phaseItems.heroes)
+    .map(([id, v]) => `    ${JSON.stringify(id)}: ${JSON.stringify(v)}`)
+    .join(",\n");
+  const { heroes: _omitItems, ...itemsHead } = phaseItems;
+  void _omitItems;
+  const itemsHeadJson = JSON.stringify(itemsHead, null, 2);
+  const itemsText = `${itemsHeadJson.slice(0, -2)},\n  "heroes": {\n${itemLines}\n  }\n}\n`;
+  const itemsOut = path.join(process.cwd(), "lib/engine/data/heroPhaseItems.json");
+  if (existsSync(itemsOut)) {
+    const previous = JSON.parse(readFileSync(itemsOut, "utf8")) as PhaseItemsTable;
+    const before = Object.keys(previous.heroes).length;
+    const now = Object.keys(phaseItems.heroes).length;
+    if (now < before * 0.8) {
+      throw new Error(`refusing to write: ${now} heroes of phase items vs ${before} committed`);
+    }
+  }
+  if (args.dry) {
+    console.log(
+      `--dry: would write ${Object.keys(phaseItems.heroes).length} heroes to ${itemsOut}`,
+    );
+  } else {
+    writeFileSync(itemsOut, itemsText);
+    console.log(`wrote ${Object.keys(phaseItems.heroes).length} heroes to ${itemsOut}`);
   }
 }
 

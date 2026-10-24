@@ -14,6 +14,7 @@ import type { Item } from "@/lib/items";
 import { MAX_ACTIVE_ITEMS } from "@/lib/buildUtils";
 import { componentClosure, heroPairLift } from "@/lib/engine/pairLift";
 import { heroCategorySplit, heroPhaseSplits } from "@/lib/engine/categorySplit";
+import { heroPhaseItems } from "@/lib/engine/phaseItems";
 import type { CategoryShares } from "@/lib/engine/categorySplit";
 import { buildStarterBuild } from "@/lib/engine/starterBuild";
 import type { StarterBuild, StarterBuildInputs } from "@/lib/engine/starterBuild";
@@ -39,33 +40,34 @@ const REFERENCE_HEROES = [
  * passing, the fixture fails until its key is removed here.
  */
 const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
-  // State after coverage-model PRs 1+2 (value per soul, phase-aware split + stat
-  // profile), 2026-10-20: 11 of 24 M1 keys pass (6 before). APPROVED EXCEPTION
-  // (user, 2026-10-20): Wraith:early, Abrams:early, Abrams:late and Warden:early
-  // passed before and are listed here as accepted regressions. Cause: categories
-  // valued in different units (doc §5.6); the item scoring review removes them.
-  "M1:Seven:mid",
-  "M1:Lady Geist:early",
-  "M1:Lady Geist:mid",
-  "M1:Haze:early",
-  "M1:Haze:mid",
-  "M1:Haze:late",
-  "M1:Wraith:early",
-  "M1:Wraith:late",
-  "M1:Infernus:mid",
-  "M1:Abrams:early",
-  "M1:Abrams:late",
-  "M1:Warden:early",
-  "M1:Deadman Danny:early",
-  // M2 already failed on main (one item in every early phase): not a regression.
-  "M2",
+  // State after the value-scale stack (one value scale, shop budgets + laning
+  // tempo, phase items), 2026-10-24: all 24 M1 keys and M2 pass, including the
+  // four regressions accepted on 2026-10-20.
+  //
+  // T1: real Oracle+ players on these heroes RUSH one 3,200 item early (Seven
+  // Cultist Sacrifice, Lady Geist Radiant Regeneration, Wraith Tesla Bullets).
+  // The shop budget keeps it out of the early phase, so it arrives a phase
+  // later as an upgrade (doc §5.7), a reasonable path for a new player.
+  "T1:Seven",
+  "T1:Lady Geist",
+  "T1:Wraith",
 ]);
 
 /**
  * M3 baseline: mean pairwise Jaccard of the reference heroes' mid phases. May
  * only be lowered (docs/starter-build-use-cases.md §4.3).
  */
-const MID_OVERLAP_BASELINE = 0.38; // main 0.377; PR 1+2 measure 0.373 (2026-10-20)
+const MID_OVERLAP_BASELINE = 0.085; // value-scale stack measures 0.080 (2026-10-24); was 0.38
+
+/** O1: early picks that must be among the hero's real top 10 early buys. */
+const O1_MIN_HITS = 2;
+/** T1: allowed gap in the early share of souls on 3,200+ items, engine vs real. */
+const T1_TOLERANCE = 0.15;
+/**
+ * O2 baseline: share of the reference heroes' mid picks that are in the hero's
+ * real 10–20 min top 10. May only be raised (docs/starter-build-use-cases.md §4.3).
+ */
+const MID_REAL_TOP_BASELINE = 0.73; // value-scale stack measures 38/52 = 0.731 (2026-10-24)
 
 const sum = (xs: ReadonlyArray<number>) => xs.reduce((a, b) => a + b, 0);
 
@@ -119,6 +121,7 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     rankTier: null,
     pairLift: heroPairLift(d.pairLiftTable, kit.hero.id) ?? undefined,
     categorySplit: heroCategorySplit(d.categorySplitTable, kit.hero.id) ?? undefined,
+    phaseItems: heroPhaseItems(d.phaseItemsTable, kit.hero.id) ?? undefined,
     ...over,
   });
 
@@ -337,12 +340,13 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
         heroAccuracy: undefined,
         pairLift: undefined,
         categorySplit: undefined,
+        phaseItems: undefined,
       }),
     );
     const err = b ? (checkBudget(b) ?? checkPhases(b) ?? checkLegal(b)) : "null build";
     assert(
       b !== null && b.phases[0].items.length > 0 && err === null,
-      `H9 fails open (no analytics / pairs / category split): ${name}`,
+      `H9 fails open (no analytics / pairs / category split / phase items): ${name}`,
       err ?? undefined,
     );
   }
@@ -455,6 +459,69 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     assert(
       overlap >= MID_OVERLAP_BASELINE - 0.02,
       `M3 mid-phase overlap ${overlap.toFixed(3)} has not fallen well below the baseline (lower MID_OVERLAP_BASELINE to lock it in)`,
+    );
+  }
+
+  // O1 / O2 / T1 — the build looks like real play on THIS hero (doc §4.3,
+  // 2026-10-24). Measured against heroPhaseItems.json, the table phaseItemTerm
+  // reads, so they check the engine follows it without breaking M1–M3.
+  const topIds = (rates: Readonly<Record<string, number>>, n: number) =>
+    new Set(
+      Object.entries(rates)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, n)
+        .map(([id]) => id),
+    );
+  let midHits = 0;
+  let midPicks = 0;
+  for (const name of REFERENCE_HEROES) {
+    const b = builds.get(name);
+    const kit = kits.get(name);
+    const rates = kit ? heroPhaseItems(d.phaseItemsTable, kit.hero.id) : null;
+    assert(rates !== null, `O1 setup: measured phase items exist for ${name}`);
+    if (!b || !rates) continue;
+    // O1 — at least 2 early picks among the hero's real top 10 early buys.
+    const earlyTop = topIds(rates.early, 10);
+    const hits = b.phases[0].items.filter((i) => earlyTop.has(i.id)).length;
+    ratchet(
+      `O1:${name}`,
+      hits >= O1_MIN_HITS,
+      `${hits} of ${b.phases[0].items.length} early picks in the real top 10 (need >= ${O1_MIN_HITS})`,
+    );
+    const midTop = topIds(rates.mid, 10);
+    midHits += b.phases[1].items.filter((i) => midTop.has(i.id)).length;
+    midPicks += b.phases[1].items.length;
+    // T1 — tempo: the early share of souls in 3,200+ items is within 15 points
+    // of real play (Σ buy rate × cost over the hero's early purchases).
+    let realBig = 0;
+    let realAll = 0;
+    for (const [id, rate] of Object.entries(rates.early)) {
+      const cost = itemById.get(id)?.cost ?? 0;
+      realAll += rate * cost;
+      if (cost >= 3200) realBig += rate * cost;
+    }
+    const picks = b.phases[0].basket.picks;
+    const paid = sum(picks.map((p) => p.effectiveCost));
+    const big = sum(picks.filter((p) => p.item.cost >= 3200).map((p) => p.effectiveCost));
+    const engineShare = paid > 0 ? big / paid : 0;
+    const realShare = realAll > 0 ? realBig / realAll : 0;
+    ratchet(
+      `T1:${name}`,
+      Math.abs(engineShare - realShare) <= T1_TOLERANCE,
+      `early souls in 3,200+ items: engine ${Math.round(engineShare * 100)}%, real ${Math.round(realShare * 100)}% (need within ${T1_TOLERANCE * 100} pts)`,
+    );
+  }
+  // O2 — mid picks in the hero's real 10–20 min top 10: a numeric ratchet that
+  // may only rise (like M3, inverted).
+  {
+    const share = midPicks > 0 ? midHits / midPicks : 0;
+    assert(
+      share >= MID_REAL_TOP_BASELINE - 1e-9,
+      `O2 ${midHits}/${midPicks} mid picks (${share.toFixed(3)}) in the real mid top 10 >= baseline ${MID_REAL_TOP_BASELINE}`,
+    );
+    assert(
+      share <= MID_REAL_TOP_BASELINE + 0.05,
+      `O2 share ${share.toFixed(3)} has not risen well above the baseline (raise MID_REAL_TOP_BASELINE to lock it in)`,
     );
   }
 

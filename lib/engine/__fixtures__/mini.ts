@@ -27,6 +27,9 @@ import {
   rankingPrice,
   saturate,
   LANING_TEMPO,
+  PHASE_ITEM_BASELINE,
+  PHASE_ITEM_WEIGHT,
+  phaseItemTerm,
   SHOP_BUDGET_SLACK,
   procPlatformTerm,
   SYNERGY_MAX_FRACTION,
@@ -76,6 +79,8 @@ import type {
 import { findSynergyRules, SYNERGY_RULES } from "../synergy";
 import { ANTI_SYNERGY_RULES } from "../../scoring/antiSynergy";
 import { estimateEffectValues } from "../effectEstimator";
+import { heroPhaseItems, PHASE_ITEM_MIN_RATE, phaseItemBasis } from "../phaseItems";
+import type { PhaseItemsTable } from "../phaseItems";
 import { buyOrder } from "../starterBuild";
 import {
   abilityDps,
@@ -4140,6 +4145,89 @@ console.log("\n22. Spend like real players (shop budgets, laning tempo, buy orde
     order.join(",") === "cheap,comp,upg,big",
     "buyOrder: cheapest first, components before the upgrade that consumes them",
     order.join(","),
+  );
+}
+
+console.log("\n23. What players on this hero buy (phase items)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+  // a. The slice keeps only finite rates in (0, 1]; a missing hero is null
+  //    ("no signal"), never an empty table that reads as "nobody buys this".
+  const table: PhaseItemsTable = {
+    version: 1,
+    generated: "2026-10-24",
+    window: { from: "2026-09-24", to: "2026-10-24" },
+    method: {
+      minAverageBadge: 80,
+      minRankName: "Oracle",
+      days: 30,
+      minMatches: 2000,
+      minRate: PHASE_ITEM_MIN_RATE,
+      measure: "test",
+    },
+    heroes: {
+      "7": {
+        matches: 5000,
+        early: { popular: 0.9, rare: 0.05, bad: Number.NaN, over: 1.5, neg: -0.2 },
+        mid: { mid_item: 0.4 },
+        late: {},
+      },
+    },
+  };
+  const slice = heroPhaseItems(table, 7);
+  assert(
+    slice !== null &&
+      JSON.stringify(slice.early) === JSON.stringify({ popular: 0.9, rare: 0.05 }) &&
+      slice.scope === "Oracle+ players (last 30 days)" &&
+      heroPhaseItems(table, 99) === null &&
+      phaseItemBasis("early") === "buy it in the first 10 minutes" &&
+      phaseItemBasis("late") === "buy it after minute 20",
+    "heroPhaseItems: valid rates only, null for an unfitted hero; reason wording per phase",
+    JSON.stringify(slice),
+  );
+
+  // b. phaseItemTerm: PHASE_ITEM_WEIGHT x one slot's coverage x (rate −
+  //    baseline). A popular item gains, a rarely bought one (below the
+  //    baseline, or unlisted) gets a mild penalty; no table = inert.
+  const need = { ...zeroValues(), gunDamage: 1 };
+  const withTable = makeBasketContext({
+    needVector: need,
+    soulBudget: 4000,
+    maxItems: 6,
+    phaseItems: {
+      rates: slice?.early ?? {},
+      scope: slice?.scope ?? "",
+      basis: phaseItemBasis("early"),
+    },
+  });
+  const noTable = makeBasketContext({ needVector: need, soulBudget: 4000, maxItems: 6 });
+  const state = initialBasketState(withTable);
+  const popular = mkCandidate("popular", 9301, "gun", 800, { gunDamage: 20 });
+  const rare = mkCandidate("rare", 9302, "gun", 800, { gunDamage: 20 });
+  const unlisted = mkCandidate("unlisted", 9303, "gun", 800, { gunDamage: 20 });
+  const scale = (withTable.target.gunDamage / withTable.targetSlots) * 1;
+  const up = phaseItemTerm.evaluate(popular, state, withTable);
+  const down = phaseItemTerm.evaluate(rare, state, withTable);
+  const none = phaseItemTerm.evaluate(unlisted, state, withTable);
+  assert(
+    up !== null &&
+      near(up.value, PHASE_ITEM_WEIGHT * scale * (0.9 - PHASE_ITEM_BASELINE)) &&
+      up.reason.includes("90% of Oracle+ players") &&
+      down !== null &&
+      down.value < 0 &&
+      none !== null &&
+      none.value < down.value &&
+      phaseItemTerm.evaluate(popular, initialBasketState(noTable), noTable) === null,
+    "phaseItemTerm: popular items gain, rarely bought ones get a mild penalty, no table is inert",
+    JSON.stringify({ up, down, none, scale }),
+  );
+
+  // c. Relevance-gated: never a reason to buy an item that covers no need.
+  const offNeed = mkCandidate("popular", 9304, "gun", 800, { economy: 20 });
+  assert(
+    phaseItemTerm.evaluate(offNeed, state, withTable) === null,
+    "phaseItemTerm: an item covering nothing the hero needs gets no nudge, however popular",
   );
 }
 
