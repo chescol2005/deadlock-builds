@@ -73,6 +73,12 @@ export type Item = {
    * `stats` directly when a hero/build context is available.
    */
   statScaling: ItemStatScalings;
+  /**
+   * Stat keys the API lists in the item's INNATE tooltip section: always on,
+   * even when the item also has a cooldown-gated active or passive (Burst
+   * Fire's +10% fire rate vs its on-hit burst). Absent = unknown.
+   */
+  innateStats?: string[];
   description?: string;
   icon?: string;
   componentItems?: string[];

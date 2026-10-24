@@ -25,6 +25,7 @@ import {
   PAIR_LIFT_MAX_FRACTION,
   pairTerm,
   rankingPrice,
+  saturate,
   procPlatformTerm,
   SYNERGY_MAX_FRACTION,
   synergyTerm,
@@ -73,6 +74,20 @@ import type {
 import { findSynergyRules, SYNERGY_RULES } from "../synergy";
 import { ANTI_SYNERGY_RULES } from "../../scoring/antiSynergy";
 import { estimateEffectValues } from "../effectEstimator";
+import {
+  abilityDps,
+  castsPerTrade,
+  CONDITIONAL_DAMAGE_WEIGHT,
+  damageValues,
+  HEADSHOT_IN_TRADE,
+  MAX_CASTS_PER_TRADE,
+  sustainedGunDps,
+  TRADE_GAP_SECONDS,
+  TRADE_SECONDS,
+} from "../heroDamage";
+import type { HeroDamageModel } from "../heroDamage";
+import { estimateFightValue, fightValues } from "../heroFight";
+import { normalizeItem } from "../../itemNormalizer";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
 import { resolveScaledStats, toItemCandidate } from "../itemAdapter";
@@ -448,9 +463,11 @@ console.log("\n6b. effectEstimator: proc/active items are no longer invisible");
     `Got: ${proc.categoryValues.gunDamage}`,
   );
 
-  // Expected value, then halved by EFFECT_CONFIDENCE: 33 x 4 x 0.15 = 19.8 -> 9.9.
+  // Expected value, then halved by EFFECT_CONFIDENCE. Targets: the hit one plus
+  // 0.4 of each further jump (most land on creeps in a trade, 2026-10-24):
+  // 33 x (1 + 0.4 x 3) x 0.15 = 10.89 -> 5.445.
   assert(
-    Math.abs(proc.categoryValues.gunDamage - 9.9) < 0.001,
+    Math.abs(proc.categoryValues.gunDamage - 5.445) < 0.001,
     "proc value is expected-value math (dmg x targets x chance), then confidence-discounted",
     `Got: ${proc.categoryValues.gunDamage}`,
   );
@@ -1898,10 +1915,16 @@ console.log("\n14. ── Positive synergy ──");
     synergyTerm.evaluate(zeroCov, stateWith(candA), ctx) === null,
     "relevance gate: a paired candidate with zero coverage gain gets no synergy",
   );
-  const satState: BasketState = { ...stateWith(candA), coverage: { ...ctx.target } };
+  // Coverage saturates smoothly (no hard cap since 2026-10-24), so "covers
+  // nothing" now means value only in a category the hero has no need for.
+  const unneeded = SCORE_CATEGORIES.find((c) => !(ctx.target[c] > 0));
+  const offNeed = unneeded
+    ? { ...mkCandidate(idB, 8105, "gun", 1000, { [unneeded]: 20 }), name: "Alchemical Fire" }
+    : null;
   assert(
-    synergyTerm.evaluate(candB, satState, ctx) === null,
-    "relevance gate: a paired candidate whose categories are already at target gets no synergy",
+    offNeed !== null && synergyTerm.evaluate(offNeed, stateWith(candA), ctx) === null,
+    "relevance gate: a paired candidate that only covers categories the hero does not need gets no synergy",
+    `unneeded category: ${unneeded}`,
   );
 
   assert(
@@ -3104,7 +3127,7 @@ console.log("\n17. Owned coverage and upgrade components (Work 2, PR 2c)");
   };
   const gain = coverageTerm.evaluate(upg, ownedState, tightCtx);
   const t = tightCtx.target.spiritDamage;
-  const expectedGain = Math.min(t, 10 - 10 + 25) - Math.min(t, 10);
+  const expectedGain = saturate(10 - 10 + 25, t) - saturate(10, t);
   assert(
     gain !== null && Math.abs(gain.value - expectedGain) < 1e-9,
     "components: coverage gain of an upgrade nets out the consumed component",
@@ -3215,7 +3238,7 @@ console.log("\n17. Owned coverage and upgrade components (Work 2, PR 2c)");
   const rGain = coverageTerm.evaluate(upgR, rState, rCtx);
   const tS = rCtx.target.spiritDamage;
   const tR = rCtx.target.resist;
-  const expectedR = Math.min(tS, 25) - Math.min(tS, 10) + (Math.min(tR, 0) - Math.min(tR, 8));
+  const expectedR = saturate(25, tS) - saturate(10, tS) + (saturate(0, tR) - saturate(8, tR));
   assert(
     rGain !== null &&
       Math.abs(rGain.value - expectedR) < 1e-9 &&
@@ -3683,6 +3706,271 @@ console.log("\n20. Phase-aware split and measured stat profile (coverage-model P
   assert(
     applyStatProfile(familyless, profile) === familyless,
     "applyStatProfile: with no family need the need is returned as is",
+  );
+}
+
+console.log("\n21. One value scale (hero-relative damage and fight value)");
+{
+  const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps;
+  const gun = { perShot: 10, shotsPerSecond: 5, clip: 20, reload: 2, overhead: 0 };
+
+  // a. Sustained gun DPS: per shot x clip / (clip / shots-per-second + reload).
+  const base = sustainedGunDps(gun, {});
+  assert(
+    near(base, (10 * 20) / (20 / 5 + 2)),
+    "sustainedGunDps: per shot x clip / (time to empty + reload)",
+    `Got ${base}`,
+  );
+
+  // b. Each gun stat moves sustained DPS the way the mechanics say: damage % on
+  //    every shot; fire rate only while firing; a bigger clip defers reloads;
+  //    reload time is a signed % (negative = faster, verified live).
+  const dmg = sustainedGunDps(gun, { damagePercent: 10 });
+  const fire = sustainedGunDps(gun, { fireRatePercent: 10 });
+  const clip = sustainedGunDps(gun, { clipPercent: 50 });
+  const fasterReload = sustainedGunDps(gun, { reloadTimePercent: -35 });
+  const slowerReload = sustainedGunDps(gun, { reloadTimePercent: 20 });
+  assert(
+    near(dmg / base, 1.1) &&
+      fire / base > 1 &&
+      fire / base < 1.1 &&
+      clip > base &&
+      fasterReload > base &&
+      slowerReload < base,
+    "sustainedGunDps: +10% damage = +10%; fire rate < +10% (reload untouched); clip and faster reload help; slower reload hurts",
+    `dmg ${dmg / base}, fire ${fire / base}, clip ${clip / base}, reload-35 ${fasterReload / base}`,
+  );
+
+  // c. Casts per trade: short cooldowns cap at MAX_CASTS_PER_TRADE (also a
+  //    resource-gated 0.6 s "cooldown" like Card Trick); long ones count once,
+  //    weighted by the share of trades they are ready for; none = one cast.
+  assert(
+    castsPerTrade(0.6) === MAX_CASTS_PER_TRADE &&
+      castsPerTrade(2.5) === MAX_CASTS_PER_TRADE &&
+      near(castsPerTrade(8), TRADE_SECONDS / 8) &&
+      castsPerTrade(20) === 1 &&
+      near(castsPerTrade(200), TRADE_GAP_SECONDS / 200) &&
+      castsPerTrade(0) === 1,
+    "castsPerTrade: short cooldowns capped, long ones weighted by readiness",
+    `0.6s ${castsPerTrade(0.6)}, 8s ${castsPerTrade(8)}, 200s ${castsPerTrade(200)}`,
+  );
+
+  // d. Ability DPS over a trade: (base + coefficient x SP) x casts per trade /
+  //    trade; damage-free or cooldown-free abilities contribute nothing.
+  const abilities = [
+    { baseDamage: 100, spiritScaling: 1, cooldown: 10 },
+    { baseDamage: 50, spiritScaling: 0.5, cooldown: 5 },
+    { baseDamage: null, spiritScaling: 1, cooldown: 10 },
+    { baseDamage: 80, spiritScaling: 1, cooldown: null },
+  ];
+  assert(
+    near(
+      abilityDps(abilities, 20),
+      ((100 + 20) * castsPerTrade(10) + (50 + 10) * castsPerTrade(5)) / TRADE_SECONDS,
+    ),
+    "abilityDps: per-cast damage x casts per trade / trade, over damaging abilities",
+    `Got ${abilityDps(abilities, 20)}`,
+  );
+
+  // e. Hero-relative: the SAME fire-rate item is worth more to a gun-reliant
+  //    hero, spirit power more to an ability-reliant one (% of trade DPS).
+  const gunHero: HeroDamageModel = {
+    gun: { ...gun, perShot: 20 },
+    accuracy: 0.5,
+    abilities: [{ baseDamage: 40, spiritScaling: 0.5, cooldown: 20 }],
+    spiritPower: 10,
+  };
+  const casterHero: HeroDamageModel = {
+    gun: { ...gun, perShot: 4 },
+    accuracy: 0.5,
+    abilities: [
+      { baseDamage: 150, spiritScaling: 1.5, cooldown: 8 },
+      { baseDamage: 120, spiritScaling: 1.2, cooldown: 10 },
+    ],
+    spiritPower: 10,
+  };
+  const gunOnGunHero = damageValues({ BonusFireRate: 9 }, gunHero).gunDamage;
+  const gunOnCaster = damageValues({ BonusFireRate: 9 }, casterHero).gunDamage;
+  const spiritOnGunHero = damageValues({ TechPower: 10 }, gunHero).spiritDamage;
+  const spiritOnCaster = damageValues({ TechPower: 10 }, casterHero).spiritDamage;
+  assert(
+    gunOnGunHero > gunOnCaster * 2 && spiritOnCaster > spiritOnGunHero * 2,
+    "damageValues: fire rate is worth far more to the gun hero, spirit power to the caster",
+    `fire rate ${gunOnGunHero.toFixed(2)} vs ${gunOnCaster.toFixed(2)}; spirit ${spiritOnCaster.toFixed(2)} vs ${spiritOnGunHero.toFixed(2)}`,
+  );
+
+  // f. Units, and the WeaponPower sentinel: +10% weapon damage on an all-gun
+  //    hero is exactly 10; WeaponPower (0 on every item) is never read.
+  const allGun: HeroDamageModel = { gun, accuracy: 1, abilities: [], spiritPower: 0 };
+  assert(
+    near(damageValues({ BaseAttackDamagePercent: 10 }, allGun).gunDamage, 10) &&
+      damageValues({ WeaponPower: 50 }, allGun).gunDamage === 0,
+    "damageValues: +10% weapon damage on an all-gun hero = 10; WeaponPower contributes nothing",
+  );
+
+  // g. A stat on an item with a cooldown or a timed effect is that effect's buff
+  //    (Kinetic Dash, Active Reload) unless the API lists it as INNATE (Burst
+  //    Fire's +10% fire rate is innate; its on-hit burst is not).
+  const permanent = damageValues({ BonusFireRate: 20 }, allGun).gunDamage;
+  const onCooldown = damageValues({ BonusFireRate: 20, AbilityCooldown: 12 }, allGun).gunDamage;
+  const onTimer = damageValues({ BonusFireRate: 20, AbilityDuration: 7 }, allGun).gunDamage;
+  const innate = damageValues(
+    { BonusFireRate: 20, AbilityCooldown: 12 },
+    allGun,
+    new Set(["BonusFireRate"]),
+  ).gunDamage;
+  assert(
+    onCooldown > 0 &&
+      onCooldown < permanent * 0.6 &&
+      near(onTimer, onCooldown) &&
+      near(innate, permanent),
+    "damageValues: a timed stat is discounted, an innate one on the same item is not",
+    `permanent ${permanent}, cooldown ${onCooldown}, timer ${onTimer}, innate ${innate}`,
+  );
+
+  // h. A headshot bonus on a cooldown is FLAT damage once per cooldown
+  //    (Headshot Booster: 45 on the next headshot, 9 s), not +45% weapon damage.
+  const headshot = damageValues({ HeadShotBonusDamage: 45, AbilityCooldown: 9 }, allGun).gunDamage;
+  const flatDps = (45 * castsPerTrade(9) * HEADSHOT_IN_TRADE) / TRADE_SECONDS;
+  assert(
+    near(headshot, (flatDps / base) * 100) && headshot < CONDITIONAL_DAMAGE_WEIGHT * 45,
+    "damageValues: a cooldown headshot bonus is flat damage per cooldown, not a weapon %",
+    `Got ${headshot}, flat ${(flatDps / base) * 100}`,
+  );
+
+  // i. Fight value: +1% effective HP is worth +1% DPS. Health is % of max HP;
+  //    resist is % more effective HP against the incoming mix; a resist on an
+  //    item with a cooldown is conditional unless innate.
+  const fm = { maxHealth: 1000, moveSpeed: 7, gunDps: 30, abilityDps: 10 };
+  const resist = fightValues({ BulletResist: 20 }, fm).resist ?? 0;
+  const resistActive = fightValues({ BulletResist: 20, AbilityCooldown: 10 }, fm).resist ?? 0;
+  const resistInnate =
+    fightValues({ BulletResist: 20, AbilityCooldown: 10 }, fm, new Set(["BulletResist"])).resist ??
+    0;
+  assert(
+    near(fightValues({ BonusHealth: 100 }, fm).bonusHealth ?? 0, 10) &&
+      near(resist, (1 / (0.5 * 0.8 + 0.5) - 1) * 100) &&
+      resistActive < resist &&
+      near(resistInnate, resist),
+    "fightValues: +100 HP on 1000 = 10; 20% bullet resist = +11.1% effective HP; timed resist discounted",
+    `resist ${resist}, active ${resistActive}, innate ${resistInnate}`,
+  );
+
+  // j. OutgoingDamagePenaltyPercent: the buyer's own drawback (Golden Goose Egg,
+  //    Cursed Relic: no DebuffDuration) is NEGATIVE damage value; on an enemy
+  //    debuff (Inhibitor, Haunting Shot: DebuffDuration) it is positive utility.
+  const selfStats = { OutgoingDamagePenaltyPercent: -15 };
+  const self = estimateEffectValues(selfStats);
+  const enemyStats = { OutgoingDamagePenaltyPercent: -30, DebuffDuration: 5 };
+  const enemy = estimateEffectValues(enemyStats);
+  assert(
+    self.length === 2 &&
+      self.every(
+        (e) =>
+          e.value < 0 &&
+          e.unit === "selfDamageCutPercent" &&
+          (estimateFightValue(e, selfStats, fm) ?? 0) < 0,
+      ) &&
+      enemy.length === 1 &&
+      enemy[0].category === "utility" &&
+      (estimateFightValue(enemy[0], enemyStats, fm) ?? 0) > 0,
+    "outgoing damage penalty: own drawback is negative damage, an enemy debuff is positive utility",
+    JSON.stringify({ self, enemy }),
+  );
+
+  // k. "Your next melee attack heals you": once per cooldown, not every hit.
+  const meleeStats = { LifestrikeHeal: 100, AbilityCooldown: 8 };
+  const melee = estimateEffectValues(meleeStats).find((e) => e.unit === "healPerMeleeHit");
+  const meleeNoCd = estimateEffectValues({ LifestrikeHeal: 100 }).find(
+    (e) => e.unit === "healPerMeleeHit",
+  );
+  const withCd = melee ? (estimateFightValue(melee, meleeStats, fm) ?? 0) : 0;
+  const noCd = meleeNoCd ? (estimateFightValue(meleeNoCd, { LifestrikeHeal: 100 }, fm) ?? 0) : 0;
+  assert(
+    withCd > 0 && withCd < noCd,
+    "melee heal: a cooldown-gated heal counts once per cooldown, below an every-hit heal",
+    `cooldown ${withCd}, every hit ${noCd}`,
+  );
+
+  // l. Every non-damage estimate carries a unit and quantity, and converts.
+  //    (Shred converts through shredValue; damage units through estimateDps.)
+  const bag = {
+    TotalHealthRegen: 300,
+    LifestrikeHeal: 100,
+    SlowPercent: 20,
+    SlowDuration: 2,
+    TechPowerReduction: -10,
+    HealAmpReceivePenaltyPercent: -35,
+    RicochetDamagePercent: 40,
+    SilenceDuration: 2,
+    StunDuration: 1,
+    MovementSpeedSlow: 30,
+    FireRateSlow: 20,
+    GroundDashReductionPercent: -30,
+    OutgoingDamagePenaltyPercent: -20,
+    MaxStacks: 10,
+    HealPerStack: 5,
+    StackingBonusSprintSpeed: 0.1,
+    StackingTechRangeMultiplier: 2,
+    StackingBonusHealth: 10,
+    StackingGoldPerMinute: 18,
+    BonusSoulsPct: 100,
+    BonusGoldPerMinute: 80,
+    HealthDrainedPerSecond: 50,
+    ImbuedCooldownMultiplier: 1,
+    AbilityDuration: 5,
+    AbilityCooldown: 20,
+  };
+  const damageUnits = new Set([
+    "damage",
+    "weaponPercent",
+    "maxHealthPercentPerSecond",
+    "dps",
+    "spiritPercent",
+  ]);
+  const unconverted = estimateEffectValues(bag).filter(
+    (e) =>
+      !(e.unit && damageUnits.has(e.unit)) &&
+      e.category !== "gunShred" &&
+      e.category !== "spiritShred" &&
+      estimateFightValue(e, bag, fm) === null,
+  );
+  assert(
+    unconverted.length === 0,
+    "every non-damage effect estimate converts to fight value",
+    unconverted.map((e) => e.basis).join("; "),
+  );
+
+  // m. Innate stats come from the API's innate tooltip section; a section with
+  //    no section_type (common in the live data) is NOT innate.
+  const burst = normalizeItem({
+    id: 1,
+    class_name: "upgrade_burst_fire",
+    name: "Burst Fire",
+    type: "upgrade",
+    item_slot_type: "weapon",
+    item_tier: 3,
+    cost: 3200,
+    properties: { BonusFireRate: { value: "10" }, ActivatedFireRate: { value: "32" } },
+    tooltip_sections: [
+      { section_type: "innate", section_attributes: [{ elevated_properties: ["BonusFireRate"] }] },
+      { section_attributes: [{ important_properties: ["ActivatedFireRate"] }] },
+    ],
+  });
+  assert(
+    JSON.stringify(burst.innateStats) === JSON.stringify(["BonusFireRate"]),
+    "normalizeItem: innateStats lists the innate section only",
+    JSON.stringify(burst.innateStats),
+  );
+
+  // n. Coverage saturates smoothly: U(0) = 0, increasing, concave, below T.
+  assert(
+    saturate(0, 10) === 0 &&
+      saturate(5, 0) === 0 &&
+      saturate(10, 10) - saturate(0, 10) > saturate(20, 10) - saturate(10, 10) &&
+      saturate(20, 10) > saturate(10, 10) &&
+      saturate(1e6, 10) <= 10,
+    "saturate: 0 at 0, increasing and concave, never above the target",
   );
 }
 

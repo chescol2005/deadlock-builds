@@ -115,6 +115,25 @@ function mapCategory(slot: "weapon" | "vitality" | "spirit"): ItemCategory {
 // `??` only falls through on null/undefined, not "" — the API can return an
 // empty-string icon field alongside a valid fallback, so an explicit
 // non-empty-string check is required or the empty string silently wins.
+/** Keys listed in the INNATE tooltip section (see Item.innateStats). */
+function parseInnateStats(raw: UpgradeV2Raw): string[] {
+  const sections = raw["tooltip_sections"];
+  if (!Array.isArray(sections)) return [];
+  const keys = new Set<string>();
+  for (const section of sections as Array<Record<string, unknown>>) {
+    if (section?.["section_type"] !== "innate") continue;
+    const attrs = section["section_attributes"];
+    if (!Array.isArray(attrs)) continue;
+    for (const attr of attrs as Array<Record<string, unknown>>) {
+      for (const field of ["properties", "elevated_properties", "important_properties"]) {
+        const list = attr?.[field];
+        if (Array.isArray(list)) for (const k of list) if (typeof k === "string") keys.add(k);
+      }
+    }
+  }
+  return [...keys].sort();
+}
+
 function firstNonEmpty(...vals: Array<string | null | undefined>): string | undefined {
   return vals.find((v): v is string => typeof v === "string" && v.length > 0);
 }
@@ -133,6 +152,7 @@ export function normalizeItem(raw: UpgradeV2Raw): Item {
     tags: tags.length > 0 ? tags : ["utility"],
     stats: parsedStats,
     statScaling: parseStatScaling(raw, parsedStats),
+    innateStats: parseInnateStats(raw),
     icon: firstNonEmpty(
       raw.shop_image_webp,
       raw.shop_image,

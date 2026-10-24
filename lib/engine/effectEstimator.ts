@@ -203,7 +203,56 @@ export type EffectEstimate = {
    * Mutually exclusive with `perHit`.
    */
   requiresHit?: boolean;
+  /**
+   * What `value` measures, for damage estimates (gunDamage / spiritDamage), so a
+   * hero-aware consumer (itemAdapter with a HeroDamageModel) can convert it to
+   * damage per second. Omitted for non-damage estimates.
+   * - "damage": damage per hit (perHit), per proc (requiresHit) or per cast
+   * - "weaponPercent": % of the hero's weapon damage (Ricochet, crit procs)
+   * - "maxHealthPercentPerSecond": % of the TARGET's max health per second (DoT)
+   * - "dps": already damage per second (uptime-weighted area damage)
+   */
+  unit?: EffectUnit;
+  /** For "maxHealthPercentPerSecond": the per-second rate (value is the total). */
+  perSecond?: number;
+  /**
+   * The effect's physical quantity in `unit` (value scale), already
+   * x EFFECT_CONFIDENCE, for the non-damage units. `value` keeps the
+   * hero-agnostic heuristic (divisors and weights applied); the hero-aware
+   * conversion (heroFight.estimateFightValue) reads `quantity` instead.
+   */
+  quantity?: number;
 };
+
+/**
+ * What an estimate measures. Damage units are converted by itemAdapter's
+ * estimateDps; the rest by heroFight.estimateFightValue.
+ */
+export type EffectUnit =
+  | "damage"
+  | "weaponPercent"
+  | "maxHealthPercentPerSecond"
+  | "dps"
+  | "spiritPercent" // % more ability damage while up (value already uptime-weighted)
+  | "heal" // HP restored per cast / per stack set
+  | "healPerSecond" // HP per second while the active is up (negative = self-drain)
+  | "healPerMeleeHit"
+  | "health" // flat max HP
+  | "ccSeconds" // hard CC (stun / silence) seconds per application
+  | "slowPercentSeconds" // movement slow % x seconds
+  | "slowPercent" // movement slow % (duration from the item's AbilityDuration)
+  | "fireRateSlowPercent"
+  | "dashDenialPercent"
+  | "enemyDamageCutPercent" // enemy damage output -%
+  | "selfDamageCutPercent" // the buyer's own damage output -% (a drawback)
+  | "enemySpiritCut" // enemy spirit power / spirit damage -
+  | "healCutPercent" // anti-heal on the enemy
+  | "farmPercent" // % faster farming
+  | "soulsPerMinute"
+  | "soulsPercentConditional"
+  | "sprintSpeed" // m/s sprint
+  | "abilityReachPercent"
+  | "abilityReset";
 
 function num(stats: ItemStats, key: string): number | null {
   const v = stats[key];
@@ -239,14 +288,33 @@ function uptime(stats: ItemStats): number {
  */
 export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const out: EffectEstimate[] = [];
-  const add = (category: ScoreCategory, raw: number, basis: string) => {
+  type Unit = EffectEstimate["unit"];
+  const add = (
+    category: ScoreCategory,
+    raw: number,
+    basis: string,
+    unit?: Unit,
+    quantity?: number,
+  ) => {
     if (!Number.isFinite(raw) || raw <= 0) return;
-    out.push({ category, value: raw * EFFECT_CONFIDENCE, basis });
+    out.push({
+      category,
+      value: raw * EFFECT_CONFIDENCE,
+      basis,
+      ...(unit ? { unit } : {}),
+      ...(quantity !== undefined ? { quantity: quantity * EFFECT_CONFIDENCE } : {}),
+    });
   };
   /** As `add`, for value delivered per weapon hit. See EffectEstimate.perHit. */
-  const addPerHit = (category: ScoreCategory, raw: number, basis: string) => {
+  const addPerHit = (category: ScoreCategory, raw: number, basis: string, unit?: Unit) => {
     if (!Number.isFinite(raw) || raw <= 0) return;
-    out.push({ category, value: raw * EFFECT_CONFIDENCE, basis, perHit: true });
+    out.push({
+      category,
+      value: raw * EFFECT_CONFIDENCE,
+      basis,
+      perHit: true,
+      ...(unit ? { unit } : {}),
+    });
   };
 
   // ── Is a "proc" per-bullet, or gated behind a cooldown? ──
@@ -283,7 +351,7 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
    * (Silver shares the exemption only while transformed, which is situational
    * and deliberately not modelled.)
    */
-  const addProc = (category: ScoreCategory, raw: number, basis: string) => {
+  const addProc = (category: ScoreCategory, raw: number, basis: string, unit?: Unit) => {
     if (isCooldownGatedProc) {
       if (!Number.isFinite(raw) || raw <= 0) return;
       out.push({
@@ -291,9 +359,10 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
         value: raw * EFFECT_CONFIDENCE,
         basis: `${basis}, once per ${procAbilityCooldown}s cooldown, wasted on a miss`,
         requiresHit: true,
+        ...(unit ? { unit } : {}),
       });
     } else {
-      addPerHit(category, raw, basis);
+      addPerHit(category, raw, basis, unit);
     }
   };
 
@@ -304,10 +373,16 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const chainDamage = num(stats, "DamagePerChain");
   const chainCount = num(stats, "ChainCount");
   if (chainDamage != null && chainCount != null && procChance != null) {
+    // The hit target plus a conditional share of the other jumps: in a trade
+    // most jumps land on creeps or are out of range. (Whether ChainCount
+    // includes the hit target is unpublished; the wiki says "4 Max Jumps".
+    // data-verifier 2026-10-24.)
+    const targets = 1 + CONDITIONAL_SCALE * Math.max(0, chainCount - 1);
     addProc(
       "gunDamage",
-      chainDamage * chainCount * (procChance / 100),
-      `${chainDamage} dmg x ${chainCount} chained targets x ${procChance}% proc`,
+      chainDamage * targets * (procChance / 100),
+      `${chainDamage} dmg x ~${targets.toFixed(1)} of ${chainCount} chained targets x ${procChance}% proc`,
+      "damage",
     );
   }
 
@@ -318,13 +393,19 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "spiritDamage",
       procMagic * (procChance / 100),
       `${procMagic} bonus spirit damage x ${procChance}% proc`,
+      "damage",
     );
   }
 
   // ── Crit proc (Lucky Shot) ──
   const crit = num(stats, "CritDamagePercent");
   if (crit != null && procChance != null) {
-    addProc("gunDamage", crit * (procChance / 100), `+${crit}% crit damage x ${procChance}% proc`);
+    addProc(
+      "gunDamage",
+      crit * (procChance / 100),
+      `+${crit}% crit damage x ${procChance}% proc`,
+      "weaponPercent",
+    );
   }
 
   // ── Damage over time (Toxic Bullets) ──
@@ -336,54 +417,80 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const tickRate = num(stats, "TickRate");
   if (dotPct != null && dotDuration != null && tickRate != null && tickRate > 0) {
     const ticks = dotDuration / tickRate;
-    addPerHit(
-      "gunDamage",
-      dotPct * ticks,
-      `${dotPct}% max-health per tick x ${ticks.toFixed(0)} ticks`,
-    );
+    // Hero-agnostic value: the DoT's total % of max health. The hero-aware
+    // conversion reads it per second instead (unit below): the DoT is
+    // refreshed while the hero keeps hitting, so it is a rate, not a burst.
+    out.push({
+      category: "gunDamage",
+      value: dotPct * ticks * EFFECT_CONFIDENCE,
+      basis: `${dotPct}% max-health per tick x ${ticks.toFixed(0)} ticks`,
+      perHit: true,
+      unit: "maxHealthPercentPerSecond",
+      perSecond: (dotPct / tickRate) * EFFECT_CONFIDENCE,
+    });
   }
 
   // ── Ricochet ──
   // A straight fraction of weapon damage repeated onto nearby targets.
   const ricochet = num(stats, "RicochetDamagePercent");
   if (ricochet != null) {
-    addPerHit("gunDamage", ricochet, `${ricochet}% of weapon damage bounced to nearby targets`);
+    addPerHit(
+      "gunDamage",
+      ricochet,
+      `${ricochet}% of weapon damage bounced to nearby targets`,
+      "weaponPercent",
+    );
   }
 
   // ── Sustained ground/area DPS (Alchemical Fire, Spirit Burn) ──
   // Uptime-weighted: a 5s burn on a 30s cooldown is not 45 sustained DPS.
   const dps = num(stats, "DPS");
   if (dps != null) {
-    const up = uptime(stats);
-    add("spiritDamage", dps * up, `${dps} area DPS x ${(up * 100).toFixed(0)}% uptime`);
+    // An area DoT applied by close-range hits (Stalker: "dealing weapon damage
+    // at close range opens a wound", ProcRadius 8 m) is only up while the hero
+    // fights at close range: conditional, not a duration / cooldown uptime.
+    const up = num(stats, "ProcRadius") != null ? CONDITIONAL_SCALE : uptime(stats);
+    add("spiritDamage", dps * up, `${dps} area DPS x ${(up * 100).toFixed(0)}% uptime`, "dps");
   }
 
   // ── Burst damage actives (Mystic Burst, Capacitor, Quicksilver Reload) ──
   // Not divided by cooldown: a repeatable nuke keeps its per-cast value.
   const burst = num(stats, "Damage") ?? num(stats, "SpiritDamage");
   if (burst != null) {
-    add("spiritDamage", burst, `${burst} burst damage per cast`);
+    add("spiritDamage", burst, `${burst} burst damage per cast`, "damage");
   }
   const explosion = num(stats, "ExplosionDamage");
   if (explosion != null) {
-    add("spiritDamage", explosion, `${explosion} explosion damage`);
+    add("spiritDamage", explosion, `${explosion} explosion damage`, "damage");
   }
 
   // ── Burst heal (Healing Nova) and on-hit heal (Melee Lifesteal) ──
   const heal = num(stats, "TotalHealthRegen");
   if (heal != null) {
-    add("sustain", heal * HEAL_WEIGHT, `${heal} health restored per cast`);
+    add("sustain", heal * HEAL_WEIGHT, `${heal} health restored per cast`, "heal", heal);
   }
   const lifestrike = num(stats, "LifestrikeHeal");
   if (lifestrike != null) {
-    add("sustain", lifestrike * HEAL_WEIGHT, `${lifestrike} health per melee hit`);
+    add(
+      "sustain",
+      lifestrike * HEAL_WEIGHT,
+      `${lifestrike} health per melee hit`,
+      "healPerMeleeHit",
+      lifestrike,
+    );
   }
 
   // ── Slows / movement debuffs (Slowing Bullets, Capacitor, Cursed Relic) ──
   const slow = num(stats, "SlowPercent") ?? num(stats, "MaxSlowPercent");
   const slowDuration = num(stats, "SlowDuration") ?? num(stats, "AbilityDuration");
   if (slow != null && slowDuration != null) {
-    add("utility", (slow * slowDuration) / SLOW_DIVISOR, `${slow}% slow for ${slowDuration}s`);
+    add(
+      "utility",
+      (slow * slowDuration) / SLOW_DIVISOR,
+      `${slow}% slow for ${slowDuration}s`,
+      "slowPercentSeconds",
+      slow * slowDuration,
+    );
   }
 
   // ── Enemy resist/armour reduction = OFFENSIVE value ──
@@ -416,6 +523,8 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "utility",
       enemyOutputCut * CONDITIONAL_SCALE,
       `cuts enemy spirit output by ${enemyOutputCut}`,
+      "enemySpiritCut",
+      enemyOutputCut,
     );
   }
 
@@ -429,7 +538,13 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
     magnitude(stats, "HealAmpRegenPenaltyPercent"),
   );
   if (healCut > 0) {
-    add("antiHeal", healCut, `cuts enemy healing and regen by ${healCut}%`);
+    add(
+      "antiHeal",
+      healCut,
+      `cuts enemy healing and regen by ${healCut}%`,
+      "healCutPercent",
+      healCut,
+    );
   }
 
   // ── AoE weapon effects clear jungle camps faster ──
@@ -439,7 +554,13 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   const aoeShot =
     (num(stats, "RicochetDamagePercent") ?? 0) + (num(stats, "BulletSplitShot") ?? 0) * 10;
   if (aoeShot > 0) {
-    add("economy", aoeShot * AOE_FARM_SCALE, "hits several jungle creeps per shot");
+    add(
+      "economy",
+      aoeShot * AOE_FARM_SCALE,
+      "hits several jungle creeps per shot",
+      "farmPercent",
+      aoeShot * AOE_FARM_SCALE,
+    );
   }
 
   // ── Hard crowd control (Silencer, stun items) ──
@@ -449,33 +570,68 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   // silence — the entire reason to buy it — was unmapped.
   const silence = num(stats, "SilenceDuration");
   if (silence != null) {
-    add("utility", silence * HARD_CC_PER_SECOND, `${silence}s silence`);
+    add("utility", silence * HARD_CC_PER_SECOND, `${silence}s silence`, "ccSeconds", silence);
   }
   const stun = num(stats, "StunDuration");
   if (stun != null) {
-    add("utility", stun * HARD_CC_PER_SECOND, `${stun}s stun`);
+    add("utility", stun * HARD_CC_PER_SECOND, `${stun}s stun`, "ccSeconds", stun);
   }
 
   // ── Soft crowd control: movement and fire-rate slows ──
   const moveSlow = num(stats, "MovementSpeedSlow");
   if (moveSlow != null) {
-    add("utility", moveSlow / SLOW_DIVISOR, `${moveSlow}% movement slow`);
+    add("utility", moveSlow / SLOW_DIVISOR, `${moveSlow}% movement slow`, "slowPercent", moveSlow);
   }
   const fireRateSlow = num(stats, "FireRateSlow");
   if (fireRateSlow != null) {
-    add("utility", fireRateSlow / SLOW_DIVISOR, `${fireRateSlow}% fire-rate slow`);
+    add(
+      "utility",
+      fireRateSlow / SLOW_DIVISOR,
+      `${fireRateSlow}% fire-rate slow`,
+      "fireRateSlowPercent",
+      fireRateSlow,
+    );
   }
   // Denying an enemy their dash is a real lockdown effect; stored negative
   // because it reduces the target's dash distance.
   const dashDenial = magnitude(stats, "GroundDashReductionPercent");
   if (dashDenial > 0) {
-    add("utility", dashDenial / SLOW_DIVISOR, `cuts enemy dash distance by ${dashDenial}%`);
+    add(
+      "utility",
+      dashDenial / SLOW_DIVISOR,
+      `cuts enemy dash distance by ${dashDenial}%`,
+      "dashDenialPercent",
+      dashDenial,
+    );
   }
 
-  // ── Enemy output debuffs (Cursed Relic) — defensive utility ──
+  // ── Outgoing damage penalty: an ENEMY debuff or the buyer's own DRAWBACK ──
+  // The same key means both (data-verifier 2026-10-24, live item text):
+  // Inhibitor and Haunting Shot "reduce the target's outgoing damage" and carry
+  // a DebuffDuration; Golden Goose Egg (innate, while held) and Cursed Relic
+  // ("your own Damage Output is reduced for the duration") carry none. Every
+  // one was scored as an enemy debuff before 2026-10-24.
   const outgoingPenalty = magnitude(stats, "OutgoingDamagePenaltyPercent");
-  if (outgoingPenalty > 0) {
-    add("utility", outgoingPenalty, `reduces enemy damage output by ${outgoingPenalty}%`);
+  const onEnemy = num(stats, "DebuffDuration") != null;
+  if (outgoingPenalty > 0 && onEnemy) {
+    add(
+      "utility",
+      outgoingPenalty,
+      `reduces the enemy's damage output by ${outgoingPenalty}%`,
+      "enemyDamageCutPercent",
+      outgoingPenalty,
+    );
+  }
+  if (outgoingPenalty > 0 && !onEnemy) {
+    for (const category of ["gunDamage", "spiritDamage"] as const) {
+      out.push({
+        category,
+        value: -outgoingPenalty * CONDITIONAL_SCALE * 0.5 * EFFECT_CONFIDENCE,
+        basis: `reduces your own damage output by ${outgoingPenalty}%`,
+        unit: "selfDamageCutPercent",
+        quantity: outgoingPenalty * EFFECT_CONFIDENCE,
+      });
+    }
   }
   // (Anti-heal is handled above, in its own category — not here as utility.)
 
@@ -487,11 +643,22 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
 
   const perStack = num(stats, "WeaponPowerPerStack") ?? num(stats, "WeaponDamagePerStack");
   if (perStack != null) {
-    add("gunDamage", perStack * stacks, `+${perStack}% weapon power x ~${st} stacks`);
+    add(
+      "gunDamage",
+      perStack * stacks,
+      `+${perStack}% weapon power x ~${st} stacks`,
+      "weaponPercent",
+    );
   }
   const healPerStack = num(stats, "HealPerStack");
   if (healPerStack != null) {
-    add("sustain", healPerStack * stacks * HEAL_WEIGHT, `${healPerStack} heal x ~${st} stacks`);
+    add(
+      "sustain",
+      healPerStack * stacks * HEAL_WEIGHT,
+      `${healPerStack} heal x ~${st} stacks`,
+      "heal",
+      healPerStack * stacks,
+    );
   }
   const sprintPerStack = num(stats, "StackingBonusSprintSpeed");
   if (sprintPerStack != null) {
@@ -499,6 +666,8 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "mobility",
       sprintPerStack * stacks * TINY_FLAT_SCALE,
       `+${sprintPerStack} sprint speed x ~${st} stacks`,
+      "sprintSpeed",
+      sprintPerStack * stacks,
     );
   }
   const reachPerStack =
@@ -509,6 +678,8 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "utility",
       reachPerStack * stacks * CONDITIONAL_SCALE,
       `+${reachPerStack}% ability reach x ~${st} stacks`,
+      "abilityReachPercent",
+      reachPerStack * stacks,
     );
   }
   const healthPerStack = num(stats, "StackingBonusHealth");
@@ -517,6 +688,8 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "bonusHealth",
       healthPerStack * stacks * HEAL_WEIGHT,
       `${healthPerStack} health x ~${st} stacks`,
+      "health",
+      healthPerStack * stacks,
     );
   }
 
@@ -532,6 +705,20 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "economy",
       perMin / GOLD_PER_MINUTE_DIVISOR,
       `${goldPerMin} souls/min x ~${st} stacks = ~${perMin.toFixed(0)}/min`,
+      "soulsPerMinute",
+      perMin,
+    );
+  }
+  // Golden Goose Egg: flat souls per minute (data-verifier 2026-10-20; was
+  // unmapped). Hero-agnostic value uses the same divisor as Trophy Collector.
+  const flatGoldPerMin = num(stats, "BonusGoldPerMinute");
+  if (flatGoldPerMin != null) {
+    add(
+      "economy",
+      flatGoldPerMin / GOLD_PER_MINUTE_DIVISOR,
+      `${flatGoldPerMin} souls/min`,
+      "soulsPerMinute",
+      flatGoldPerMin,
     );
   }
   const soulsPct = num(stats, "BonusSoulsPct");
@@ -540,6 +727,8 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       "economy",
       soulsPct * CONDITIONAL_SOULS_WEIGHT,
       `+${soulsPct}% souls on a specific trigger`,
+      "soulsPercentConditional",
+      soulsPct,
     );
   }
 
@@ -555,6 +744,8 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       category: "sustain",
       value: -selfDrain * HEAL_WEIGHT * EFFECT_CONFIDENCE,
       basis: `drains ${selfDrain} of the user's own health per second`,
+      unit: "healPerSecond",
+      quantity: -selfDrain * EFFECT_CONFIDENCE,
     });
   }
 
@@ -570,13 +761,18 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   // abilities. Treat the result as a floor on a build-dependent value, not as
   // the item's ceiling.
   if (num(stats, "ImbuedCooldownMultiplier") != null) {
-    add("utility", ABILITY_RESET_UTILITY, "resets an imbued ability's cooldown");
+    add("utility", ABILITY_RESET_UTILITY, "resets an imbued ability's cooldown", "abilityReset", 1);
   }
 
   // ── Percent damage amp (Focus Lens) ──
   const percentDamage = num(stats, "PercentDamage");
   if (percentDamage != null) {
-    add("spiritDamage", percentDamage * uptime(stats), `+${percentDamage}% damage while active`);
+    add(
+      "spiritDamage",
+      percentDamage * uptime(stats),
+      `+${percentDamage}% damage while active`,
+      "spiritPercent",
+    );
   }
 
   return out;

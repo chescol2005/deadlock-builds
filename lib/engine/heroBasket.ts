@@ -12,6 +12,8 @@
 import type { Item } from "../items";
 import type { HeroAbility } from "../abilityCoefficients";
 import type { HeroBaseStats } from "../heroStats";
+import { calculateStatsAtBoon } from "../heroStats";
+import type { HeroDamageModel } from "./heroDamage";
 import type { HeroAccuracy, ItemAnalytics } from "../analyticsStore";
 import { resolveAccuracyAtRank } from "../analyticsStore";
 import { MAX_ACTIVE_ITEMS } from "../buildUtils";
@@ -142,7 +144,22 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   // Both inputs come from the hero and the ALREADY-OWNED build, never from
   // the candidates being chosen: an item's value must not depend on which
   // other items the basket happens to pick, or selection becomes circular.
-  const valuation = { spiritPower: input.spiritPower, boonLevel: input.boonLevel };
+  // One value scale (2026-10-24): every item stat and effect is priced in %
+  // of THIS hero's fight value, through its own weapon, ability kit, health
+  // and move speed (heroDamage.ts, heroFight.ts). Undefined model (no usable
+  // weapon data) = the hero-agnostic valuation.
+  const heroDamage = deriveHeroDamageModel({
+    baseStats: heroBaseStats,
+    abilities: heroAbilities,
+    boonLevel: input.boonLevel,
+    spiritPower: input.spiritPower,
+    accuracy: resolveHeroAccuracy(heroId, gunAccuracyByHeroId),
+  });
+  const valuation = {
+    spiritPower: input.spiritPower,
+    boonLevel: input.boonLevel,
+    ...(heroDamage ? { heroDamage } : {}),
+  };
   const candidates = toItemCandidates(
     allItems.filter((i) => !ownedIds.has(i.id)),
     valuation,
@@ -195,5 +212,59 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     needVector,
     procPlatformFactor,
     hitReliabilityFactor,
+  };
+}
+
+/**
+ * This hero's shot accuracy: its own measured value at the player's rank, else
+ * the roster median (missing data is not zero), else 1 when nothing is known.
+ */
+function resolveHeroAccuracy(
+  heroId: number,
+  accuracyByHeroId: ReadonlyMap<number, number> | undefined,
+): number {
+  const own = accuracyByHeroId?.get(heroId);
+  if (typeof own === "number" && Number.isFinite(own) && own > 0) return Math.min(1, own);
+  const known = [...(accuracyByHeroId?.values() ?? [])]
+    .filter((a) => Number.isFinite(a) && a > 0)
+    .sort((a, b) => a - b);
+  return known.length > 0 ? Math.min(1, known[Math.floor(known.length / 2)]) : 1;
+}
+
+/**
+ * The hero's damage and survival model at this boon level and spirit power, or
+ * undefined when it has no usable weapon data (the valuation then stays
+ * hero-agnostic).
+ */
+export function deriveHeroDamageModel(input: {
+  baseStats: HeroBaseStats;
+  abilities: ReadonlyArray<HeroAbility>;
+  boonLevel: number;
+  spiritPower: number;
+  accuracy: number;
+}): HeroDamageModel | undefined {
+  const { baseStats } = input;
+  const atBoon = calculateStatsAtBoon(baseStats, input.boonLevel);
+  const perShot = atBoon.bulletDamage;
+  const rate = baseStats.bulletsPerSecond;
+  const clip = baseStats.ammo;
+  const reload = baseStats.reloadTime;
+  if (!(perShot > 0 && rate > 0 && clip > 0 && reload >= 0)) return undefined;
+  // The API's with-reload DPS includes a small per-clip delay beyond
+  // clip / rate + reload (~0.25 s, data-verifier 2026-10-20). Recover it from
+  // the BASE stats so the model reproduces the API's own sustained DPS.
+  const baseCycle =
+    baseStats.dpsWithReload > 0 ? (clip * baseStats.bulletDamage) / baseStats.dpsWithReload : 0;
+  const overhead = baseCycle > 0 ? Math.max(0, baseCycle - clip / rate - reload) : 0;
+  return {
+    gun: { perShot, shotsPerSecond: rate, clip, reload, overhead },
+    accuracy: input.accuracy,
+    abilities: input.abilities.map((a) => ({
+      baseDamage: a.baseDamage,
+      spiritScaling: a.spiritScaling,
+      cooldown: a.cooldown,
+    })),
+    spiritPower: input.spiritPower,
+    survival: { maxHealth: atBoon.maxHealth, moveSpeed: baseStats.moveSpeed },
   };
 }

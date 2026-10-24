@@ -1349,6 +1349,59 @@ her largest): Extra Spirit is worth 7.4, Monster Rounds 21.1 (18 of it economy),
 Rite 19.6. Do not re-sweep caps or curves; put every category on one value scale first
 (item scoring review).
 
+## One value scale (heroDamage.ts, heroFight.ts)
+
+Every item stat and effect estimate is priced in one unit: **% of this hero's fight value
+in a trade** (a 10 s fight). It replaced a heuristic sum of raw stat numbers × weight
+classes, which was the root cause behind every failed coverage-model attempt (see the
+section above): damage was already "% of DPS", but sustain, mobility, utility and economy
+were raw sums several times larger per soul, and the need vector cannot fix a unit
+mismatch. Below a category's target the need cancels out (target = need × constant, gain =
+raw value), so it only ever set where the curve bends.
+
+- **Damage** (`heroDamage.ts`): gun stats through the hero's own weapon (sustained DPS
+  over clip + reload, × rank accuracy); spirit power through the hero's own ability
+  coefficients. `castsPerTrade(cooldown)`: a short cooldown counts up to 2 casts, a long
+  one once × min(1, 30 s ÷ cooldown). It is shared by abilities and item actives.
+  Per-cooldown averaging made casters look like gun heroes (Lady Geist's kit ≈ 8 DPS),
+  and Wraith's Card Trick (a 0.6 s minimum between throws; its cards come from landing
+  bullets) counted 75 DPS.
+- **Everything else** (`heroFight.ts`): +1% effective HP is worth +1% DPS, because a 1v1
+  is won on DPS × effective HP. Health is % of max HP; resist is the effective-HP gain
+  against a 50/50 bullet/spirit mix; a barrier is raw HP (absorbed after resist); healing
+  is HP over the trade; CC is the share of the trade the enemy can't fight. Mobility,
+  utility and economy have no identity and use named exchange rates (`FARM_TO_FIGHT`,
+  `MOBILITY_PER_SPEED_PERCENT`, ...). Each effect estimate carries a `unit` + `quantity`
+  (`effectEstimator.ts`) and converts in `estimateFightValue`. Engine fixture 21l fails if
+  a new non-damage estimate lands without a conversion.
+- **Coverage curve:** `saturate(c, T) = T(1 − e^(−c/T))` replaces `min(T, c)`. With
+  hero-relative values a gun hero's first gun items hit the clamp, and further gun was
+  worth 0 (Haze bought 0% gun mid-game). The target per slot went from 50 to 75 (best of a
+  0.5–3× sweep).
+- **Always-on vs conditional:** a stat on an item with a cooldown or a timed effect is that
+  effect's buff (× 0.4) unless the API lists it in the item's INNATE tooltip section
+  (`Item.innateStats`, parsed in `itemNormalizer.ts`; 136 of 156 shop items have one).
+  Burst Fire's +10% fire rate is innate; its on-hit burst is not. A section with no
+  `section_type` (common in live data) is NOT innate.
+
+**Bugs found on the way** (data-verifier 2026-10-24, live item text):
+
+| Item / key                                                                                      | Was                      | Now                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OutgoingDamagePenaltyPercent`                                                                  | always an enemy debuff   | Golden Goose Egg / Cursed Relic: the buyer's own drawback (negative damage). Inhibitor / Haunting Shot (carry `DebuffDuration`): enemy debuff. The sign alone cannot tell them apart |
+| `HeadShotBonusDamage` (Headshot Booster, Headhunter)                                            | +45% weapon damage × 0.4 | flat damage on the next headshot, once per cooldown                                                                                                                                  |
+| Melee Lifesteal `LifestrikeHeal`                                                                | every melee hit          | once per cooldown ("your next melee attack heals")                                                                                                                                   |
+| Stalker `DPS`                                                                                   | 83% uptime               | close-range proc, conditional                                                                                                                                                        |
+| Tesla Bullets / Capacitor chains                                                                | every jump hits a hero   | the hit target + 0.4 per further jump (whether `ChainCount` includes the hit target is unpublished)                                                                                  |
+| Kinetic Dash `BonusFireRate`                                                                    | permanent                | timed (lasts 7 s after a dash)                                                                                                                                                       |
+| Golden Goose Egg `BonusGoldPerMinute`                                                           | unmapped                 | souls per minute                                                                                                                                                                     |
+| `DegenResistance`, `MoveSpeed`, `BulletLifesteal`, `TechLifesteal`, `BonusWeaponPowerNonPlayer` | mapped                   | removed: no shop item carries them                                                                                                                                                   |
+
+Alone, the value scale does not meet the phase gate (live, 2026-10-24: M1 12/24). With
+correct values, a hero's strongest category wins every early pick (Haze opened 86% gun).
+The value scale decides WHICH items; "Spend like real players" (below) decides how much
+of each shop.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical

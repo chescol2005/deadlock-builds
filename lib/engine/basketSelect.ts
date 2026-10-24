@@ -82,11 +82,14 @@ import { SCORE_CATEGORIES } from "./types";
  * `categoryValues` regardless of this number — it only decides how many of them
  * the basket wants before it starts looking at other categories.
  *
- * 50 is chosen so a mid-tier item (roughly 20–40 in its main category) takes
- * about two items to satisfy one slot's worth of a category's share, which
- * keeps a 12-slot basket from collapsing onto a single category.
+ * 50 was chosen so a mid-tier item (roughly 20–40 in its main category) takes
+ * about two items to satisfy one slot's worth of a category's share. Raised to
+ * 75 with the value scale (2026-10-24): item values are now % of the hero's
+ * fight value (heroDamage.ts / heroFight.ts), and 1.5x was the best of a
+ * 0.5–3x sweep against the measured phase expectations (M1–M3) with the
+ * exponential curve below.
  */
-const DEFAULT_COVERAGE_TARGET_PER_SLOT = 50;
+const DEFAULT_COVERAGE_TARGET_PER_SLOT = 75;
 
 /**
  * Hard ceiling on `categoryBonusTerm`, as a fraction of one slot's coverage
@@ -472,16 +475,23 @@ export function blockedByComponents(
 /**
  * The core term: coverage gain with DIMINISHING RETURNS.
  *
- *   gain = Σ_cat [ min(target, covered + itemValue) − min(target, covered) ]
+ *   gain = Σ_cat [ U(covered + itemValue) − U(covered) ],  U(c) = T(1 − e^(−c/T))
  *
- * The `min` clamp is what makes this work. Once a category's cumulative
- * coverage reaches its target, additional items in that category contribute
- * nothing — the 3rd spirit-power item stops paying off — so the greedy loop is
- * pushed to spread across categories and cover a multi-category hero need.
+ * `U` saturates toward the category's target T: each further unit is worth a
+ * little less, so the 3rd spirit-power item pays off less than the 1st and the
+ * greedy loop spreads across categories. It replaced a hard `min(T, c)` clamp
+ * (2026-10-24): with hero-relative values a gun hero's first gun items hit the
+ * clamp and further gun was worth exactly 0 (Haze bought 0% gun mid-game).
+ * See "One value scale" in engine-design-notes.md.
  *
- * That clamp also makes total coverage a submodular set function, which is what
- * gives greedy its (1 − 1/e) approximation guarantee.
+ * U is concave and increasing, so total coverage stays a submodular set
+ * function and greedy keeps its (1 − 1/e) approximation guarantee.
  */
+export function saturate(covered: number, target: number): number {
+  if (!(target > 0)) return 0;
+  return target * (1 - Math.exp(-Math.max(0, covered) / target));
+}
+
 /**
  * Shared clamped-coverage-gain computation.
  *
@@ -515,8 +525,8 @@ function computeCoverageGain(
     const target = Number.isFinite(ctx.target[cat]) ? ctx.target[cat] : 0;
     const covered = Number.isFinite(state.coverage[cat]) ? state.coverage[cat] : 0;
 
-    const before = Math.min(target, covered);
-    const after = Math.min(target, Math.max(0, covered - consumedValue) + itemValue);
+    const before = saturate(covered, target);
+    const after = saturate(Math.max(0, covered - consumedValue) + itemValue, target);
     const catGain = after - before;
 
     // A consumed component can make a category's gain negative; it still
