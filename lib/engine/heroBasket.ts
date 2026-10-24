@@ -203,6 +203,10 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     pairLift: input.pairLift,
     ownedCandidates,
     categorySplit: mode === "need-only" ? undefined : split,
+    phase: phaseForSouls(input.souls),
+    // Spend each shop's measured phase share (shop budgets); the split term's
+    // nudge is inert then. The ablation modes keep the old nudge.
+    spendByShop: mode === "both",
   });
 
   return {

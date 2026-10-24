@@ -241,7 +241,14 @@ async function main(): Promise<void> {
       }
       const effective = effectiveCost(candidate, startHeld);
       // Same ranking as the loop: value per unit of the binding resource.
-      const score = value / rankingPrice(effective.cost, ctx.soulBudget, ctx.maxItems);
+      const score =
+        value /
+        rankingPrice(
+          effective.cost,
+          ctx.soulBudget,
+          ctx.maxItems,
+          ctx.phase === "early" ? ctx.soulBudget : undefined,
+        );
       return { candidate, value, terms, effective, score };
     })
     .sort((a, b) => {

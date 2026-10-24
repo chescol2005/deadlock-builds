@@ -1425,6 +1425,36 @@ correct values, a hero's strongest category wins every early pick (Haze opened 8
 The value scale decides WHICH items; "Spend like real players" (below) decides how much
 of each shop.
 
+## Spend like real players (shop budgets, laning tempo, buy order)
+
+With one value scale, a hero's strongest category wins every pick, and real builds are a
+mix. `categorySplitTerm` only nudged toward the measured shop split. Five attempts to get
+the mix through the coverage caps traded one failure for another (see the sections
+above), so the mix is now spent directly:
+
+- **Shop budgets** (`BasketContext.shopBudgets`, set when `runHeroBasket` passes
+  `spendByShop`): each shop may take its measured phase share × the basket's souls ×
+  1.15 (`SHOP_BUDGET_SLACK`, best of 0 / 15 / 30%). The greedy loop first considers only
+  items their shop can still pay for. When no shop has room for a useful pick, the
+  leftover souls become one shared pool (second pass), so a phase still spends its
+  budget (L5). `categorySplitTerm` is inert when budgets are set, since the budgets
+  already spend the split. The probe's `--split-need-only` / `--split-term-only`
+  ablations keep the old nudge.
+- **Laning tempo** (`rankingPrice`, `LANING_TEMPO` = 1, `ctx.phase === "early"` only).
+  Souls saved toward an item give nothing until it is bought, which is when a laner is
+  punished. A 3,200 item at 5,900 souls needs ~54% more value per soul than at no tempo.
+  Real Oracle+ early purchases put 3–9% of souls into 3,200+ items for most heroes. The
+  exceptions are deliberate rushes: Seven's Cultist Sacrifice 26%, Lady Geist's Radiant
+  Regeneration 36%. Applied in every phase, tempo also penalised normal late-game 6,400
+  buys and broke late fidelity, so it is laning only.
+- **Buy order** (`StarterPhase.buyOrder`): each phase's picks cheapest first by souls
+  paid, components before the upgrade that consumes them. It changes display order only,
+  never which items are picked.
+
+Live, with the value scale (2026-10-24): M1 23/24 (the four accepted regressions all
+come back), mean L1 to real play 0.146 (`main` 0.336). Which items fill each shop is the
+next section's job.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical

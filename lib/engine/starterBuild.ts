@@ -51,6 +51,13 @@ export interface StarterPhase {
   souls: number;
   /** Items this phase adds, in pick order. */
   items: ReadonlyArray<Item>;
+  /**
+   * The same items in the order to BUY them: cheapest first (by the souls
+   * actually paid), so the player gets power in lane sooner instead of saving
+   * through a weak window; an upgrade always comes after a component it
+   * consumes from this phase. Ties keep pick order.
+   */
+  buyOrder: ReadonlyArray<Item>;
   /** Earlier items this phase's upgrades consumed (they leave the build). */
   consumed: ReadonlyArray<Item>;
   /** The basket run behind this phase: per-pick reasons, coverage, stop reason. */
@@ -60,6 +67,28 @@ export interface StarterPhase {
 export interface StarterBuild {
   ownedItems: ReadonlyArray<Item>;
   phases: ReadonlyArray<StarterPhase>;
+}
+
+/** See StarterPhase.buyOrder. Pure; picks and items are parallel arrays. */
+export function buyOrder(
+  picks: ReadonlyArray<{ effectiveCost: number; consumes: ReadonlyArray<string> }>,
+  items: ReadonlyArray<Item>,
+): Item[] {
+  const idx = picks.map((_, i) => i);
+  idx.sort((a, b) => picks[a].effectiveCost - picks[b].effectiveCost || a - b);
+  const out: number[] = [];
+  const placed = new Set<string>();
+  const inPhase = new Set(items.map((i) => i.id));
+  // Repeatedly take the cheapest pick whose in-phase components are placed.
+  while (out.length < idx.length) {
+    const next = idx.find(
+      (i) => !out.includes(i) && picks[i].consumes.every((c) => !inPhase.has(c) || placed.has(c)),
+    );
+    const take = next ?? idx.find((i) => !out.includes(i)) ?? 0;
+    out.push(take);
+    placed.add(items[take].id);
+  }
+  return out.map((i) => items[i]);
 }
 
 /** Spirit power from the hero's base at this boon plus every owned item. */
@@ -103,7 +132,15 @@ export function buildStarterBuild(input: StarterBuildInputs): StarterBuild | nul
     // the same), so those leave the build before the next phase.
     const consumedIds = new Set(run.basket.picks.flatMap((p) => [...p.consumes]));
     const consumed = owned.filter((i) => consumedIds.has(i.id));
-    phases.push({ phase, boonLevel, souls, items, consumed, basket: run.basket });
+    phases.push({
+      phase,
+      boonLevel,
+      souls,
+      items,
+      buyOrder: buyOrder(run.basket.picks, items),
+      consumed,
+      basket: run.basket,
+    });
     owned = [...owned.filter((i) => !consumedIds.has(i.id)), ...items];
   }
 

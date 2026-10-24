@@ -26,6 +26,8 @@ import {
   pairTerm,
   rankingPrice,
   saturate,
+  LANING_TEMPO,
+  SHOP_BUDGET_SLACK,
   procPlatformTerm,
   SYNERGY_MAX_FRACTION,
   synergyTerm,
@@ -74,6 +76,7 @@ import type {
 import { findSynergyRules, SYNERGY_RULES } from "../synergy";
 import { ANTI_SYNERGY_RULES } from "../../scoring/antiSynergy";
 import { estimateEffectValues } from "../effectEstimator";
+import { buyOrder } from "../starterBuild";
 import {
   abilityDps,
   castsPerTrade,
@@ -4019,6 +4022,124 @@ console.log("\n21. One value scale (hero-relative damage and fight value)");
       noKit === undefined,
     "deriveHeroDamageModel: unknown health = no survival model (heuristic kept); no damaging ability = no model",
     JSON.stringify({ survival: known?.survival, noHealth: noHealth?.survival, noKit }),
+  );
+}
+
+console.log("\n22. Spend like real players (shop budgets, laning tempo, buy order)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+  // a. Laning tempo: in the laning phase an item's ranking price grows by its
+  //    share of the phase's souls; without laning souls nothing changes.
+  assert(
+    near(rankingPrice(3200, 5900, 12, 5900), 3200 * (1 + LANING_TEMPO * (3200 / 5900))) &&
+      near(rankingPrice(800, 5900, 12, 5900), 800 * (1 + LANING_TEMPO * (800 / 5900))) &&
+      rankingPrice(3200, 5900, 12) === 3200 &&
+      rankingPrice(3200, 5900, 12, 5900) / 3200 > rankingPrice(800, 5900, 12, 5900) / 800,
+    "rankingPrice: laning tempo charges a big share of the phase's souls more per soul",
+  );
+
+  // b. Shop budgets: each shop may take its measured share x (1 + slack); the
+  //    split term's nudge is inert then (the budgets already spend the split).
+  const need = { ...zeroValues(), gunDamage: 1, spiritDamage: 1 };
+  const split = { gun: 0.25, spirit: 0.65, vitality: 0.1, scope: "test players" };
+  const budgetCtx = makeBasketContext({
+    needVector: need,
+    soulBudget: 4000,
+    maxItems: 6,
+    categorySplit: split,
+    spendByShop: true,
+  });
+  const nudgeCtx = makeBasketContext({
+    needVector: need,
+    soulBudget: 4000,
+    maxItems: 6,
+    categorySplit: split,
+  });
+  const bigGun = mkCandidate("big_gun", 9201, "gun", 1600, { gunDamage: 60 });
+  const smallGun = mkCandidate("small_gun", 9202, "gun", 800, { gunDamage: 20 });
+  const spiritA = mkCandidate("spirit_a", 9203, "spirit", 800, { spiritDamage: 12 });
+  const spiritB = mkCandidate("spirit_b", 9204, "spirit", 800, { spiritDamage: 11 });
+  const spiritC = mkCandidate("spirit_c", 9205, "spirit", 800, { spiritDamage: 10 });
+  const gunBudget = 4000 * 0.25 * (1 + SHOP_BUDGET_SLACK);
+  assert(
+    budgetCtx.shopBudgets !== undefined &&
+      near(budgetCtx.shopBudgets.gun, gunBudget) &&
+      nudgeCtx.shopBudgets === undefined &&
+      categorySplitTerm.evaluate(spiritA, initialBasketState(budgetCtx), budgetCtx) === null,
+    "makeBasketContext: spendByShop sets shop budgets (split x budget x 1.15) and silences the split nudge",
+    JSON.stringify(budgetCtx.shopBudgets),
+  );
+
+  // c. While another shop can still pay, a shop never exceeds its budget: the
+  //    1,600 gun item is the best value but the gun shop holds 1,150 souls, and
+  //    the spirit shop (2,990) pays for all three spirit items.
+  const budgeted = constructBasket([bigGun, smallGun, spiritA, spiritB, spiritC], budgetCtx);
+  const gunSouls = budgeted.picks
+    .filter((p) => p.item.category === "gun")
+    .reduce((s, p) => s + p.effectiveCost, 0);
+  assert(
+    !budgeted.picks.some((p) => p.item.itemId === "big_gun") &&
+      gunSouls <= gunBudget &&
+      budgeted.picks.length === 4,
+    "constructBasket: a shop stays within its budget while other shops can still pay",
+    budgeted.picks.map((p) => p.item.itemId).join(", "),
+  );
+
+  // d. Leftover souls are one shared pool: with only gun items on offer, the
+  //    basket still spends past the gun shop's budget instead of stopping.
+  const pooled = constructBasket([bigGun, smallGun], budgetCtx);
+  assert(
+    pooled.picks.length === 2 && pooled.totalCost === 2400,
+    "constructBasket: when no shop has room for a useful pick, the leftover souls are pooled",
+    `${pooled.picks.map((p) => p.item.itemId).join(", ")} = ${pooled.totalCost}`,
+  );
+
+  // e. Tempo applies only when the context is in the laning phase: the same
+  //    candidates, priced per soul, rank the big item lower in lane.
+  const tempoNeed = { ...zeroValues(), gunDamage: 1 };
+  const big = mkCandidate("big", 9211, "gun", 3200, { gunDamage: 44 });
+  const small = mkCandidate("small", 9212, "gun", 800, { gunDamage: 10 });
+  // Coverage only, 12 slots (souls bind, not slots): mid ranks by value per
+  // soul (44 / 3,200 > 10 / 800), lane adds the tempo premium.
+  const ctxFor = (phase?: "early" | "mid") =>
+    makeBasketContext({ needVector: tempoNeed, soulBudget: 4000, maxItems: 12, phase });
+  const first = (phase: "early" | "mid") =>
+    constructBasket([big, small], ctxFor(phase), [coverageTerm]).picks[0]?.item.itemId;
+  const laneFirst = first("early");
+  const midFirst = first("mid");
+  assert(
+    laneFirst === "small" && midFirst === "big",
+    "constructBasket: laning tempo prefers the cheap item in lane, not after it",
+    `lane ${laneFirst}, mid ${midFirst}`,
+  );
+
+  // f. Buy order: cheapest first by souls paid; an upgrade always after a
+  //    component it consumes from the same phase, even when it costs less.
+  const item = (id: string, cost: number): Item => ({
+    id,
+    numericId: cost,
+    name: id,
+    category: "gun",
+    tier: 1,
+    cost,
+    tags: [],
+    stats: {},
+    statScaling: {},
+  });
+  const order = buyOrder(
+    [
+      { effectiveCost: 3200, consumes: [] },
+      { effectiveCost: 800, consumes: [] },
+      { effectiveCost: 500, consumes: ["comp"] },
+      { effectiveCost: 800, consumes: [] },
+    ],
+    [item("big", 3200), item("cheap", 800), item("upg", 1300), item("comp", 800)],
+  ).map((i) => i.id);
+  assert(
+    order.join(",") === "cheap,comp,upg,big",
+    "buyOrder: cheapest first, components before the upgrade that consumes them",
+    order.join(","),
   );
 }
 

@@ -234,6 +234,19 @@ export interface BasketContext {
      */
     basis?: string;
   };
+  /**
+   * Game phase of this basket (categorySplit.phaseForSouls), set by the hero
+   * pipeline. Tempo pricing applies in the laning phase ("early") only.
+   * Omitted = no tempo.
+   */
+  phase?: "early" | "mid" | "late";
+  /**
+   * Souls each shop may take in this basket: the measured phase split × the
+   * basket's budget × (1 + SHOP_BUDGET_SLACK). Set only when the caller asks
+   * to spend by shop (makeBasketContext `spendByShop`) and a split is known;
+   * omitted = one shared budget.
+   */
+  shopBudgets?: Readonly<Record<ItemCategory, number>>;
 }
 
 /**

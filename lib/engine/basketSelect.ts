@@ -92,6 +92,24 @@ import { SCORE_CATEGORIES } from "./types";
 const DEFAULT_COVERAGE_TARGET_PER_SLOT = 75;
 
 /**
+ * Slack on each shop's budget (BasketContext.shopBudgets): a shop may take its
+ * measured share of the phase's souls plus 15%, so an item a little over the
+ * line (a 3,200 item against a 3,000 budget) is not blocked. 15% was the best
+ * of 0 / 15 / 30% against M1–M3 (2026-10-21).
+ */
+export const SHOP_BUDGET_SLACK = 0.15;
+
+/**
+ * Laning tempo (rankingPrice): souls saved toward an item give nothing until it
+ * is bought, and that window is when a laner gets punished. In the laning phase
+ * an item's ranking price grows by its share of the phase's souls × this
+ * factor: a 3,200 item at 5,900 souls needs ~54% more value per soul than an
+ * 800 item. Laning only: in later phases saving for 6,400 items is normal and
+ * the factor broke late-game fidelity (2026-10-24 sweep).
+ */
+export const LANING_TEMPO = 1;
+
+/**
  * Hard ceiling on `categoryBonusTerm`, as a fraction of one slot's coverage
  * scale. The category bonus is a deliberate COUNTERWEIGHT to coverage
  * (concentrate souls vs. spread them) — at 15% of a slot it can reorder two
@@ -311,6 +329,13 @@ export function makeBasketContext(opts: {
   ownedCandidates?: ReadonlyArray<ItemCandidate>;
   /** Measured shop-category split for this hero; omitted => categorySplitTerm inert. */
   categorySplit?: CategoryShares & { scope: string; basis?: string };
+  /** See BasketContext.phase. Omitted => no tempo pricing. */
+  phase?: BasketContext["phase"];
+  /**
+   * Spend each shop's measured share of the budget (BasketContext.shopBudgets)
+   * instead of nudging toward it with categorySplitTerm. Needs categorySplit.
+   */
+  spendByShop?: boolean;
 }): BasketContext {
   const maxItemsRaw = opts.maxItems;
   const maxItems =
@@ -383,6 +408,15 @@ export function makeBasketContext(opts: {
             vitality: opts.categorySplit.vitality,
             scope: opts.categorySplit.scope,
             basis: opts.categorySplit.basis,
+          }
+        : undefined,
+    phase: opts.phase,
+    shopBudgets:
+      opts.spendByShop && opts.categorySplit && flooredShares(opts.categorySplit)
+        ? {
+            gun: soulBudget * opts.categorySplit.gun * (1 + SHOP_BUDGET_SLACK),
+            spirit: soulBudget * opts.categorySplit.spirit * (1 + SHOP_BUDGET_SLACK),
+            vitality: soulBudget * opts.categorySplit.vitality * (1 + SHOP_BUDGET_SLACK),
           }
         : undefined,
   };
@@ -1070,6 +1104,8 @@ export const categorySplitTerm: MarginalTermFn = {
   evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
     const split = ctx.categorySplit;
     if (!split) return null;
+    // Shop budgets already spend the measured split; the nudge would double it.
+    if (ctx.shopBudgets) return null;
     const scale = coverageScalePerSlot(ctx);
     if (scale <= 0) return null;
     const paid = effectiveCost(candidate, heldOf(state)).cost;
@@ -1119,9 +1155,19 @@ export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
  * ranking becomes value per slot and strong tier-4 items still win. An upgrade's
  * lower effective cost counts in its favour. Never below 1 (no division by 0).
  */
-export function rankingPrice(effectiveCost: number, budgetLeft: number, slotsLeft: number): number {
+export function rankingPrice(
+  effectiveCost: number,
+  budgetLeft: number,
+  slotsLeft: number,
+  laningSouls?: number,
+): number {
   const perSlot = Math.max(0, budgetLeft) / Math.max(1, slotsLeft);
-  return Math.max(1, effectiveCost, perSlot);
+  // Laning tempo (LANING_TEMPO): pass the phase's souls in the laning phase.
+  const tempo =
+    laningSouls !== undefined && laningSouls > 0
+      ? 1 + LANING_TEMPO * (Math.max(0, effectiveCost) / laningSouls)
+      : 1;
+  return Math.max(1, effectiveCost * tempo, perSlot);
 }
 
 /**
@@ -1236,6 +1282,10 @@ export function constructBasket(
 
   let stopReason: BasketResult["stopReason"] = "budget";
 
+  // Souls each shop has paid in this basket (BasketContext.shopBudgets).
+  const shopSpent: Record<ItemCategory, number> = { gun: 0, spirit: 0, vitality: 0 };
+  const laningSouls = ctx.phase === "early" ? ctx.soulBudget : undefined;
+
   for (;;) {
     const budgetLeft = ctx.soulBudget - spent;
 
@@ -1258,39 +1308,52 @@ export function constructBasket(
     let sawAffordable = false;
     let sawOverBudget = false;
 
-    for (let i = 0; i < remaining.length; i += 1) {
-      const candidate = remaining[i];
-      if (blockedByComponents(candidate, state, closures)) continue;
+    // With shop budgets, first look only at items their shop can still pay
+    // for; when no shop has room for a useful pick, the souls left over are
+    // one shared pool (second pass), so a phase still spends its budget.
+    const passes = ctx.shopBudgets ? [ctx.shopBudgets, null] : [null];
+    for (const shopBudgets of passes) {
+      if (shopBudgets === null && bestIndex !== -1 && bestValue > 0) break;
+      for (let i = 0; i < remaining.length; i += 1) {
+        const candidate = remaining[i];
+        if (blockedByComponents(candidate, state, closures)) continue;
 
-      const eff = effectiveCost(candidate, held);
-      if (eff.cost > budgetLeft) {
-        sawOverBudget = true;
-        continue;
-      }
-      if (slotsLeft - 1 + eff.consumes.length < 0) continue;
-      sawAffordable = true;
+        const eff = effectiveCost(candidate, held);
+        if (eff.cost > budgetLeft) {
+          sawOverBudget = true;
+          continue;
+        }
+        if (slotsLeft - 1 + eff.consumes.length < 0) continue;
+        if (
+          shopBudgets &&
+          shopSpent[candidate.category] + eff.cost > shopBudgets[candidate.category]
+        ) {
+          continue;
+        }
+        sawAffordable = true;
 
-      const candidateTerms: MarginalTerm[] = [];
-      let value = 0;
+        const candidateTerms: MarginalTerm[] = [];
+        let value = 0;
 
-      for (const term of terms) {
-        const result = term.evaluate(candidate, state, ctx);
-        if (result === null) continue;
-        if (!Number.isFinite(result.value)) continue;
-        candidateTerms.push(result);
-        value += result.value;
-      }
+        for (const term of terms) {
+          const result = term.evaluate(candidate, state, ctx);
+          if (result === null) continue;
+          if (!Number.isFinite(result.value)) continue;
+          candidateTerms.push(result);
+          value += result.value;
+        }
 
-      // Rank by value per unit of the BINDING resource, not raw value (see
-      // rankingPrice). Raw value let a 3,200-soul all-rounder beat an 800-soul
-      // item that was just as efficient, so every hero opened the same way.
-      const score = value / rankingPrice(eff.cost, budgetLeft, slotsLeft);
-      if (bestIndex === -1 || outranks(candidate, score, remaining[bestIndex], bestScore)) {
-        bestIndex = i;
-        bestValue = value;
-        bestScore = score;
-        bestTerms = candidateTerms;
-        bestCost = eff;
+        // Rank by value per unit of the BINDING resource, not raw value (see
+        // rankingPrice). Raw value let a 3,200-soul all-rounder beat an 800-soul
+        // item that was just as efficient, so every hero opened the same way.
+        const score = value / rankingPrice(eff.cost, budgetLeft, slotsLeft, laningSouls);
+        if (bestIndex === -1 || outranks(candidate, score, remaining[bestIndex], bestScore)) {
+          bestIndex = i;
+          bestValue = value;
+          bestScore = score;
+          bestTerms = candidateTerms;
+          bestCost = eff;
+        }
       }
     }
 
@@ -1330,6 +1393,7 @@ export function constructBasket(
     coverage = nextCoverage;
     soulsPerCategory = nextSouls;
     spent += bestCost.cost;
+    shopSpent[chosen.category] += bestCost.cost;
     slotsLeft += bestCost.consumes.length - 1;
     held = [...held.filter((h) => !consumedIds.has(h.itemId)), chosen];
 
