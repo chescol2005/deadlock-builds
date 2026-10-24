@@ -17,6 +17,17 @@
 //   shopable items at time of writing); widening this table as more keys get
 //   verified is expected and safe.
 
+import {
+  castsPerTrade,
+  TRADE_SECONDS,
+  damageValues,
+  HERO_RELATIVE_GUN_KEYS,
+  HERO_RELATIVE_SPIRIT_KEYS,
+  heroDps,
+  sustainedGunDps,
+} from "./heroDamage";
+import type { HeroDamageModel } from "./heroDamage";
+import { estimateFightValue, fightValues, HERO_FIGHT_KEYS, shredValue } from "./heroFight";
 import type { Item, ItemStats } from "../items";
 import { estimateEffectValues } from "./effectEstimator";
 import type { ItemCandidate, ScoreCategory } from "./types";
@@ -144,7 +155,6 @@ const STAT_KEY_TO_SCORE: Readonly<Record<string, StatMapping>> = {
   // the highest value-per-soul in the catalogue by a wide margin.
   StatusResistancePercent: { category: "resist", weight: WEIGHT_CONDITIONAL },
   MeleeResistPercent: { category: "resist", weight: WEIGHT_CONDITIONAL },
-  DegenResistance: { category: "resist", weight: WEIGHT_CONDITIONAL },
   SlowResistancePercent: { category: "resist", weight: WEIGHT_CONDITIONAL },
   InnateStatusResistancePercent: { category: "resist", weight: WEIGHT_CONDITIONAL },
   // Deflection returns/negates a share of incoming damage — a genuine
@@ -157,8 +167,6 @@ const STAT_KEY_TO_SCORE: Readonly<Record<string, StatMapping>> = {
   // ── sustain ──
   BonusHealthRegen: { category: "sustain", weight: WEIGHT_TINY_FLAT }, // flat regen/sec — CLAUDE.md; ones-scale
   OutOfCombatHealthRegen: { category: "sustain", weight: WEIGHT_TINY_FLAT }, // CLAUDE.md; ones-scale
-  BulletLifesteal: { category: "sustain", weight: WEIGHT_BASELINE }, // lib/statLabels.ts
-  TechLifesteal: { category: "sustain", weight: WEIGHT_BASELINE }, // lib/statLabels.ts
   BulletLifestealPercent: { category: "sustain", weight: WEIGHT_BASELINE }, // lib/statLabels.ts
   AbilityLifestealPercentHero: { category: "sustain", weight: WEIGHT_BASELINE }, // lib/statLabels.ts
   ImbueAbilityLifesteal: { category: "sustain", weight: WEIGHT_BASELINE }, // found unmapped on Mystic Reverb during the scrub
@@ -166,7 +174,6 @@ const STAT_KEY_TO_SCORE: Readonly<Record<string, StatMapping>> = {
   HealPercentAmount: { category: "sustain", weight: WEIGHT_BASELINE }, // Rescue Beam's channelled heal
 
   // ── mobility ──
-  MoveSpeed: { category: "mobility", weight: WEIGHT_TINY_FLAT }, // flat m/s bonus — low single digits
   BonusMoveSpeed: { category: "mobility", weight: WEIGHT_TINY_FLAT }, // lib/statLabels.ts
   ActiveBonusMoveSpeed: { category: "mobility", weight: WEIGHT_TINY_FLAT }, // lib/statLabels.ts
   BonusSprintSpeed: { category: "mobility", weight: WEIGHT_TINY_FLAT }, // lib/statLabels.ts
@@ -230,7 +237,6 @@ const STAT_KEY_TO_SCORE: Readonly<Record<string, StatMapping>> = {
   // catalogue — which overstates a pure farming item.
   NonPlayerBonusWeaponPower: { category: "economy", weight: WEIGHT_CONDITIONAL },
   NonPlayerBulletResist: { category: "economy", weight: WEIGHT_CONDITIONAL },
-  BonusWeaponPowerNonPlayer: { category: "economy", weight: WEIGHT_CONDITIONAL },
   WeaponPowerPerStackNonHero: { category: "economy", weight: WEIGHT_CONDITIONAL },
 };
 
@@ -276,6 +282,13 @@ export type ItemValuationContext = {
   techRange?: number;
   healingOutput?: number;
   channelDuration?: number;
+  /**
+   * This hero's damage model (coverage-model PR 3). When present, damage stats
+   * and damage estimates are valued as % of THIS hero's total DPS
+   * (lib/engine/heroDamage.ts) instead of the hero-agnostic weight table.
+   * Omitted (no hero): the hero-agnostic valuation, unchanged.
+   */
+  heroDamage?: HeroDamageModel;
 };
 
 /**
@@ -390,8 +403,126 @@ function deriveHitShare(stats: ItemStats, flag: "perHit" | "requiresHit"): numbe
   return Math.min(1, perHit / total);
 }
 
-function deriveCategoryValues(stats: ItemStats): Record<ScoreCategory, number> {
+/**
+ * Scales fight value (% of the hero's fight value: damage via heroDamage.ts,
+ * everything else via heroFight.ts) onto the magnitude the coverage targets
+ * use. First calibrated on damage alone: the MEAN damage value over every hero
+ * × item matches the old hero-agnostic valuation (44 heroes × 156 items at
+ * slider 15, 13.92 vs 9.27 at scale 1, 2026-10-20). It is now applied to every
+ * category alike, so the balance BETWEEN categories comes from the fight-value
+ * identities, not from this number; the target per slot (basketSelect.ts) was
+ * re-swept with it. See "One value scale" in engine-design-notes.md.
+ */
+export const HERO_DAMAGE_SCALE = 1.5;
+
+/**
+ * Typical enemy max health, for DoTs that deal % of the TARGET's max health
+ * (Toxic Bullets). Roughly the roster's max health mid-game.
+ */
+export const REFERENCE_ENEMY_HEALTH = 2500;
+
+/** Cast interval assumed for a damaging active with no published cooldown. */
+const DEFAULT_CAST_INTERVAL_S = 20;
+
+/**
+ * An effect estimate's damage, as damage per second for this hero. Null when the
+ * estimate carries no damage unit (it is then valued hero-agnostically).
+ */
+function estimateDps(
+  e: ReturnType<typeof estimateEffectValues>[number],
+  stats: ItemStats,
+  model: HeroDamageModel,
+  dps: { gun: number; ability: number; total: number },
+): number | null {
+  if (!e.unit) return null;
+  const accuracy = Math.max(0, Math.min(1, model.accuracy));
+  const perShot = model.gun.perShot;
+  const landedShotsPerSecond =
+    perShot > 0 ? (sustainedGunDps(model.gun, {}) / perShot) * accuracy : 0;
+  const cooldown =
+    Number.isFinite(stats.AbilityCooldown) && stats.AbilityCooldown > 0 ? stats.AbilityCooldown : 0;
+  switch (e.unit) {
+    case "dps":
+      return e.value;
+    case "weaponPercent":
+      return (e.value / 100) * dps.gun;
+    case "maxHealthPercentPerSecond":
+      return ((e.perSecond ?? 0) / 100) * REFERENCE_ENEMY_HEALTH * accuracy;
+    case "damage":
+      if (e.perHit) return e.value * landedShotsPerSecond;
+      // Same trade model as hero abilities (heroDamage.castsPerTrade).
+      return (
+        ((e.value * castsPerTrade(cooldown > 0 ? cooldown : DEFAULT_CAST_INTERVAL_S)) /
+          TRADE_SECONDS) *
+        (e.requiresHit ? accuracy : 1)
+      );
+    case "spiritPercent":
+      return (e.value / 100) * dps.ability;
+    default:
+      return null;
+  }
+}
+
+function deriveCategoryValues(
+  stats: ItemStats,
+  heroDamage?: HeroDamageModel,
+  innate?: ReadonlySet<string>,
+): Record<ScoreCategory, number> {
   const values = emptyCategoryValues();
+  const dps = heroDamage ? heroDps(heroDamage) : null;
+  const heroMode = heroDamage !== undefined && dps !== null && dps.total > 0;
+
+  if (heroMode && heroDamage && dps) {
+    // One value scale: every stat and estimate in % of this hero's fight value.
+    // Damage through heroDamage.ts; everything else through heroFight.ts when
+    // the model has the hero's health (survival), else the heuristic below.
+    const d = damageValues(stats, heroDamage, innate);
+    values.gunDamage += d.gunDamage * HERO_DAMAGE_SCALE;
+    values.spiritDamage += d.spiritDamage * HERO_DAMAGE_SCALE;
+    const fight = heroDamage.survival
+      ? {
+          maxHealth: heroDamage.survival.maxHealth,
+          moveSpeed: heroDamage.survival.moveSpeed,
+          gunDps: dps.gun,
+          abilityDps: dps.ability,
+        }
+      : null;
+    for (const estimate of estimateEffectValues(stats)) {
+      const perSecond = estimateDps(estimate, stats, heroDamage, dps);
+      if (
+        perSecond === null &&
+        fight &&
+        (estimate.category === "gunShred" || estimate.category === "spiritShred")
+      ) {
+        values[estimate.category] +=
+          shredValue(estimate.category, estimate.value, fight) * HERO_DAMAGE_SCALE;
+        continue;
+      }
+      const fightValue =
+        perSecond === null && fight ? estimateFightValue(estimate, stats, fight) : null;
+      if (fightValue !== null) {
+        values[estimate.category] += fightValue * HERO_DAMAGE_SCALE;
+        continue;
+      }
+      values[estimate.category] +=
+        perSecond === null ? estimate.value : (perSecond / dps.total) * 100 * HERO_DAMAGE_SCALE;
+    }
+    if (fight) {
+      const fv = fightValues(stats, fight, innate);
+      for (const [cat, v] of Object.entries(fv) as Array<[ScoreCategory, number]>) {
+        values[cat] += v * HERO_DAMAGE_SCALE;
+      }
+    }
+    for (const [key, rawValue] of Object.entries(stats)) {
+      if (!Number.isFinite(rawValue)) continue;
+      if (HERO_RELATIVE_GUN_KEYS.has(key) || HERO_RELATIVE_SPIRIT_KEYS.has(key)) continue;
+      if (fight && HERO_FIGHT_KEYS.has(key)) continue;
+      const mapping = STAT_KEY_TO_SCORE[key];
+      if (!mapping) continue;
+      values[mapping.category] += rawValue * mapping.weight;
+    }
+    return values;
+  }
 
   // Effect/proc estimates are layered ON TOP of the measured stats below, and
   // are already discounted by EFFECT_CONFIDENCE inside the estimator so an
@@ -428,15 +559,27 @@ function deriveCategoryValues(stats: ItemStats): Record<ScoreCategory, number> {
  */
 export function toItemCandidate(item: Item, ctx?: ItemValuationContext): ItemCandidate {
   const stats = resolveScaledStats(item, ctx);
+  // Same condition as deriveCategoryValues' hero mode: when the hero deals no
+  // measurable damage the values fall back to hero-agnostic estimates, and the
+  // proc / hit terms must scale them as before.
+  const heroValued = ctx?.heroDamage !== undefined && heroDps(ctx.heroDamage).total > 0;
   return {
     itemId: item.id,
     numericId: item.numericId,
     name: item.name,
     category: item.category,
     cost: item.cost,
-    categoryValues: deriveCategoryValues(stats),
-    procReliance: deriveProcReliance(stats),
-    hitDependence: deriveHitDependence(stats),
+    categoryValues: deriveCategoryValues(
+      stats,
+      ctx?.heroDamage,
+      item.innateStats ? new Set(item.innateStats) : undefined,
+    ),
+    // With a hero damage model, per-hit and per-cooldown values already include
+    // this hero's fire rate and accuracy (estimateDps), so the hero-relative
+    // basket terms must not scale them again: zero reliance makes procPlatformTerm
+    // and hitReliabilityTerm inert for this item.
+    procReliance: heroValued ? 0 : deriveProcReliance(stats),
+    hitDependence: heroValued ? 0 : deriveHitDependence(stats),
     tags: item.tags,
     // Only set when present, so items without components are shaped as before.
     ...(item.componentItems && item.componentItems.length > 0

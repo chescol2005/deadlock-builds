@@ -15,6 +15,9 @@ import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 import { heroCategorySplit } from "@/lib/engine/categorySplit";
 import type { CategorySplitTable } from "@/lib/engine/categorySplit";
 import categorySplitTableJson from "@/lib/engine/data/heroCategorySplit.json";
+import { heroPhaseItems } from "@/lib/engine/phaseItems";
+import type { PhaseItemsTable } from "@/lib/engine/phaseItems";
+import phaseItemsTableJson from "@/lib/engine/data/heroPhaseItems.json";
 
 export default async function BuildHeroPage({
   params,
@@ -83,6 +86,9 @@ export default async function BuildHeroPage({
     categorySplitTableJson as unknown as CategorySplitTable,
     heroIdNum,
   );
+  // What high-rank players on this hero buy per phase (same fitter), sliced the
+  // same way. null when the hero was not fitted (phaseItemTerm inert).
+  const phaseItems = heroPhaseItems(phaseItemsTableJson as unknown as PhaseItemsTable, heroIdNum);
 
   let initialState: BuildState | null = null;
   if (build) {
@@ -108,6 +114,7 @@ export default async function BuildHeroPage({
       rankTiers={rankTiers}
       pairLift={pairLift}
       categorySplit={categorySplit}
+      phaseItems={phaseItems}
     />
   );
 }

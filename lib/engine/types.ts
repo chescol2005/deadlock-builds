@@ -234,6 +234,36 @@ export interface BasketContext {
      */
     basis?: string;
   };
+  /**
+   * Game phase of this basket (categorySplit.phaseForSouls), set by the hero
+   * pipeline. Tempo pricing applies in the laning phase ("early") only.
+   * Omitted = no tempo.
+   */
+  phase?: "early" | "mid" | "late";
+  /**
+   * The laning phase's souls (the player's total souls at this checkpoint),
+   * which laning tempo prices an item's share of. Set with `phase` "early".
+   */
+  laningSouls?: number;
+  /**
+   * Souls each shop may take in this basket: the measured phase split × the
+   * basket's budget × (1 + SHOP_BUDGET_SLACK). Set only when the caller asks
+   * to spend by shop (makeBasketContext `spendByShop`) and a split is known;
+   * omitted = one shared budget.
+   */
+  shopBudgets?: Readonly<Record<ItemCategory, number>>;
+  /**
+   * Share of high-rank matches in which this hero buys each item (Item.id) in
+   * the current phase (heroPhaseItems.json). Drives `phaseItemTerm`; omitted
+   * => inert.
+   */
+  phaseItems?: {
+    rates: Readonly<Record<string, number>>;
+    /** e.g. "Oracle+ players (last 30 days)" — quoted in the reason. */
+    scope: string;
+    /** e.g. "buy it in the first 10 minutes" — quoted in the reason. */
+    basis: string;
+  };
 }
 
 /**
