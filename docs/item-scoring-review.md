@@ -163,7 +163,8 @@ model at the phase checkpoint.
   pass buys gun instead.
 - **Accepted gap.** The profile stays in the old units. The fitter variant is kept out of
   the repo.
-- **Follow-up:** value sustain over more than one trade before refitting.
+- **Follow-up:** value sustain over more than one trade before refitting. **Done:** healing
+  between trades in Milestone G2a, then the refit shipped in G4 (`docs/milestone-g.md` §4).
 
 **C5: measured, not shipped.**
 

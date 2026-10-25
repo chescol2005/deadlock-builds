@@ -1,5 +1,5 @@
 // src/scripts/fitCategorySplit.ts — writes lib/engine/data/heroCategorySplit.json
-// Run: npm run fit-category-split [-- --days 30] [--min-badge 80] [--min 2000] [--dry]
+// Run: npm run fit-category-split [-- --days 30] [--min-badge 80] [--min 2000] [--dry] [--item-units]
 //
 // For every visible hero, measures how high-rank players split their FINAL
 // inventory's item souls across gun / spirit / vitality, from
@@ -34,6 +34,13 @@ import type { CategorySplitTable } from "@/lib/engine/categorySplit";
 import { PHASE_ITEM_MIN_RATE } from "@/lib/engine/phaseItems";
 import type { PhaseItemsTable } from "@/lib/engine/phaseItems";
 import { toItemCandidate } from "@/lib/engine/itemAdapter";
+import type { ItemValuationContext } from "@/lib/engine/itemAdapter";
+import { heroValuationModel, resolveHeroAccuracy, withOwnedGapHeal } from "@/lib/engine/heroBasket";
+import type { GamePhase } from "@/lib/engine/categorySplit";
+import { STARTER_PHASE_BOON_LEVELS } from "@/lib/engine/starterBuild";
+import { calculateStatsAtBoon } from "@/lib/heroStats";
+import { getHeroAccuracy, resolveAccuracyAtRank } from "@/lib/analyticsStore";
+import { loadHeroKit } from "./basketData";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import type { ScoreCategory } from "@/lib/engine/types";
 import type { Item } from "@/lib/items";
@@ -44,10 +51,16 @@ interface Args {
   minBadge: number;
   minMatches: number;
   dry: boolean;
+  /**
+   * Value purchases in this hero's fight value at each phase checkpoint, the
+   * basket's own scale (Milestone G4, the default). `--item-units` restores the
+   * hero-agnostic item values the profile was fitted in before G4.
+   */
+  fightUnits: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { days: 30, minBadge: 80, minMatches: 2000, dry: false };
+  const out: Args = { days: 30, minBadge: 80, minMatches: 2000, dry: false, fightUnits: true };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     const num = () => {
@@ -59,6 +72,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--min-badge") out.minBadge = num();
     else if (a === "--min") out.minMatches = num();
     else if (a === "--dry") out.dry = true;
+    else if (a === "--item-units") out.fightUnits = false;
     else throw new Error(`unknown option ${a}`);
   }
   return out;
@@ -90,20 +104,22 @@ const sortedRates = (rates: Record<string, number>) =>
 const round4 = (x: number) => Math.round(x * 10000) / 10000;
 
 /**
- * Measured STAT profile: Σ weight × the item's category values (unscaled, as
- * lib/engine/itemAdapter scores items), normalized to shares of 1 across all 12
+ * Measured STAT profile: Σ weight × the item's category values (in this hero's
+ * fight value when `valuation` carries a damage model, Milestone G4; else
+ * hero-agnostic item values), normalized to shares of 1 across all 12
  * score categories. This is what the purchases actually covered, so it gives
  * the categories the kit cannot derive (antiHeal, sustain, utility, economy,
  * mobility) a measured per-hero, per-phase weight.
  */
 function statProfile(
   weighted: ReadonlyArray<{ item: Item; weight: number }>,
+  valuation?: ItemValuationContext,
 ): Record<ScoreCategory, number> | undefined {
   const sum = {} as Record<ScoreCategory, number>;
   for (const c of SCORE_CATEGORIES) sum[c] = 0;
   for (const { item, weight } of weighted) {
     if (!(weight > 0)) continue;
-    const values = toItemCandidate(item).categoryValues;
+    const values = toItemCandidate(item, valuation).categoryValues;
     for (const c of SCORE_CATEGORIES) sum[c] += weight * Math.max(0, values[c]);
   }
   const total = SCORE_CATEGORIES.reduce((t, c) => t + sum[c], 0);
@@ -131,6 +147,19 @@ async function main(): Promise<void> {
   const itemByNumericId = new Map(items.map((i) => [i.numericId, i]));
   const heroStats = await getJson<HeroStatsRow[]>("hero-stats", window);
   const matchesByHero = new Map(heroStats.map((r) => [r.hero_id, r.matches]));
+  // --fight-units: shot accuracy at the fitted rank, for each hero's damage model.
+  // Accuracy is the fitted rank's all-time bucket, not the --days window.
+  const accuracyAtRank = args.fightUnits
+    ? resolveAccuracyAtRank(await getHeroAccuracy(), Math.floor(args.minBadge / 10))
+    : undefined;
+  // getHeroAccuracy fails open to an empty map, which would fit every hero at
+  // 100% accuracy: refuse rather than write a gun-inflated table.
+  if (accuracyAtRank && accuracyAtRank.size === 0) {
+    throw new Error(
+      "refusing to fit in fight units: no shot accuracy loaded (--item-units to skip)",
+    );
+  }
+  const itemUnitHeroes: number[] = [];
 
   const table: CategorySplitTable = {
     version: 1,
@@ -145,6 +174,7 @@ async function main(): Promise<void> {
       days: args.days,
       minMatches: args.minMatches,
       measure: "final-inventory item souls: (bought - sold) x cost, per shop category",
+      profileUnits: args.fightUnits ? "fight-value" : "item",
     },
     heroes: {},
   };
@@ -171,6 +201,43 @@ async function main(): Promise<void> {
       continue;
     }
     const rows = await getJson<ItemStatsRow[]>("item-stats", { ...window, hero_ids: hero.id });
+    // --fight-units (Milestone G4): value each phase's purchases in THIS hero's
+    // fight value at the phase checkpoint (starter-build boon level, base
+    // spirit power, kit heal, nothing owned), the same scale the basket uses.
+    // Accepted simplifications (G4 review): base spirit power with nothing owned,
+    // and every purchase in a window valued at that window's end checkpoint.
+    let kit: Awaited<ReturnType<typeof loadHeroKit>> = null;
+    if (args.fightUnits) {
+      try {
+        kit = await loadHeroKit(hero);
+      } catch (err) {
+        console.warn(`  WARN ${hero.name}: kit fetch failed (${String(err)})`);
+      }
+    }
+    const valuationAt = (phase: GamePhase): ItemValuationContext | undefined => {
+      if (!kit) return undefined;
+      const boonLevel = STARTER_PHASE_BOON_LEVELS.find((p) => p.phase === phase)?.boonLevel ?? 0;
+      const spiritPower = calculateStatsAtBoon(kit.heroBaseStats, boonLevel).spiritPower;
+      const heroDamage = withOwnedGapHeal(
+        heroValuationModel({
+          baseStats: kit.heroBaseStats,
+          abilities: kit.heroAbilities,
+          boonLevel,
+          spiritPower,
+          accuracy: resolveHeroAccuracy(hero.id, accuracyAtRank),
+          phase,
+        }),
+        kit.heroBaseStats.healthRegen,
+        [],
+      );
+      return { spiritPower, boonLevel, ...(heroDamage ? { heroDamage } : {}) };
+    };
+    // A hero with no kit or no usable damage model is fitted in item units:
+    // warn, and record it in the table (method.itemUnitHeroes).
+    if (args.fightUnits && !valuationAt("mid")?.heroDamage) {
+      console.warn(`  WARN ${hero.name}: no usable damage model, profile in item units`);
+      itemUnitHeroes.push(hero.id);
+    }
     const souls = { gun: 0, spirit: 0, vitality: 0 };
     // Rows whose item is no longer in the shop (removed or disabled mid-window)
     // carry no current cost, so their souls are dropped; count how many purchases
@@ -201,7 +268,7 @@ async function main(): Promise<void> {
     // Phase splits: souls BOUGHT in 0–10 and 10–20 min (exact buy-time filters;
     // not net of sells, since an early buy later sold is still an early buy).
     // Read by the engine's phaseView and by the starter-build fixtures (M1).
-    const bought = async (extra: Record<string, number>) => {
+    const bought = async (extra: Record<string, number>, phase: GamePhase) => {
       const phaseRows = await getJson<ItemStatsRow[]>("item-stats", {
         ...window,
         hero_ids: hero.id,
@@ -229,11 +296,15 @@ async function main(): Promise<void> {
               vitality: round3(ps.vitality / pt),
             }
           : undefined;
-      return { shares, profile: statProfile(weighted), rates: sortedRates(rates) };
+      return {
+        shares,
+        profile: statProfile(weighted, valuationAt(phase)),
+        rates: sortedRates(rates),
+      };
     };
-    const earlyBought = await bought({ max_bought_at_s: 600 });
-    const midBought = await bought({ min_bought_at_s: 600, max_bought_at_s: 1200 });
-    const lateBought = await bought({ min_bought_at_s: 1200 });
+    const earlyBought = await bought({ max_bought_at_s: 600 }, "early");
+    const midBought = await bought({ min_bought_at_s: 600, max_bought_at_s: 1200 }, "mid");
+    const lateBought = await bought({ min_bought_at_s: 1200 }, "late");
     phaseItems.heroes[String(hero.id)] = {
       matches,
       early: earlyBought.rates,
@@ -248,6 +319,7 @@ async function main(): Promise<void> {
         const item = itemByNumericId.get(r.item_id);
         return item ? [{ item, weight: Math.max(0, r.matches - (r.sold ?? 0)) }] : [];
       }),
+      valuationAt("late"),
     );
     const profile =
       earlyBought.profile && midBought.profile && lateProfile
@@ -267,6 +339,11 @@ async function main(): Promise<void> {
     console.log(
       `  ${hero.name.padEnd(14)} gun ${(s.gun * 100).toFixed(1).padStart(5)}%  spirit ${(s.spirit * 100).toFixed(1).padStart(5)}%  vitality ${(s.vitality * 100).toFixed(1).padStart(5)}%  (${matches} matches)`,
     );
+  }
+
+  if (itemUnitHeroes.length > 0) {
+    table.method.itemUnitHeroes = itemUnitHeroes;
+    console.warn(`  WARN ${itemUnitHeroes.length} heroes fitted in item units`);
   }
 
   // One hero per line, like pairLiftTable.json (prettier-ignored), so refresh

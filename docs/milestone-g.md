@@ -258,3 +258,36 @@ Warden late).
   - Baselines: 6 of 72 changed, all Healing Booster for Abrams and Lady Geist. Abrams'
     starter moves Booster from late to mid, and its late phase swaps Colossus for Phantom
     Strike.
+
+**G4: profile refit in fight-value units (2026-10-25).** Shipped. G4-1 to G4-4 pass.
+
+- `fitCategorySplit.ts` values each phase's purchases in the hero's own fight value at the
+  phase checkpoint, with G2a's healing horizon and G3's kit heal. This is now the default;
+  `--item-units` gives the old mode.
+- **Same window as the previous table** (09-30 → 10-25, `--days 25`). Splits drift ≤ 0.001,
+  so the change is the units.
+- **Gates:**
+
+  | Measure                   | Before  | After   |
+  | ------------------------- | ------- | ------- |
+  | M1                        | 24 / 24 | 24 / 24 |
+  | Mean L1                   | 0.111   | 0.102   |
+  | Abrams late (G4-2 ≤ 0.10) | 0.02    | 0.02    |
+  | Lady Geist late           | 0.28    | 0.11    |
+  | Seven late                | 0.10    | 0.06    |
+  | Deadman Danny mid         | 0.02    | 0.08    |
+  | M3                        | 0.088   | 0.077   |
+  | O2                        | 0.780   | 0.816   |
+
+- **Ratchets locked:** M3 baseline 0.077, lowered from G3's 0.0781 (the pre-G3 value was
+  0.076); O2 baseline 0.731 → 0.816 (measured 0.780 before, 0.816 after).
+- **Recorded in the table:** `method.profileUnits` is `"fight-value"`. Drifter and Solomon
+  (no parseable damage model) are fitted in item units, listed in `method.itemUnitHeroes`.
+- **Profile shift** (mean of 44 heroes):
+  - sustain falls (late 10.4% → 4.9%);
+  - mobility rises (late 5.4% → 15.9%; up to 38% for Paige, Kelvin, Warden, Bebop, Lash
+    and Lady Geist early or mid), because move-speed riders count in fight units;
+  - gun damage rises (late 15.2% → 24.3%).
+- **Baselines.** 36 of 72 changed (G4-4: table and baselines in one PR). Gained: Extra
+  Stamina, Guardian Ward, Enduring Speed. Lost: Spirit Resilience, Superior Cooldown,
+  Cultist Sacrifice.
