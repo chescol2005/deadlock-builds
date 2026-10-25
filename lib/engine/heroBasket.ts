@@ -36,7 +36,7 @@ import {
   phaseView,
   FINAL_SPLIT_BASIS,
 } from "./categorySplit";
-import type { HeroCategorySplit } from "./categorySplit";
+import type { GamePhase, HeroCategorySplit } from "./categorySplit";
 import { phaseItemBasis } from "./phaseItems";
 import type { HeroPhaseItems } from "./phaseItems";
 import type { BasketContext, BasketResult, HeroNeedVector, ItemCandidate } from "./types";
@@ -165,6 +165,8 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     boonLevel: input.boonLevel,
     spiritPower: input.spiritPower,
     accuracy: resolveHeroAccuracy(heroId, gunAccuracyByHeroId),
+    // The phase this basket shops in, so charges are priced in the same phase.
+    phase: phaseForSouls(input.souls),
   });
   const valuation = {
     spiritPower: input.spiritPower,
@@ -275,10 +277,14 @@ export function deriveHeroDamageModel(input: {
   boonLevel: number;
   spiritPower: number;
   accuracy: number;
+  /**
+   * The phase the basket shops in (upgrade-charge credit, R2c). runHeroBasket
+   * passes phaseForSouls(souls); omitted, it is the boon level's own souls.
+   */
+  phase?: GamePhase;
 }): HeroDamageModel | undefined {
   const { baseStats } = input;
-  // The phase the basket shops in at this boon (upgrade-charge credit, R2c).
-  const phase = phaseForSouls(BOON_THRESHOLDS[input.boonLevel]?.souls ?? 0);
+  const phase = input.phase ?? phaseForSouls(BOON_THRESHOLDS[input.boonLevel]?.souls ?? 0);
   const atBoon = calculateStatsAtBoon(baseStats, input.boonLevel);
   const perShot = atBoon.bulletDamage;
   const rate = baseStats.bulletsPerSecond;
@@ -310,7 +316,7 @@ export function deriveHeroDamageModel(input: {
         spiritScaling: a.spiritScaling != null ? a.spiritScaling * perCast : null,
         cooldown: a.cooldown,
         ...(a.damageSeconds != null ? { seconds: a.damageSeconds } : {}),
-        ...(chargeCredit > 0 ? { chargeCredit: abilityChargeCredit(a, phase) } : {}),
+        ...(chargeCredit > 0 ? { chargeCredit } : {}),
       };
     }),
     spiritPower: input.spiritPower,

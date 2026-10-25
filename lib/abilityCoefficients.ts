@@ -201,6 +201,9 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
   else if (weaponScaling != null) damageType = "weapon";
   else if (damageProp) damageType = "spirit"; // has damage but no identified scale
 
+  const baseCharges = safeNum(props["AbilityCharges"]?.value) ?? 0;
+  const upgradeCharges = baseCharges >= 1 ? undefined : upgradeChargesOf(raw);
+
   const cdProp = props["AbilityCooldown"];
   const cooldown = cdProp ? safeNum(cdProp.value) : null;
 
@@ -238,15 +241,15 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
     upgrades,
     ...(damageKey ? { damageKey } : {}),
     ...(damageSeconds != null ? { damageSeconds } : {}),
-    ...((safeNum(props["AbilityCharges"]?.value) ?? 0) >= 1
-      ? { charges: safeNum(props["AbilityCharges"]?.value) ?? 1 }
-      : upgradeChargesOf(raw)
-        ? { upgradeCharges: upgradeChargesOf(raw) }
-        : {}),
+    ...(baseCharges >= 1 ? { charges: baseCharges } : upgradeCharges ? { upgradeCharges } : {}),
   };
 }
 
-/** The first upgrade tier that grants AbilityCharges, and how many. */
+/**
+ * The first upgrade tier that grants AbilityCharges, and how many it grants.
+ * Scoring reads only the tier (when the charges exist); a later tier adding
+ * more charges is not tracked.
+ */
 function upgradeChargesOf(raw: HeroAbilityRaw): { tier: 1 | 2 | 3; charges: number } | undefined {
   const tiers = raw.upgrades ?? [];
   for (let i = 0; i < Math.min(3, tiers.length); i += 1) {

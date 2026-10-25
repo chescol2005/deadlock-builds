@@ -162,7 +162,8 @@ export function heroDps(model: HeroDamageModel): { gun: number; ability: number;
  * the basket shops in: how likely that tier is bought by then (review R2c).
  * Assumed, not measured: T3 (8 points on one ability) is rare by ~10 min, a
  * coin flip by ~20, bought by ~30; T1 (1 point) is often there early. Tune it
- * against the baselines; the planner does not know the player's ability levels.
+ * against the baselines. The basket pipeline is not given the player's ability
+ * levels (BuildClient has them; using the real tier there is a follow-up).
  */
 export const UPGRADE_CHARGE_CREDIT: Readonly<
   Record<1 | 2 | 3, Readonly<Record<GamePhase, number>>>

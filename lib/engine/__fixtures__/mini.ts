@@ -4663,7 +4663,35 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
       abilityChargeCredit({}, "late") === 0,
     "R2c: a T3 charge counts 0 early, partly mid, fully late; base charges always 1; none 0",
   );
-  const geistCharged = (boonLevel: number) => {
+  // End to end through damageValues: the same boon level priced in each phase,
+  // against Life Drain given base charges (credit 1).
+  const geistCharged = (phase: "early" | "mid" | "late", baseCharged = false) => {
+    const abilities = (geist?.heroAbilities ?? []).map((a) =>
+      baseCharged && a.name === "Life Drain" ? { ...a, charges: 3, upgradeCharges: undefined } : a,
+    );
+    const model = geist
+      ? deriveHeroDamageModel({
+          baseStats: geist.heroBaseStats,
+          abilities,
+          boonLevel: 22,
+          spiritPower: 20,
+          accuracy: 0.5,
+          phase,
+        })
+      : undefined;
+    return model ? damageValues({ BonusSpiritForChargedAbilities: 14 }, model).spiritDamage : NaN;
+  };
+  const full = geistCharged("late", true);
+  assert(
+    geistCharged("early") === 0 &&
+      full > 0 &&
+      near(geistCharged("late"), full) &&
+      near(geistCharged("mid"), full * UPGRADE_CHARGE_CREDIT[3].mid),
+    "R2c: Rapid Recharge's charged spirit on Lady Geist: 0 early, half mid, full late (= Life Drain with base charges)",
+    `early ${geistCharged("early")}, mid ${geistCharged("mid")}, late ${geistCharged("late")}, base-charged ${full}`,
+  );
+  // runHeroBasket's phase follows its souls: boon 10 is early (credit 0), 29 late.
+  const byBoon = (boonLevel: number) => {
     const model = geist
       ? deriveHeroDamageModel({
           baseStats: geist.heroBaseStats,
@@ -4676,9 +4704,9 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
     return model ? damageValues({ BonusSpiritForChargedAbilities: 14 }, model).spiritDamage : NaN;
   };
   assert(
-    geistCharged(10) === 0 && geistCharged(29) > 0,
-    "R2c: Rapid Recharge's charged spirit is worth 0 to Lady Geist early (Life Drain T3 not yet bought), > 0 late",
-    `early ${geistCharged(10)}, late ${geistCharged(29)}`,
+    byBoon(10) === 0 && byBoon(29) > 0,
+    "R2c: without an explicit phase, the boon level's souls pick it (boon 10 early: 0; boon 29 late: > 0)",
+    `boon 10 ${byBoon(10)}, boon 29 ${byBoon(29)}`,
   );
 
   // C3: with no damage model, a timed fire-rate bonus that isn't innate is

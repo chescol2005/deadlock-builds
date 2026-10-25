@@ -1427,10 +1427,11 @@ raw value), so it only ever set where the curve bends.
   (tier + count; live 2026-10-25: 6 abilities, e.g. Lady Geist Life Drain +3 at T3,
   Infernus Flame Dash +2 at T3). Each ability carries a 0-1 `chargeCredit`: 1 for base
   charges, `UPGRADE_CHARGE_CREDIT[tier][phase]` for upgrade charges (T2 / T3: early 0, mid
-  0.5, late 1; T1: early 0.5, then 1; assumed, not measured: the planner does not know the
-  player's ability levels), else 0 (review R2c). `BonusSpiritForChargedAbilities` and
+  0.5, late 1; T1: early 0.5, then 1; assumed, not measured: the basket pipeline is not
+  given the player's ability levels, so using BuildClient's real tier is a follow-up), else
+  0 (review R2c). The phase is the one the basket shops in (`runHeroBasket` passes it). `BonusSpiritForChargedAbilities` and
   `BonusAbilityCharges` (via `HeroFightModel.chargedAbilityDps`) weight ability DPS by it,
-  so Haze and Abrams get nothing and Life Drain counts only late.
+  so Haze and Abrams get nothing and Life Drain counts 0 early, half mid, full late.
 - **Melee damage % (`BonusMeleeDamagePercent`).** % of light melee on the hits landed in a
   trade (`MELEE_HITS_PER_TRADE` x `MELEE_LANDS`, now in `heroDamage.ts`). Colossus counts
   at its 7 / 37 s active uptime.
