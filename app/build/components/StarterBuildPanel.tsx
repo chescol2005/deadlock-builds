@@ -6,7 +6,7 @@ import type { Item, ItemPhase } from "@/lib/items";
 import type { StarterBuild, StarterPhase } from "@/lib/engine/starterBuild";
 import type { BasketPick } from "@/lib/engine/types";
 import { InfoTooltip } from "@/app/components/Tooltip";
-import { headlineReason } from "@/lib/basketReasons";
+import { headlineReason, measuredPairReason } from "@/lib/basketReasons";
 import { CATEGORY_STYLES, TermBreakdown, fmt } from "@/app/build/components/basketDisplay";
 
 export interface StarterBuildPanelProps {
@@ -41,6 +41,7 @@ function PickRow({ pick, item, index, simplified, consumedNames }: PickRowProps)
   const styles = CATEGORY_STYLES[item.category];
   const cost = pick?.effectiveCost ?? item.cost;
   const headline = pick ? headlineReason(pick.terms) : null;
+  const measuredPair = pick ? measuredPairReason(pick.terms) : null;
 
   return (
     <li
@@ -80,9 +81,17 @@ function PickRow({ pick, item, index, simplified, consumedNames }: PickRowProps)
       ) : null}
 
       {simplified ? (
-        headline ? (
-          <div className="text-[11px] text-zinc-400 italic">{headline}</div>
-        ) : null
+        <>
+          {headline ? <div className="text-[11px] text-zinc-400 italic">{headline}</div> : null}
+          {measuredPair ? (
+            <div className="text-[11px] text-sky-300/80">
+              <span className="mr-1 rounded border border-sky-400/30 px-1 text-[9px] font-semibold tracking-wide uppercase">
+                Measured
+              </span>
+              {measuredPair}
+            </div>
+          ) : null}
+        </>
       ) : pick && pick.terms.length > 0 ? (
         <TermBreakdown terms={pick.terms} />
       ) : null}

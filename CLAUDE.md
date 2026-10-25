@@ -634,56 +634,42 @@ build; the basket's soul budget is `boonSouls − cost of owned items`.
 
 ## Milestone History
 
-| Milestone | Status    | What it built                                                                                                                                       |
-| --------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                   |
-| M2        | ✅ Closed | Build Planner UI                                                                                                                                    |
-| M3        | ✅ Closed | URL persistence + share links                                                                                                                       |
-| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                     |
-| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                            |
-| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                              |
-| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                               |
-| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, `lib/engine/` reconciliation, fetch-waterfall parallelization                                                |
-| B         | ✅ Closed | State/component health: derived `assignmentMap`, `lib/buildUtils.ts`, `CategoryManager` split into 8 files                                          |
-| C         | ✅ Closed | New player UX: shared Tooltip/AudienceTabs, simplified/advanced toggle, difficulty/archetype tags, Fixture 9                                        |
-| D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                                          |
-| E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` — see engine-design-notes.md                                                    |
-| F         | 🚧 Active | Measured item-pair term (`pairTerm`, Oracle+ 90-day table) live in the basket; synergy audit report (private artifact) — see engine-design-notes.md |
-| G         | ⏸ Queued  | Need-vector enrichment (stretch) — full scope in engine-design-notes.md                                                                             |
-| M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                                        |
+| Milestone | Status    | What it built                                                                                                                                                                       |
+| --------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                                                   |
+| M2        | ✅ Closed | Build Planner UI                                                                                                                                                                    |
+| M3        | ✅ Closed | URL persistence + share links                                                                                                                                                       |
+| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                                                     |
+| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                                                            |
+| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                                                              |
+| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                                                               |
+| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, `lib/engine/` reconciliation, fetch-waterfall parallelization                                                                                |
+| B         | ✅ Closed | State/component health: derived `assignmentMap`, `lib/buildUtils.ts`, `CategoryManager` split into 8 files                                                                          |
+| C         | ✅ Closed | New player UX: shared Tooltip/AudienceTabs, simplified/advanced toggle, difficulty/archetype tags, Fixture 9                                                                        |
+| D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                                                                          |
+| E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` — see engine-design-notes.md                                                                                    |
+| F         | ✅ Closed | Measured item-pair term (`pairTerm`) + synergy audit; starter build; item scoring review (`docs/item-scoring-review.md`, R1–R4: baselines, value-scale fixes, `scoreItems` retired) |
+| G         | ⏸ Queued  | Need-vector enrichment (stretch) — full scope in engine-design-notes.md                                                                                                             |
+| M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                                                                        |
 
-### ⚠️ Reminder: item scoring review gates closing Milestone F
+### After Milestone F: open follow-ups
 
-Milestone F stays 🚧 Active until a thorough item scoring review is done. Criteria and
-findings: `docs/item-scoring-review.md` (APPROVED 2026-10-25; PRs R1–R4).
-That review comes **after** these three pieces of work, in this order (numbers
-are the recommendation numbers in `docs/competitive-analysis.md`):
+Milestone F closed on 2026-10-25 with the item scoring review (PRs #101–#107; criteria,
+results and accepted gaps in `docs/item-scoring-review.md`). Open, in no fixed order:
 
-1. ✅ Global nav + real homepage (rec. 1): links the orphaned `/guide/*` pages (#85)
-2. ✅ "Start from a suggested build" (rec. 6): seed `/build/[heroId]` from
-   `constructBasket()` at early / mid / late soul checkpoints. Use cases are
-   approved in `docs/starter-build-use-cases.md`. Order: 2b pipeline + fixtures
-   → 2c engine (owned coverage, components) ✅ → **need-vector fix pulled forward
-   from the scoring review** ✅ (measured category split; leans L2–L4 and L6 now
-   pass) → coverage-model PRs 1+2 ✅ (value per soul, phase-aware split and stat
-   profile: M1 phase fidelity 6 → 11 of 24, with four keys accepted as regressions)
-   → **value-scale stack** ✅ (one value scale, shop budgets + laning tempo, phase
-   items: M1 24/24, M2 passes, mid overlap 0.373 → 0.093; use-case doc §5.7) →
-   **2d UI** ✅ (StarterBuildPanel, plain-English reasons). Scoring-review outcomes
-   (stat keys fixed, profile refit and rush exemption measured and held back, sweep
-   gaps) are in `docs/item-scoring-review.md` §2.2 results.
-3. ✅ Per-page metadata / OG images (rec. 2, 3a: metadata, share previews,
-   sitemap) + mobile pass on `/build` (rec. 3, 3b: stacked layout below xl, touch
-   drag and tap targets, dark-only theme)
-
-Then, **before marking F ✅ Closed**, do the item scoring review. Cover both
-suggestion paths: `lib/scoring/` (anti-synergy; `scoreItems` retired in R3) and
-`lib/engine/` (basket terms incl. `pairTerm`, need vector, item adapter). Check
-live baskets with `npm run probe` across heroes and boon levels. Also run the
-`scoring-auditor` and `data-verifier` agents, and refresh the pair table + synergy
-audit report first if the data is over a month old. Use the baseline
-baskets and live basket fixtures described in "Testing Expectations". When
-the review is done, update the F row above and delete this reminder.
+- **Planned big items.** The greedy value-per-soul basket can't save up. Real early
+  3,200 rushes (Seven, Lady Geist, Wraith: T1) and late tier-4 items are under-bought
+  (§2.2 C5 / C6).
+- **Sustain over more than one trade.** Valuing healing over more than one trade comes
+  first. Then refit the phase stat profile in fight-value units (C4, measured and held
+  back: Abrams late 0.02 → 0.22).
+- **In-phase upgrades.** H2 keeps Rapid Rounds → Swift Striker (84% of real Haze players
+  build it early) out of one phase.
+- **Real ability tiers.** Use BuildClient's actual ability tiers for upgrade-granted
+  charges, instead of the per-phase prior (R2c).
+- **Item tags.** `Item.tags` are slot-derived and only feed the unwired staged pipeline.
+- **Narrow Hero Basket column.** Item names truncate in the 260 px right column of
+  `/build` at 1366.
 
 ---
 

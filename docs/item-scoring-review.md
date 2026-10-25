@@ -1,6 +1,6 @@
 # Item scoring review: findings and acceptance criteria
 
-**Status:** APPROVED 2026-10-25. This review gates closing Milestone F
+**Status:** APPROVED 2026-10-25. **Done 2026-10-25** (PRs #101–#107); Milestone F closed. This review gates closing Milestone F
 (CLAUDE.md, "item scoring review gates closing Milestone F"). Per "Testing
 Expectations", no scoring code changes until these criteria are approved; change this
 doc first if an expectation needs to change.
@@ -245,6 +245,14 @@ conflicting pair).
   measured and never the headline.
 - CLAUDE.md marks F ✅ and drops the reminder. The design notes, this doc and a session
   record in `docs/` are updated.
+
+**Result (R4, 2026-10-25).**
+
+- The measured pair lift is population data. It never headlines a pick: the simplified
+  view shows it under the headline as a labelled "Measured" line
+  (`measuredPairReason`). Fixture 13 P2 checks this; 31 starter picks carry one.
+- Two baseline headlines moved from `pair-lift` to `coverage`, with the same items.
+- CLAUDE.md marks F ✅; the open follow-ups moved to CLAUDE.md "After Milestone F".
 
 ### 2.5 Side fixes (this PR, no scoring change)
 

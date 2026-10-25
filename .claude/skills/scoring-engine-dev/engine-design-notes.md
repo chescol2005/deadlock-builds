@@ -1553,7 +1553,10 @@ Remaining work:
    term in the basket".
 4. ~~A synergy / anti-synergy audit view.~~ Done in PR 4; see "Synergy audit
    report".
-5. Optionally, a pair reason in `HeroBasketSuggestion`'s simplified view.
+5. ~~A pair reason in the simplified view.~~ Done in the item scoring review
+   (R4): `measuredPairReason`, shown as a labelled "Measured" line, never the headline.
+
+**F closed 2026-10-25** (item scoring review, `docs/item-scoring-review.md`).
 
 It is the measured counterpart to the hand-authored synergy table above.
 

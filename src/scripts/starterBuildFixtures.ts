@@ -22,7 +22,7 @@ import { deriveHeroDamageModel } from "@/lib/engine/heroBasket";
 import { heroDps } from "@/lib/engine/heroDamage";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
 import { applyStarterBuild, isAppliedBuild, itemsRemovedByApply } from "@/lib/starterBuildApply";
-import { headlineReason, headlineTerm } from "@/lib/basketReasons";
+import { headlineReason, headlineTerm, measuredPairReason } from "@/lib/basketReasons";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import { deserializeBuild, getItemAssignments, serializeBuild } from "@/lib/buildSerializer";
 import type { BuildState } from "@/lib/buildSerializer";
@@ -409,6 +409,32 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
       }
     }
     assert(bad.length === 0, `P1 every headline reason is plain English: ${name}`, bad.join(" | "));
+  }
+
+  // P2 — the measured pair lift is never the headline; where it argues for a
+  // pick, the simplified view shows it as its own labelled line (review §2.4).
+  {
+    let withPair = 0;
+    const bad: string[] = [];
+    for (const [name, build] of builds) {
+      for (const p of build.phases) {
+        for (const pick of p.basket.picks) {
+          if (headlineTerm(pick.terms)?.termId === "pair-lift") {
+            bad.push(`${name}: ${pick.item.name} headlines the pair lift`);
+          }
+          const pairUp = pick.terms.some((t) => t.termId === "pair-lift" && t.value > 0);
+          if (pairUp) withPair += 1;
+          if (pairUp !== (measuredPairReason(pick.terms) !== null)) {
+            bad.push(`${name}: ${pick.item.name} measured line mismatch`);
+          }
+        }
+      }
+    }
+    assert(
+      bad.length === 0,
+      `P2 the pair lift is never a headline and shows as a measured line (${withPair} picks carry one)`,
+      bad.join(" | "),
+    );
   }
 
   // A5 — owned items keep their place and flags; only components an upgrade

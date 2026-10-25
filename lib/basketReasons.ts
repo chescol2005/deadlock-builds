@@ -5,12 +5,25 @@ import type { MarginalTerm } from "./engine/types";
 
 // Terms that report what OTHER players do (population data). They stay visible
 // in the advanced breakdown, but the simplified view's single headline reason is
-// always about this hero and this build, never "because others buy it".
+// always about this hero and this build, never "because others buy it". The
+// measured pair lift is shown separately, labelled as measured
+// (measuredPairReason), never as the headline (item scoring review §2.4).
 export const POPULATION_TERMS: ReadonlySet<string> = new Set([
   "category-split",
   "analytics",
   "phase-item",
+  "pair-lift",
 ]);
+
+/**
+ * The measured pair reason for the simplified view ("players on this hero who
+ * pair it with X win more often"), when the pair lift argues FOR the pick. Shown
+ * under the headline, labelled as measured; null otherwise.
+ */
+export function measuredPairReason(terms: ReadonlyArray<MarginalTerm>): string | null {
+  const pair = terms.find((t) => t.termId === "pair-lift" && t.value > 0);
+  return pair ? (pair.plain ?? pair.reason) : null;
+}
 
 /** The headline sentence for a pick: the term's plain-English line, else its exact reason. */
 export function headlineReason(terms: ReadonlyArray<MarginalTerm>): string | null {
