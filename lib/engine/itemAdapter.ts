@@ -32,7 +32,12 @@ import {
 import type { HeroDamageModel } from "./heroDamage";
 import { estimateFightValue, fightValues, HERO_FIGHT_KEYS, shredValue } from "./heroFight";
 import type { Item, ItemStats } from "../items";
-import { EFFECT_CONFIDENCE as FLAT_PROC_CONFIDENCE, estimateEffectValues } from "./effectEstimator";
+import {
+  EFFECT_CONFIDENCE as FLAT_PROC_CONFIDENCE,
+  DEFAULT_PROC_COOLDOWN_S,
+  estimateEffectValues,
+  REFERENCE_ENEMY_HEALTH,
+} from "./effectEstimator";
 import type { ItemCandidate, ScoreCategory } from "./types";
 import { SCORE_CATEGORIES } from "./types";
 
@@ -427,14 +432,25 @@ function deriveHitShare(stats: ItemStats, flag: "perHit" | "requiresHit"): numbe
  */
 export const HERO_DAMAGE_SCALE = 1.5;
 
-/**
- * Typical enemy max health, for DoTs that deal % of the TARGET's max health
- * (Toxic Bullets). Roughly the roster's max health mid-game.
- */
-export const REFERENCE_ENEMY_HEALTH = 2500;
-
 /** Cast interval assumed for a damaging active with no published cooldown. */
 const DEFAULT_CAST_INTERVAL_S = 20;
+
+/** Landed shots per second through this hero's weapon (sustained, with accuracy). */
+function landedShotsPerSecond(model: HeroDamageModel): number {
+  const accuracy = Math.max(0, Math.min(1, model.accuracy));
+  const perShot = model.gun.perShot;
+  return perShot > 0 ? (sustainedGunDps(model.gun, {}) / perShot) * accuracy : 0;
+}
+
+/**
+ * Procs per second of a cooldown-gated gun proc (Siphon Bullets): once per
+ * ProcCooldown, unless the hero lands fewer shots than that.
+ */
+function gunProcRate(stats: ItemStats, model: HeroDamageModel): number {
+  const cd = stats.ProcCooldown;
+  const every = Number.isFinite(cd) && cd > 0 ? cd : DEFAULT_PROC_COOLDOWN_S;
+  return Math.min(1 / every, landedShotsPerSecond(model));
+}
 
 /**
  * An effect estimate's damage, as damage per second for this hero. Null when the
@@ -448,9 +464,7 @@ function estimateDps(
 ): number | null {
   if (!e.unit) return null;
   const accuracy = Math.max(0, Math.min(1, model.accuracy));
-  const perShot = model.gun.perShot;
-  const landedShotsPerSecond =
-    perShot > 0 ? (sustainedGunDps(model.gun, {}) / perShot) * accuracy : 0;
+  const landedShots = landedShotsPerSecond(model);
   const cooldown =
     Number.isFinite(stats.AbilityCooldown) && stats.AbilityCooldown > 0 ? stats.AbilityCooldown : 0;
   switch (e.unit) {
@@ -460,8 +474,10 @@ function estimateDps(
       return (e.value / 100) * dps.gun;
     case "maxHealthPercentPerSecond":
       return ((e.perSecond ?? 0) / 100) * REFERENCE_ENEMY_HEALTH * accuracy;
+    case "maxHealthPercentPerProc":
+      return ((e.quantity ?? 0) / 100) * REFERENCE_ENEMY_HEALTH * gunProcRate(stats, model);
     case "damage":
-      if (e.perHit) return e.value * landedShotsPerSecond;
+      if (e.perHit) return e.value * landedShots;
       // Same trade model as hero abilities (heroDamage.castsPerTrade).
       return (
         ((e.value * castsPerTrade(cooldown > 0 ? cooldown : DEFAULT_CAST_INTERVAL_S)) /
@@ -498,6 +514,7 @@ function deriveCategoryValues(
           gunDps: dps.gun,
           abilityDps: dps.ability,
           chargedAbilityDps: chargedAbilityDps(heroDamage.abilities, heroDamage.spiritPower),
+          landedShotsPerSecond: landedShotsPerSecond(heroDamage),
           ...(heroDamage.survival.ownedGapHeal !== undefined
             ? { ownedGapHeal: heroDamage.survival.ownedGapHeal }
             : {}),
