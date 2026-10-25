@@ -98,7 +98,11 @@ import {
   TRADE_SECONDS,
 } from "../heroDamage";
 import type { HeroDamageModel } from "../heroDamage";
-import { HERO_RELATIVE_SPIRIT_KEYS } from "../heroDamage";
+import {
+  HERO_RELATIVE_SPIRIT_KEYS,
+  UPGRADE_CHARGE_CREDIT,
+  abilityChargeCredit,
+} from "../heroDamage";
 import { estimateFightValue, fightValues } from "../heroFight";
 import { normalizeItem } from "../../itemNormalizer";
 import { deriveHeroDamageModel } from "../heroBasket";
@@ -4472,7 +4476,7 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
     accuracy: 0.5,
     abilities: [
       { baseDamage: 200, spiritScaling: 1, cooldown: 20 },
-      { baseDamage: 60, spiritScaling: 0.5, cooldown: 12, charged: true },
+      { baseDamage: 60, spiritScaling: 0.5, cooldown: 12, chargeCredit: 1 },
     ],
     spiritPower: 0,
     meleeDamage: 50,
@@ -4541,7 +4545,7 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
     100;
   const noCharges: HeroDamageModel = {
     ...caster,
-    abilities: caster.abilities.map((a) => ({ ...a, charged: false })),
+    abilities: caster.abilities.map((a) => ({ ...a, chargeCredit: 0 })),
   };
   assert(
     near(charged, expectedCharged) &&
@@ -4636,6 +4640,45 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
     chargedValue("Haze") === 0 && chargedValue("Abrams") === 0 && chargedValue("Seven") > 0,
     "C2: Rapid Recharge's charged-ability spirit is worth 0 to Haze and Abrams, > 0 to Seven",
     `Haze ${chargedValue("Haze")}, Abrams ${chargedValue("Abrams")}, Seven ${chargedValue("Seven")}`,
+  );
+
+  // R2c: charges an upgrade grants count at their phase credit. Lady Geist's
+  // Life Drain has no base charges and gains 3 at T3.
+  const geist = frozenKits.find((k) => k.name === "Lady Geist");
+  const lifeDrain = geist?.heroAbilities.find((a) => a.name === "Life Drain");
+  assert(
+    lifeDrain !== undefined &&
+      lifeDrain.charges === undefined &&
+      lifeDrain.upgradeCharges?.tier === 3 &&
+      lifeDrain.upgradeCharges.charges === 3,
+    "R2c: Life Drain's charges are upgrade-granted (T3, +3), not base charges",
+    JSON.stringify({ charges: lifeDrain?.charges, upgrade: lifeDrain?.upgradeCharges }),
+  );
+  assert(
+    lifeDrain !== undefined &&
+      abilityChargeCredit(lifeDrain, "early") === 0 &&
+      abilityChargeCredit(lifeDrain, "mid") === UPGRADE_CHARGE_CREDIT[3].mid &&
+      abilityChargeCredit(lifeDrain, "late") === 1 &&
+      abilityChargeCredit({ charges: 2 }, "early") === 1 &&
+      abilityChargeCredit({}, "late") === 0,
+    "R2c: a T3 charge counts 0 early, partly mid, fully late; base charges always 1; none 0",
+  );
+  const geistCharged = (boonLevel: number) => {
+    const model = geist
+      ? deriveHeroDamageModel({
+          baseStats: geist.heroBaseStats,
+          abilities: geist.heroAbilities,
+          boonLevel,
+          spiritPower: 20,
+          accuracy: 0.5,
+        })
+      : undefined;
+    return model ? damageValues({ BonusSpiritForChargedAbilities: 14 }, model).spiritDamage : NaN;
+  };
+  assert(
+    geistCharged(10) === 0 && geistCharged(29) > 0,
+    "R2c: Rapid Recharge's charged spirit is worth 0 to Lady Geist early (Life Drain T3 not yet bought), > 0 late",
+    `early ${geistCharged(10)}, late ${geistCharged(29)}`,
   );
 
   // C3: with no damage model, a timed fire-rate bonus that isn't innate is

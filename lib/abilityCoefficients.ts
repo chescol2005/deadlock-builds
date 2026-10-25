@@ -42,6 +42,12 @@ export type HeroAbility = {
   damageSeconds?: number;
   /** Base charges (AbilityCharges >= 1): charged-ability items apply to it. */
   charges?: number;
+  /**
+   * Charges an ability WITHOUT base charges gains from an upgrade tier (Lady
+   * Geist Life Drain: +3 at T3). Charged-ability items only help it once that
+   * tier is bought (review R2c; see UPGRADE_CHARGE_CREDIT in heroDamage.ts).
+   */
+  upgradeCharges?: { tier: 1 | 2 | 3; charges: number };
 };
 
 // Damage keys that are a rate: one cast deals the value per second.
@@ -234,8 +240,23 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
     ...(damageSeconds != null ? { damageSeconds } : {}),
     ...((safeNum(props["AbilityCharges"]?.value) ?? 0) >= 1
       ? { charges: safeNum(props["AbilityCharges"]?.value) ?? 1 }
-      : {}),
+      : upgradeChargesOf(raw)
+        ? { upgradeCharges: upgradeChargesOf(raw) }
+        : {}),
   };
+}
+
+/** The first upgrade tier that grants AbilityCharges, and how many. */
+function upgradeChargesOf(raw: HeroAbilityRaw): { tier: 1 | 2 | 3; charges: number } | undefined {
+  const tiers = raw.upgrades ?? [];
+  for (let i = 0; i < Math.min(3, tiers.length); i += 1) {
+    const grant = (tiers[i]?.property_upgrades ?? []).find(
+      (pu) => pu.name === "AbilityCharges" && pu.upgrade_type !== "EAddToScale",
+    );
+    const charges = grant ? safeNum(grant.bonus) : null;
+    if (charges != null && charges > 0) return { tier: (i + 1) as 1 | 2 | 3, charges };
+  }
+  return undefined;
 }
 
 export function mapHeroAbilities(

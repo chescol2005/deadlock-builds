@@ -26,6 +26,8 @@
 // Pure: same inputs, same output.
 
 import type { ItemStats } from "../items";
+import type { HeroAbility } from "../abilityCoefficients";
+import type { GamePhase } from "./categorySplit";
 
 export interface GunProfile {
   /** Damage per shot at the current boon level. */
@@ -58,8 +60,12 @@ export interface DamagingAbility {
   cooldown: number | null;
   /** Seconds one cast keeps hitting (a DPS ability); absent = one hit. */
   seconds?: number;
-  /** Has charges: Extra Charge / Rapid Recharge spirit applies to it. */
-  charged?: boolean;
+  /**
+   * How much charged-ability items (Extra Charge, Rapid Recharge) apply to it,
+   * 0-1: 1 with base charges, UPGRADE_CHARGE_CREDIT for charges an upgrade
+   * grants, absent / 0 without charges. See abilityChargeCredit.
+   */
+  chargeCredit?: number;
 }
 
 export interface HeroDamageModel {
@@ -149,6 +155,44 @@ export function heroDps(model: HeroDamageModel): { gun: number; ability: number;
   const gun = sustainedGunDps(model.gun, {}) * Math.max(0, Math.min(1, model.accuracy));
   const ability = abilityDps(model.abilities, model.spiritPower);
   return { gun, ability, total: gun + ability };
+}
+
+/**
+ * Credit for charges an ability only gains from an upgrade tier, by the phase
+ * the basket shops in: how likely that tier is bought by then (review R2c).
+ * Assumed, not measured: T3 (8 points on one ability) is rare by ~10 min, a
+ * coin flip by ~20, bought by ~30; T1 (1 point) is often there early. Tune it
+ * against the baselines; the planner does not know the player's ability levels.
+ */
+export const UPGRADE_CHARGE_CREDIT: Readonly<
+  Record<1 | 2 | 3, Readonly<Record<GamePhase, number>>>
+> = {
+  1: { early: 0.5, mid: 1, late: 1 },
+  2: { early: 0, mid: 0.5, late: 1 },
+  3: { early: 0, mid: 0.5, late: 1 },
+};
+
+/** 0-1: how much charged-ability items apply to this ability in this phase. */
+export function abilityChargeCredit(
+  ability: Pick<HeroAbility, "charges" | "upgradeCharges">,
+  phase: GamePhase,
+): number {
+  if (ability.charges != null) return 1;
+  if (ability.upgradeCharges) return UPGRADE_CHARGE_CREDIT[ability.upgradeCharges.tier][phase];
+  return 0;
+}
+
+/** Ability DPS weighted by each ability's charge credit (the share extra charges help). */
+export function chargedAbilityDps(
+  abilities: ReadonlyArray<DamagingAbility>,
+  spiritPower: number,
+): number {
+  let dps = 0;
+  for (const a of abilities) {
+    const credit = a.chargeCredit ?? 0;
+    if (credit > 0) dps += credit * abilityDps([a], spiritPower);
+  }
+  return dps;
 }
 
 /** Melee hits landed in a trade (shared with heroFight's melee heals). */
@@ -274,10 +318,12 @@ export function damageValues(
   // Item scoring review C2 (docs/item-scoring-review.md §1.3 items 4-5).
   // Extra spirit for charged abilities only (Extra Charge 7, Rapid Recharge 14):
   // nothing for a kit without charges (Haze, Abrams).
+  // Upgrade-granted charges count at their phase credit (Life Drain: 0 early).
   const chargedSp = s("BonusSpiritForChargedAbilities");
   if (chargedSp > 0) {
-    const charged = model.abilities.filter((a) => a.charged);
-    spiritGain += abilityDps(charged, spAfter + chargedSp) - abilityDps(charged, spAfter);
+    spiritGain +=
+      chargedAbilityDps(model.abilities, spAfter + chargedSp) -
+      chargedAbilityDps(model.abilities, spAfter);
   }
   // Mystic Reverb: +50% of ONE imbued ability's hit (at least MinimumDamage),
   // once per item cooldown, not a permanent +50% to every ability.

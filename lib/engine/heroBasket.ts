@@ -15,6 +15,8 @@ import type { HeroAbility } from "../abilityCoefficients";
 import type { HeroBaseStats } from "../heroStats";
 import { calculateStatsAtBoon } from "../heroStats";
 import type { HeroDamageModel } from "./heroDamage";
+import { abilityChargeCredit } from "./heroDamage";
+import { BOON_THRESHOLDS } from "../boonSystem";
 import type { HeroAccuracy, ItemAnalytics } from "../analyticsStore";
 import { resolveAccuracyAtRank } from "../analyticsStore";
 import { MAX_ACTIVE_ITEMS } from "../buildUtils";
@@ -275,6 +277,8 @@ export function deriveHeroDamageModel(input: {
   accuracy: number;
 }): HeroDamageModel | undefined {
   const { baseStats } = input;
+  // The phase the basket shops in at this boon (upgrade-charge credit, R2c).
+  const phase = phaseForSouls(BOON_THRESHOLDS[input.boonLevel]?.souls ?? 0);
   const atBoon = calculateStatsAtBoon(baseStats, input.boonLevel);
   const perShot = atBoon.bulletDamage;
   const rate = baseStats.bulletsPerSecond;
@@ -300,12 +304,13 @@ export function deriveHeroDamageModel(input: {
     // review C1; Siphon Life 22 DPS x 4 s, not 22).
     abilities: input.abilities.map((a) => {
       const perCast = damagePerCastFactor(a);
+      const chargeCredit = abilityChargeCredit(a, phase);
       return {
         baseDamage: a.baseDamage != null ? a.baseDamage * perCast : null,
         spiritScaling: a.spiritScaling != null ? a.spiritScaling * perCast : null,
         cooldown: a.cooldown,
         ...(a.damageSeconds != null ? { seconds: a.damageSeconds } : {}),
-        ...(a.charges != null ? { charged: true } : {}),
+        ...(chargeCredit > 0 ? { chargeCredit: abilityChargeCredit(a, phase) } : {}),
       };
     }),
     spiritPower: input.spiritPower,
