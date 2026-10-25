@@ -140,19 +140,15 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   // The hero's damage and survival model, with its own kit healing (Milestone
   // G3): heal amplification prices on it, and a hero with no measured profile
   // takes its sustain need from it.
-  const damageModel = withKitHeal(
-    deriveHeroDamageModel({
-      baseStats: heroBaseStats,
-      abilities: heroAbilities,
-      boonLevel: input.boonLevel,
-      spiritPower: input.spiritPower,
-      accuracy: resolveHeroAccuracy(heroId, gunAccuracyByHeroId),
-      // The phase this basket shops in, so charges are priced in the same phase.
-      phase: phase,
-    }),
-    heroAbilities,
+  const damageModel = heroValuationModel({
+    baseStats: heroBaseStats,
+    abilities: heroAbilities,
+    boonLevel: input.boonLevel,
+    spiritPower: input.spiritPower,
+    accuracy: resolveHeroAccuracy(heroId, gunAccuracyByHeroId),
+    // The phase this basket shops in, so charges are priced in the same phase.
     phase,
-  );
+  });
   const survival = damageModel?.survival;
   const profileApplies = mode !== "term-only" && hasStatProfile(view?.profile);
   const kitNeed = deriveHeroNeedVector({
@@ -273,7 +269,7 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
  * This hero's shot accuracy: its own measured value at the player's rank, else
  * the roster median (missing data is not zero), else 1 when nothing is known.
  */
-function resolveHeroAccuracy(
+export function resolveHeroAccuracy(
   heroId: number,
   accuracyByHeroId: ReadonlyMap<number, number> | undefined,
 ): number {
@@ -312,6 +308,23 @@ export function withOwnedGapHeal(
     ...model,
     survival: { ...model.survival, ownedGapHeal: healHp, ownedTradeHealHp: tradeHeal },
   };
+}
+
+/**
+ * THE valuation model: the hero's damage and survival model with its own kit
+ * healing, before owned items (`withOwnedGapHeal` adds those). runHeroBasket
+ * and the profile fitter (fitCategorySplit.ts, Milestone G4) both build it
+ * here, so the measured profile and the basket value items on one scale.
+ */
+export function heroValuationModel(input: {
+  baseStats: HeroBaseStats;
+  abilities: ReadonlyArray<HeroAbility>;
+  boonLevel: number;
+  spiritPower: number;
+  accuracy: number;
+  phase: GamePhase;
+}): HeroDamageModel | undefined {
+  return withKitHeal(deriveHeroDamageModel(input), input.abilities, input.phase);
 }
 
 /**

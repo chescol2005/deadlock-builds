@@ -1290,7 +1290,9 @@ early and 30% overall. `heroCategorySplit.json` now carries, per hero:
 - the early (0–10 min) and mid (10–20 min) PURCHASE splits, using exact
   `min/max_bought_at_s` filters, not net of sells;
 - a measured 12-category STAT PROFILE per phase: purchases (or the final inventory for
-  late) × each item's unscaled category values, as shares.
+  late) × each item's category values, as shares. Since G4 these are the hero's own
+  fight-value units (see "Profile in fight-value units" below); before, unscaled item
+  values.
 
 `runHeroBasket` picks the phase from current souls (`phaseForSouls`: 6,950 and 17,550
 souls are the 10- and 20-minute marks on the net-worth curve), then:
@@ -1323,6 +1325,63 @@ Two things were tried and rejected:
 - **A per-category value-per-soul reconciliation over the catalogue** made builds very
   diverse (mid overlap 0.18, 8 distinct early phases), but less like real play (M1 5/24),
   and gun stayed about 14% early.
+
+### Profile in fight-value units (Milestone G4, 2026-10-25)
+
+`fitCategorySplit.ts` now values each phase's purchases in the hero's own fight value at
+the phase checkpoint, by default:
+
+- the starter-build boon level and base spirit power;
+- the kit heal;
+- nothing owned;
+- shot accuracy at the fitted rank.
+
+`--item-units` restores the old hero-agnostic values. So the measured profile and the
+basket now use one scale.
+
+**Retried after G2a.** C4 failed because healing counted over one trade. With healing
+between trades valued (G2a), the same refit passes. Window 09-30 → 10-25, the same as the
+previous table, so data drift is ≤ 0.001 on the splits.
+
+| Measure         | Item units | Fight units |
+| --------------- | ---------- | ----------- |
+| Mean L1         | 0.111      | 0.102       |
+| Abrams late     | 0.02       | 0.02        |
+| Lady Geist late | 0.28       | 0.11        |
+| M3              | 0.088      | 0.077       |
+| O2              | 0.780      | 0.816       |
+
+**Profile shift** (mean of 44 heroes):
+
+- sustain falls (late 10.4% → 4.9%);
+- mobility rises (late 5.4% → 15.9%; Paige, Kelvin, Warden, Bebop, Lash and Lady Geist
+  reach 30–38% early or mid). Every move-speed rider counts in fight units;
+- gun damage rises (late 15.2% → 24.3%).
+
+**Baselines.** 36 of 72 changed. Extra Stamina, Guardian Ward and Enduring Speed are
+gained; Spirit Resilience, Superior Cooldown and Cultist Sacrifice are lost.
+
+**Ratchets.** The live ratchets were moved to lock this in: M3 baseline 0.077, O2 0.816.
+
+**One model.** The fitter builds each hero's model with `heroValuationModel` (heroBasket),
+as `runHeroBasket` does.
+
+**Recorded in the table:**
+
+- `method.profileUnits` (`"fight-value"`);
+- `method.itemUnitHeroes`: Drifter and Solomon, which have no parseable damage model and
+  are fitted in item units with a warning.
+
+**Safety.** The fitter refuses to run when no shot accuracy loads (it fails open to
+empty, which would mean 100% accuracy).
+
+**Accepted simplifications:**
+
+- base spirit power with nothing owned;
+- every purchase in a window valued at the window's end checkpoint;
+- accuracy from the fitted rank's (Oracle) all-time bucket, not the `--days` window.
+
+To reproduce the table: `npm run fit-category-split -- --days 25`, run on 2026-10-25.
 
 ## Hero-relative damage and soft saturation (tried alone, then superseded)
 
@@ -1442,9 +1501,10 @@ raw value), so it only ever set where the curve bends.
   - Melee Lifesteal's value was always one heal; only its reason text said "per hit".
     `fitCategorySplit` values items on this path, so a refit picks up C3.
 
-**Still open:** the phase stat profile in `heroCategorySplit.json`, which sets the targets
-of antiHeal, sustain, utility, economy and mobility, was fitted with hero-agnostic values
-in the old units. That is C4.
+**Was open (C4), resolved in Milestone G4:** the phase stat profile in
+`heroCategorySplit.json`, which sets the targets of antiHeal, sustain, utility, economy and
+mobility, was fitted with hero-agnostic values in the old units. G4 refits it in
+fight-value units ("Profile in fight-value units").
 
 **Bugs found on the way** (data-verifier 2026-10-24, live item text):
 

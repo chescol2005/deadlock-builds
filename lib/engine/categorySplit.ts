@@ -100,6 +100,14 @@ export interface CategorySplitTable {
     days: number;
     minMatches: number;
     measure: string;
+    /**
+     * Units of the per-phase stat profile: "fight-value" (each hero's own
+     * valuation at the phase checkpoint, Milestone G4) or "item" (hero-agnostic).
+     * Absent on tables fitted before G4 (item units).
+     */
+    profileUnits?: "fight-value" | "item";
+    /** Heroes fitted in item units in a fight-value table (no usable kit). */
+    itemUnitHeroes?: number[];
   };
   heroes: Record<
     string,

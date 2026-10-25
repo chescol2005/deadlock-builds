@@ -68,8 +68,9 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
 // Was 0.095 on the 09-24 tables, 0.38 before the value-scale stack.
 // Raised once, 0.076 -> 0.0781 (Milestone G3, user-approved 2026-10-25): heal amp put
 // Healing Booster in Abrams' and Lady Geist's mid phase, as real players buy it;
-// measured overlap 0.08802 (docs/starter-build-use-cases.md M3).
-const MID_OVERLAP_BASELINE = 0.0781; // review C2/C3 (2026-10-25): 0.076; 0.096 after the refit
+// measured overlap 0.08802 (docs/starter-build-use-cases.md M3). Lowered to 0.077
+// by the G4 profile refit in fight-value units (2026-10-25).
+const MID_OVERLAP_BASELINE = 0.077; // history: 0.096 refit -> 0.076 review C2/C3 -> 0.0781 G3 -> 0.077 G4
 
 /**
  * Noise band for the live ratchets (M3, O2): a refit of the measured tables alone
@@ -90,7 +91,8 @@ const T1_TOLERANCE = 0.15;
  * real 10–20 min top 10. May only be raised (docs/starter-build-use-cases.md §4.3).
  */
 // Rebased on the post-patch tables (§2.1): 36/53 = 0.679. Was 0.69 (37/53, 2026-10-24).
-const MID_REAL_TOP_BASELINE = 0.731; // 38/52 after review C2/C3 (2026-10-25); 0.679 after the refit
+// Raised to 40/49 = 0.816 by the G4 profile refit in fight-value units (2026-10-25).
+const MID_REAL_TOP_BASELINE = 0.816; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4
 
 const sum = (xs: ReadonlyArray<number>) => xs.reduce((a, b) => a + b, 0);
 
