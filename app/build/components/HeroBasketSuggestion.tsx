@@ -6,7 +6,7 @@ import type { Item } from "@/lib/items";
 import type { BasketResult, BasketPick, ScoreCategory } from "@/lib/engine/types";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import { Tooltip, InfoTooltip } from "@/app/components/Tooltip";
-import { headlineReason } from "@/lib/basketReasons";
+import { headlineReason, measuredPairReason } from "@/lib/basketReasons";
 import { CATEGORY_STYLES, TermBreakdown, fmt } from "@/app/build/components/basketDisplay";
 
 export interface HeroBasketSuggestionProps {
@@ -81,6 +81,19 @@ function widthClassForPercent(pct: number): string {
   return WIDTH_CLASSES[idx];
 }
 
+/** A measured (match data) reason, labelled so it never reads as a rule. */
+function MeasuredLine({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-1 text-[11px] text-sky-300/80">
+      <span className="shrink-0 rounded border border-sky-400/30 px-1 text-[9px] font-semibold tracking-wide uppercase">
+        Measured
+      </span>
+      <span>{text}</span>
+      <InfoTooltip content="From real high-rank matches on this hero: players who own both items won more often than either item predicts alone. It's an observed pattern, not proof the items combine." />
+    </div>
+  );
+}
+
 function CoverageRow({
   category,
   coverage,
@@ -136,6 +149,7 @@ function PickCard({
   const isUpgrade = consumedNames.length > 0;
   const icon = item?.icon;
   const headline = headlineReason(pick.terms);
+  const measuredPair = measuredPairReason(pick.terms);
 
   return (
     <div
@@ -209,8 +223,11 @@ function PickCard({
       ) : null}
 
       {simplified ? (
-        <div className="text-[11px] italic text-zinc-400">
-          {headline ?? "No specific reason recorded for this pick."}
+        <div className="flex flex-col gap-0.5">
+          <div className="text-[11px] italic text-zinc-400">
+            {headline ?? "No specific reason recorded for this pick."}
+          </div>
+          {measuredPair ? <MeasuredLine text={measuredPair} /> : null}
         </div>
       ) : pick.terms.length > 0 ? (
         <TermBreakdown terms={pick.terms} />
