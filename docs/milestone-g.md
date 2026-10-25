@@ -168,4 +168,31 @@ upgrades (H2), real ability tiers for charge credit.
 
 ## 4. Results
 
-_Filled per PR._
+**G2a: healing between trades (2026-10-25).** Shipped.
+
+- **Live gates unchanged:**
+
+  | Measure    | Result  |
+  | ---------- | ------- |
+  | M1         | 24 / 24 |
+  | Mean L1    | 0.114   |
+  | M3         | 0.080   |
+  | O2         | 0.760   |
+  | G2-6 moves | none    |
+
+  No reference checkpoint moved.
+
+- **Baselines.** 14 of 72 changed:
+  - 10 relabel a headline from category bonus to coverage (Extra Regen 9, Healing
+    Booster 1);
+  - three late picks swap: Lady Geist Enchanter's Emblem → Bullet Lifesteal, Seven
+    Greater Expansion → Superior Cooldown, Wraith Mystic Vulnerability → Arcane Surge;
+  - two (Warden late, Wraith late owning early) change only term values, with the same
+    items.
+- **G2-2 applies to the whole build.** Recovery is priced on top of what the hero's base
+  regen and the owned items already restore (`ownedGapHeal`).
+- **A first version failed the gate.**
+  - What it did: it took out-of-combat delays off the whole gap.
+  - The effect: Fortitude got 22.5% of HP and beat Colossus for Abrams late. Abrams late
+    moved 0.02 → 0.22, Infernus mid 0.12 → 0.25, and the mean L1 rose to 0.130.
+  - The fix: the delay now runs inside the quiet stretch of the gap.

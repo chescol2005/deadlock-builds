@@ -45,10 +45,125 @@ export interface HeroFightModel {
    * Rapid Recharge). Omitted = all ability DPS, as before.
    */
   chargedAbilityDps?: number;
+  /**
+   * HP the hero's base regen and the owned build already restore between
+   * trades (`ownedGapHeal`). An item's recovery is priced on top of it, so
+   * healing past full is worth nothing for the build as a whole. Omitted = 0.
+   */
+  ownedGapHeal?: number;
 }
 
 /** Seconds of a trade: converts per-second healing into effective HP. */
 export const FIGHT_SECONDS = TRADE_SECONDS;
+
+// ─── Healing between trades (Milestone G, PR G2a) ──────────────────────────
+//
+// Counting healing over one 10 s trade made regen and lifesteal worth little,
+// which is why the C4 profile refit failed (docs/item-scoring-review.md §2.2).
+// Healing also restores HP in the gap before the next trade (TRADE_GAP_SECONDS),
+// so the next trade starts healthier. That RECOVERY is priced separately from
+// in-trade healing (docs/milestone-g.md §3.1):
+// - regen ticks the whole gap;
+// - out-of-combat regen ticks only in the quiet stretch of the gap (not
+//   farming: creep damage resets it), after its delay within that stretch
+//   (wiki Health_Regen: 4 s after hero damage; an item's own RestoreDelay,
+//   Fortitude 10 s, wins);
+// - the cap is for the whole build: recovery is priced on top of what the
+//   hero's base regen and the owned items already restore (ownedGapHeal);
+// - lifesteal heals in the gap only while farming, at the non-hero rate
+//   (wiki Lifesteal: bullet 60%, spirit 40%).
+// Damage, health, resist and every other stat are unchanged.
+
+/** Recovery HP is worth this share of in-trade effective HP: not every gap ends in another trade, and backing or a sprite can refill HP instead. */
+export const RECOVERY_WEIGHT = 0.5;
+/** HP a trade typically costs, in % of max HP: healing past full is worth nothing, so recovery saturates here. */
+export const RECOVERY_CAP_PCT = 50;
+/** Seconds after hero damage before out-of-combat regen starts (deadlock.wiki Health_Regen, 2026-10-25). */
+const OUT_OF_COMBAT_DELAY = 4;
+/** Share of the gap spent farming creeps: lifesteal heals then, and creep damage keeps out-of-combat regen off. */
+const GAP_FARM_SHARE = 0.5;
+/** Lifesteal against non-hero units (deadlock.wiki Lifesteal, 2026-10-25). */
+const NON_HERO_BULLET_LIFESTEAL = 0.6;
+const NON_HERO_SPIRIT_LIFESTEAL = 0.4;
+
+const saturated = (healHp: number, hp: number) =>
+  RECOVERY_WEIGHT * RECOVERY_CAP_PCT * (1 - Math.exp(-((healHp / hp) * 100) / RECOVERY_CAP_PCT));
+
+/**
+ * Value of `healHp` restored between trades, in % of fight value, on top of
+ * the `owned` HP the hero and build already restore: weighted by
+ * RECOVERY_WEIGHT and saturating at RECOVERY_CAP_PCT for the whole build
+ * (about linear while small).
+ */
+export function recoveryValue(healHp: number, hp: number, owned = 0): number {
+  if (!(healHp > 0) || !(hp > 0)) return 0;
+  const base = owned > 0 ? owned : 0;
+  return saturated(base + healHp, hp) - saturated(base, hp);
+}
+
+/** A stat on a timed item is conditional unless the API lists it as innate. */
+function conditionalFor(stats: ItemStats, innate?: ReadonlySet<string>) {
+  const timed = num(stats.AbilityCooldown) > 0 || num(stats.AbilityDuration) > 0;
+  return (k: string) => (timed && !innate?.has(k) ? CONDITIONAL : 1);
+}
+
+/** Lifesteal shares (0-1) of gun and of ability damage an item's stats give. */
+function lifestealShares(stats: ItemStats, innate?: ReadonlySet<string>) {
+  const s = (k: string) => num(stats[k]);
+  const cond = conditionalFor(stats, innate);
+  return {
+    bullet: (s("BulletLifestealPercent") / 100) * cond("BulletLifestealPercent"),
+    spirit:
+      (s("AbilityLifestealPercentHero") / 100) * cond("AbilityLifestealPercentHero") +
+      CONDITIONAL * (s("ImbueAbilityLifesteal") / 100),
+  };
+}
+
+/** HP an item's stats restore in the gap between trades (before weighting). */
+export function gapHealHp(
+  stats: ItemStats,
+  m: HeroFightModel,
+  innate?: ReadonlySet<string>,
+): number {
+  const s = (k: string) => num(stats[k]);
+  const hp = m.maxHealth > 0 ? m.maxHealth : 0;
+  const lifesteal = lifestealShares(stats, innate);
+  const outOfCombatPerSecond =
+    s("OutOfCombatHealthRegen") + (s("HealLifePercentOutOfCombat") / 100) * hp;
+  // RestoreDelay is only on Fortitude in the catalogue (checked 2026-10-25),
+  // where it is the out-of-combat delay.
+  const delay = s("RestoreDelay") > 0 ? s("RestoreDelay") : OUT_OF_COMBAT_DELAY;
+  return (
+    s("BonusHealthRegen") * TRADE_GAP_SECONDS +
+    // Out-of-combat regen starts only in the quiet stretch (not farming), and
+    // its delay runs inside that stretch.
+    outOfCombatPerSecond * Math.max(0, TRADE_GAP_SECONDS * (1 - GAP_FARM_SHARE) - delay) +
+    GAP_FARM_SHARE *
+      TRADE_GAP_SECONDS *
+      (lifesteal.bullet * NON_HERO_BULLET_LIFESTEAL * m.gunDps +
+        lifesteal.spirit * NON_HERO_SPIRIT_LIFESTEAL * m.abilityDps)
+  );
+}
+
+/**
+ * HP restored between trades by the hero's base regen and the owned items'
+ * stats: the `ownedGapHeal` an item's recovery is priced on top of. Base regen
+ * (`HeroBaseStats.healthRegen`) is treated as always on, like BonusHealthRegen:
+ * an ASSUMPTION, since deadlock.wiki does not say whether regen ticks in combat
+ * (data-verifier, 2026-10-25). Estimator heals and spirit scaling on owned items
+ * are not counted (a slight under-count).
+ */
+export function ownedGapHeal(
+  baseRegen: number,
+  owned: ReadonlyArray<{ stats: ItemStats; innateStats?: ReadonlyArray<string> }>,
+  m: HeroFightModel,
+): number {
+  let total = num(baseRegen) * TRADE_GAP_SECONDS;
+  for (const item of owned) {
+    total += gapHealHp(item.stats, m, item.innateStats ? new Set(item.innateStats) : undefined);
+  }
+  return total;
+}
 /** Share of incoming damage by type (no measured split yet). */
 const INCOMING_BULLET = 0.5;
 const INCOMING_SPIRIT = 0.5;
@@ -63,7 +178,6 @@ const CHARGE_UPTIME = 0.3; // +1 ability charge ≈ +30% of that ability's uptim
 const FARM_TO_FIGHT = 0.5; // 1% faster farming ≈ 0.5% fight value later
 const PROC_DEFLECT_SHARE = 0.1; // on-hit prevention: share of bullet damage it can stop
 const CC_RESIST_RATE = 0.1; // 1% debuff / slow resist ≈ 0.1% fight value
-const OUT_OF_COMBAT_SHARE = 0.5; // share of a trade spent out of combat (regen ticks)
 const CHANNEL_HEAL_RATE = 0.25; // channelled heal (Rescue Beam) % ≈ 0.25% per point
 const STAMINA_REGEN_RATE = 0.2; // 1% stamina regen ≈ 0.2% fight value
 const AIR_MOVE_RATE = 0.1; // 1% air dash / jump distance ≈ 0.1% fight value
@@ -129,8 +243,7 @@ export function fightValues(
   // A stat on an item with a cooldown is conditional unless the API lists it
   // as INNATE (always on).
   // Same rule as heroDamage.damageValues: cooldown OR a timed effect.
-  const timed = s("AbilityCooldown") > 0 || s("AbilityDuration") > 0;
-  const cond = (k: string) => (timed && !innate?.has(k) ? CONDITIONAL : 1);
+  const cond = conditionalFor(stats, innate);
   const out: Partial<Record<ScoreCategory, number>> = {};
 
   // bonusHealth: % more HP.
@@ -158,16 +271,14 @@ export function fightValues(
     s("CombatBarrier") + s("VexBarrierCombatBarrier") + s("GuardianWardCombatBarrier");
   if (barrier) out.shield = (barrier / hp) * 100 * CONDITIONAL;
 
-  // sustain: healing over a trade, as % of HP.
+  // sustain: healing in the trade, as % of HP, plus recovery before the next.
+  // Out-of-combat regen never ticks in a trade: hero damage holds it off.
+  const lifesteal = lifestealShares(stats, innate);
   const healPerSecond =
-    s("BonusHealthRegen") +
-    CONDITIONAL * OUT_OF_COMBAT_SHARE * s("OutOfCombatHealthRegen") +
-    CONDITIONAL * OUT_OF_COMBAT_SHARE * (s("HealLifePercentOutOfCombat") / 100) * hp +
-    (s("BulletLifestealPercent") / 100) * m.gunDps * cond("BulletLifestealPercent") +
-    (s("AbilityLifestealPercentHero") / 100) * m.abilityDps * cond("AbilityLifestealPercentHero") +
-    CONDITIONAL * (s("ImbueAbilityLifesteal") / 100) * m.abilityDps;
+    s("BonusHealthRegen") + lifesteal.bullet * m.gunDps + lifesteal.spirit * m.abilityDps;
   let sustain = ((healPerSecond * FIGHT_SECONDS) / hp) * 100;
   sustain += CONDITIONAL * CHANNEL_HEAL_RATE * s("HealPercentAmount");
+  sustain += recoveryValue(gapHealHp(stats, m, innate), hp, m.ownedGapHeal);
   if (sustain) out.sustain = sustain;
 
   // mobility: exchange rate on % move speed, sprint and dash charges.
@@ -238,12 +349,25 @@ export function estimateFightValue(
   const speed = m.moveSpeed > 0 ? m.moveSpeed : 0;
   switch (e.unit) {
     case "heal": {
+      // A heal over time longer than the trade finishes in the gap (recovery).
+      // Only the part that ticks before the next trade (TRADE_GAP_SECONDS) counts.
       const regen = num(stats.RegenDuration);
       const landed = regen > 0 ? Math.min(1, FIGHT_SECONDS / regen) : 1;
-      return (q / hp) * 100 * ready * landed;
+      const tail =
+        regen > FIGHT_SECONDS ? Math.min(regen - FIGHT_SECONDS, TRADE_GAP_SECONDS) / regen : 0;
+      return ((q / hp) * 100 * landed + recoveryValue(q * tail, hp, m.ownedGapHeal)) * ready;
     }
-    case "healPerSecond":
-      return ((q * FIGHT_SECONDS * lasts) / hp) * 100 * ready;
+    case "healPerSecond": {
+      const afterTrade =
+        q > 0 && duration > FIGHT_SECONDS
+          ? Math.min(duration, FIGHT_SECONDS + TRADE_GAP_SECONDS) - FIGHT_SECONDS
+          : 0;
+      return (
+        (((q * FIGHT_SECONDS * lasts) / hp) * 100 +
+          recoveryValue(q * afterTrade, hp, m.ownedGapHeal)) *
+        ready
+      );
+    }
     case "healPerMeleeHit": {
       // Cooldown-gated ("your next melee attack heals"): at most one heal per
       // cooldown, and only when a melee lands.
