@@ -40,8 +40,9 @@ export interface HeroFightModel {
   gunDps: number;
   abilityDps: number;
   /**
-   * Ability DPS from abilities with charges: the only ones extra charges help
-   * (Extra Charge, Rapid Recharge). Omitted = all ability DPS, as before.
+   * Ability DPS weighted by each ability's charge credit (0-1, see
+   * heroDamage.abilityChargeCredit): the share extra charges help (Extra Charge,
+   * Rapid Recharge). Omitted = all ability DPS, as before.
    */
   chargedAbilityDps?: number;
 }

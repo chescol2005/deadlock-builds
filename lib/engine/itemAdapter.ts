@@ -18,8 +18,8 @@
 //   verified is expected and safe.
 
 import {
-  abilityDps,
   castsPerTrade,
+  chargedAbilityDps,
   TRADE_SECONDS,
   damageValues,
   HERO_RELATIVE_GUN_KEYS,
@@ -497,10 +497,7 @@ function deriveCategoryValues(
           moveSpeed: heroDamage.survival.moveSpeed,
           gunDps: dps.gun,
           abilityDps: dps.ability,
-          chargedAbilityDps: abilityDps(
-            heroDamage.abilities.filter((a) => a.charged),
-            heroDamage.spiritPower,
-          ),
+          chargedAbilityDps: chargedAbilityDps(heroDamage.abilities, heroDamage.spiritPower),
         }
       : null;
     for (const estimate of estimateEffectValues(stats)) {
