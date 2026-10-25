@@ -8,6 +8,7 @@
 
 import type { ItemAnalytics } from "../../analyticsStore";
 import type { HeroAbility, AbilityUpgradeTier } from "../../abilityCoefficients";
+import { calculateAbilityDamage, damagePerCastFactor } from "../../abilityCoefficients";
 import type { HeroBaseStats } from "../../heroStats";
 import type { Item } from "../../items";
 import {
@@ -4346,6 +4347,73 @@ console.log("\n24. Audit follow-ups: cumulative budgets, pooled reasons, capped 
       cov.value + pen.value > 0,
     "phaseItemTerm: the rarely-bought penalty is capped at half the coverage gain (never <= 0)",
     `coverage ${cov?.value}, penalty ${pen?.value}`,
+  );
+}
+
+console.log("\n26. Ability damage per cast (item scoring review C1, frozen live data)");
+{
+  const frozen = loadFrozen();
+  const ability = (hero: string, name: string) =>
+    frozen.kits.find((k) => k.name === hero)?.heroAbilities.find((a) => a.name === name);
+  const kitOf = (hero: string) => frozen.kits.find((k) => k.name === hero);
+
+  const lightning = ability("Seven", "Lightning Ball");
+  const siphon = ability("Abrams", "Siphon Life");
+  const surge = ability("Seven", "Power Surge");
+  const fixation = ability("Haze", "Fixation");
+  const jettison = ability("Deadman Danny", "Jettison Fuel");
+  assert(
+    lightning?.damageKey === "DPS" &&
+      lightning.damageSeconds === 5 &&
+      siphon?.damageKey === "DPS" &&
+      siphon.damageSeconds === 4 &&
+      surge?.damageKey === "DamagePerChain" &&
+      surge.damageSeconds === undefined,
+    "C1: DPS abilities carry their seconds per cast (Lightning Ball MaxLifetime 5, Siphon Life duration 4); per-hit keys don't",
+    JSON.stringify({ lightning: lightning?.damageSeconds, siphon: siphon?.damageSeconds }),
+  );
+  assert(
+    fixation?.baseDamage === null && fixation.damageKey === undefined,
+    "C1: a weapon modifier (Haze Fixation DamageBonusFixedPerStack) is not read as ability damage",
+  );
+  assert(
+    jettison?.damageKey === "ScorchDamage" && jettison.spiritScaling !== null,
+    "C1: with a spirit-scaled and a weapon-scaled damage property, the spirit one is the ability's",
+  );
+  assert(
+    damagePerCastFactor({ damageSeconds: 4 }) === 4 && damagePerCastFactor({}) === 1,
+    "C1: damagePerCastFactor is the seconds for a rate, 1 otherwise",
+  );
+
+  // Upgrades: flat bonuses to the ability's own key, scale bonuses to its coefficient.
+  if (siphon && lightning) {
+    const siphonT3 = calculateAbilityDamage(siphon, 3, 100, 0);
+    const lightningT3 = calculateAbilityDamage(lightning, 3, 0, 0);
+    assert(
+      siphonT3 !== null &&
+        Math.abs(siphonT3 - (22 + 0.6 * 100 + 18 + 0.12 * 100)) < 0.11 &&
+        lightningT3 === 75 + 58.5,
+      "C1: DPS upgrades apply (Siphon Life T3 +18 and +0.12 scaling; Lightning Ball T3 +58.5)",
+      `siphon ${siphonT3}, lightning ${lightningT3}`,
+    );
+  }
+
+  // The damage model prices one cast as rate x seconds.
+  const abrams = kitOf("Abrams");
+  const model = abrams
+    ? deriveHeroDamageModel({
+        baseStats: abrams.heroBaseStats,
+        abilities: abrams.heroAbilities,
+        boonLevel: 10,
+        spiritPower: 0,
+        accuracy: 0.5,
+      })
+    : undefined;
+  const siphonInModel = model?.abilities.find((a) => a.baseDamage === 22 * 4);
+  assert(
+    siphonInModel !== undefined && siphonInModel.spiritScaling === 0.6 * 4,
+    "C1: the hero damage model prices Siphon Life per cast (22 DPS x 4 s, scaling 0.6 x 4)",
+    JSON.stringify(model?.abilities),
   );
 }
 

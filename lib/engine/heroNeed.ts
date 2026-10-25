@@ -20,6 +20,7 @@
 // the dedicated comment at NEUTRAL_BASELINE's use for why, and do not treat
 // their stubbed value as measured signal.
 
+import { damagePerCastFactor } from "../abilityCoefficients";
 import type { HeroAbility } from "../abilityCoefficients";
 import type { HeroBaseStats } from "../heroStats";
 import { calculateStatsAtBoon } from "../heroStats";
@@ -210,8 +211,10 @@ function deriveAbilitySpiritShare(abilities: ReadonlyArray<HeroAbility>): number
   let weaponTotal = 0;
 
   for (const ability of abilities) {
-    if (ability.spiritScaling != null) spiritTotal += Math.abs(ability.spiritScaling);
-    if (ability.weaponScaling != null) weaponTotal += Math.abs(ability.weaponScaling);
+    // Per cast (C1): a DPS ability's coefficient applies for `damageSeconds`.
+    const perCast = damagePerCastFactor(ability);
+    if (ability.spiritScaling != null) spiritTotal += Math.abs(ability.spiritScaling) * perCast;
+    if (ability.weaponScaling != null) weaponTotal += Math.abs(ability.weaponScaling) * perCast;
   }
 
   if (spiritTotal + weaponTotal > 0) {

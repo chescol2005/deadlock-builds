@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { SignatureSlot, AbilityLevel, AbilityLevels } from "@/lib/deadlock";
 import type { HeroAbility } from "@/lib/abilityCoefficients";
-import { calculateAbilityDamage } from "@/lib/abilityCoefficients";
+import { calculateAbilityDamage, isDamageRate } from "@/lib/abilityCoefficients";
 import { ABILITY_SLOT_UNLOCK_SOULS } from "@/lib/boonSystem";
 import { Tooltip, InfoTooltip } from "@/app/components/Tooltip";
 
@@ -176,7 +176,9 @@ function AbilityCard({
               (ability.spiritScaling != null || ability.cooldown != null)
                 ? " · "
                 : null}
-              {ability.baseDamage != null ? `${ability.baseDamage} dmg` : null}
+              {ability.baseDamage != null
+                ? `${ability.baseDamage} ${isDamageRate(ability) ? "dmg/s" : "dmg"}`
+                : null}
             </div>
           ) : null}
         </div>
@@ -294,7 +296,9 @@ function AbilityCard({
             >
               {ability.baseDamage != null ? (
                 <div>
-                  <span style={{ opacity: 0.5 }}>Base Damage: </span>
+                  <span style={{ opacity: 0.5 }}>
+                    {isDamageRate(ability) ? "Damage per second: " : "Base Damage: "}
+                  </span>
                   <strong>{ability.baseDamage}</strong>
                 </div>
               ) : null}

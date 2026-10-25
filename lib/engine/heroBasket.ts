@@ -10,6 +10,7 @@
 // fetched here.
 
 import type { Item } from "../items";
+import { damagePerCastFactor } from "../abilityCoefficients";
 import type { HeroAbility } from "../abilityCoefficients";
 import type { HeroBaseStats } from "../heroStats";
 import { calculateStatsAtBoon } from "../heroStats";
@@ -295,11 +296,16 @@ export function deriveHeroDamageModel(input: {
   return {
     gun: { perShot, shotsPerSecond: rate, clip, reload, overhead },
     accuracy: input.accuracy,
-    abilities: input.abilities.map((a) => ({
-      baseDamage: a.baseDamage,
-      spiritScaling: a.spiritScaling,
-      cooldown: a.cooldown,
-    })),
+    // Per cast: a DPS ability deals its rate for `damageSeconds` (item scoring
+    // review C1; Siphon Life 22 DPS x 4 s, not 22).
+    abilities: input.abilities.map((a) => {
+      const perCast = damagePerCastFactor(a);
+      return {
+        baseDamage: a.baseDamage != null ? a.baseDamage * perCast : null,
+        spiritScaling: a.spiritScaling != null ? a.spiritScaling * perCast : null,
+        cooldown: a.cooldown,
+      };
+    }),
     spiritPower: input.spiritPower,
     ...(survivalKnown ? { survival: { maxHealth, moveSpeed } } : {}),
   };

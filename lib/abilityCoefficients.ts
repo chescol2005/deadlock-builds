@@ -9,6 +9,8 @@ export type AbilityUpgradeTier = {
   statChanges: Array<{
     stat: string;
     delta: string;
+    /** True when the bonus adds to the property's scaling, not its base value. */
+    scale?: boolean;
   }>;
 };
 
@@ -28,7 +30,28 @@ export type HeroAbility = {
   passive: string | null;
   active: string | null;
   upgrades: [AbilityUpgradeTier, AbilityUpgradeTier, AbilityUpgradeTier];
+  /** The property `baseDamage` was read from (e.g. "Damage", "DPS"). */
+  damageKey?: string;
+  /**
+   * Set when `baseDamage` / `spiritScaling` are a RATE (a DPS key): one cast
+   * deals them for this many seconds. Absent = per hit, or a rate whose
+   * duration the API doesn't give (then a cast counts as one second, as before).
+   */
+  damageSeconds?: number;
 };
+
+// Damage keys that are a rate: one cast deals the value per second.
+const PER_SECOND_DAMAGE = /(DPS|PerSecond)$/;
+
+/** True when the ability's damage is a per-second rate (a DPS key). */
+export function isDamageRate(ability: Pick<HeroAbility, "damageKey">): boolean {
+  return ability.damageKey != null && PER_SECOND_DAMAGE.test(ability.damageKey);
+}
+
+/** Damage per cast: base, or rate x seconds. Pure; see `damageSeconds`. */
+export function damagePerCastFactor(ability: Pick<HeroAbility, "damageSeconds">): number {
+  return ability.damageSeconds != null && ability.damageSeconds > 0 ? ability.damageSeconds : 1;
+}
 
 export const TIER_POINT_COSTS = [1, 2, 5] as const;
 
@@ -80,6 +103,7 @@ function buildUpgradeTier(
     entry?.property_upgrades?.map((pu) => ({
       stat: pu.name,
       delta: String(pu.bonus),
+      ...(pu.upgrade_type === "EAddToScale" ? { scale: true } : {}),
     })) ?? [];
 
   const description =
@@ -92,15 +116,47 @@ function buildUpgradeTier(
   return { pointCost, description, statChanges };
 }
 
+// Modifiers that carry a damage css class but are not the ability's own hit
+// (Abrams WeaponDamageBonus, Haze DamageBonusFixedPerStack, Wraith
+// SpadeDamageBonus, Lady Geist BloodSpillDPSPercent / SelfDamagePct).
+const NOT_ABILITY_DAMAGE = /(Percent|Pct|Bonus)/;
+// Where a rate's duration lives, in order of preference (data-verifier and live
+// API, 2026-10-25: Siphon Life AbilityDuration 4, Lightning Ball MaxLifetime 5,
+// Afterburn BurnDuration 3).
+const DAMAGE_SECONDS_KEYS = ["AbilityDuration", "MaxLifetime", "BurnDuration"] as const;
+
+function isSpiritScaled(p: {
+  scale_function?: { class_name?: string; specific_stat_scale_type?: string };
+}) {
+  const fn = p.scale_function;
+  return (
+    fn?.class_name === "scale_function_tech_damage" || fn?.specific_stat_scale_type === "ETechPower"
+  );
+}
+
 export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureSlot): HeroAbility {
   const props = raw.properties ?? {};
 
-  // Damage property — look for the first property with css_class containing "damage"
-  const damageProp = Object.values(props).find(
-    (p) =>
+  // The ability's own damage: a damage-class property with a value, not a
+  // modifier, preferring the spirit-scaled one when an ability has both (Deadman
+  // Danny's Jettison Fuel: ScorchDamage spirit, DPS weapon). Item scoring review
+  // C1 (docs/item-scoring-review.md §1.3): "the first damage-class property"
+  // picked modifiers and zero placeholders.
+  const damageEntries = Object.entries(props).filter(
+    ([key, p]) =>
       typeof p.css_class === "string" &&
-      (p.css_class.includes("tech_damage") || p.css_class.includes("bullet_damage")),
+      (p.css_class.includes("tech_damage") || p.css_class.includes("bullet_damage")) &&
+      !NOT_ABILITY_DAMAGE.test(key) &&
+      safeNum(p.value) != null &&
+      (safeNum(p.value) ?? 0) > 0,
   );
+  const damageEntry = damageEntries.find(([, p]) => isSpiritScaled(p)) ?? damageEntries[0];
+  const damageKey = damageEntry?.[0];
+  const damageProp = damageEntry?.[1];
+  const damageSeconds =
+    damageKey && PER_SECOND_DAMAGE.test(damageKey)
+      ? DAMAGE_SECONDS_KEYS.map((k) => safeNum(props[k]?.value)).find((v) => v != null && v > 0)
+      : undefined;
 
   const baseDamage = damageProp ? safeNum(damageProp.value) : null;
 
@@ -156,6 +212,8 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
     passive,
     active,
     upgrades,
+    ...(damageKey ? { damageKey } : {}),
+    ...(damageSeconds != null ? { damageSeconds } : {}),
   };
 }
 
@@ -221,11 +279,12 @@ export function calculateAbilityDamage(
   for (let tier = 0; tier < clampedLevel; tier++) {
     const upgrade = ability.upgrades[tier as 0 | 1 | 2];
     for (const change of upgrade.statChanges) {
-      // Only apply numeric damage bonuses keyed as "Damage"
-      if (change.stat === "Damage") {
-        const delta = parseFloat(change.delta);
-        if (Number.isFinite(delta)) damage += delta;
-      }
+      // Bonuses to the ability's own damage property (DPS, DamagePerChain...,
+      // not only "Damage"). A scale bonus adds to the spirit coefficient.
+      if (change.stat !== (ability.damageKey ?? "Damage")) continue;
+      const delta = parseFloat(change.delta);
+      if (!Number.isFinite(delta)) continue;
+      damage += change.scale ? spiritPower * delta : delta;
     }
   }
 
