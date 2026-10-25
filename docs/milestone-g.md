@@ -1,6 +1,6 @@
 # Milestone G: kit and sustain enrichment
 
-**Status:** APPROVED 2026-10-25. Per "Testing Expectations", no scoring
+**Status:** APPROVED 2026-10-25. **Done 2026-10-25** (PRs #108–#114); Milestone G closed. Per "Testing Expectations", no scoring
 code changes until these criteria are approved; change this doc first if an expectation
 needs to change.
 
@@ -291,3 +291,21 @@ Warden late).
 - **Baselines.** 36 of 72 changed (G4-4: table and baselines in one PR). Gained: Extra
   Stamina, Guardian Ward, Enduring Speed. Lost: Spirit Resilience, Superior Cooldown,
   Cultist Sacrifice.
+
+**G5: closing G (2026-10-25).**
+
+- The hero-tags mapping is retired (§2.1), and recorded in engine-design-notes.md.
+- `heroNeed.ts` now derives sustain from the kit, as a fallback.
+- CLAUDE.md marks G ✅ and lists the open follow-ups, among them enemy health over the
+  game (user, G2c).
+- Session record: `docs/session-2026-10-25-milestone-g.md`.
+
+**Milestone G overall (live, reference heroes):**
+
+| Measure     | Start of G | End     |
+| ----------- | ---------- | ------- |
+| M1          | 24 / 24    | 24 / 24 |
+| Mean L1     | 0.114      | 0.102   |
+| M3 (lower)  | 0.080      | 0.077   |
+| O2          | 0.760      | 0.816   |
+| Abrams late | 0.02       | 0.02    |

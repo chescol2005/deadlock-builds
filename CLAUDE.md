@@ -561,7 +561,10 @@ checklist enforced by convention, not by a bot:
   run rewrites `heroPhaseItems.json`; review its top early / mid items per hero
   ("What players on this hero buy" in engine-design-notes.md). After any refit,
   `npm run capture-inputs -- --tables-only` then `npm run baseline` shows what the
-  new tables change; commit the updated baselines with the refit.
+  new tables change; commit the updated baselines with the refit. Since G4 the stat
+  profile is fitted in each hero's fight-value units (`method.profileUnits`). The fitter
+  refuses to run without shot accuracy, and lists heroes it had to fit in item units
+  (`method.itemUnitHeroes`).
 - When `data-verifier` confirms a value changed, cite the source
   (deadlock.wiki page + date, or the exact API endpoint) directly in the
   code comment next to the changed constant — see `lib/boonSystem.ts`'s
@@ -652,24 +655,29 @@ build; the basket's soul budget is `boonSouls − cost of owned items`.
 | D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                                                                          |
 | E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` — see engine-design-notes.md                                                                                    |
 | F         | ✅ Closed | Measured item-pair term (`pairTerm`) + synergy audit; starter build; item scoring review (`docs/item-scoring-review.md`, R1–R4: baselines, value-scale fixes, `scoreItems` retired) |
-| G         | ⏸ Queued  | Need-vector enrichment (stretch) — full scope in engine-design-notes.md                                                                                                             |
+| G         | ✅ Closed | Kit and sustain enrichment: healing between trades, unpriced healing keys + Siphon Bullets, kit self-heal + heal amp, profile refit in fight-value units (`docs/milestone-g.md`)    |
 | M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                                                                        |
 
-### After Milestone F: open follow-ups
+### After Milestones F and G: open follow-ups
 
 Milestone F closed on 2026-10-25 with the item scoring review (PRs #101–#107; criteria,
-results and accepted gaps in `docs/item-scoring-review.md`). Open, in no fixed order:
+results and accepted gaps in `docs/item-scoring-review.md`). Milestone G closed the same
+day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
 
 - **Planned big items.** The greedy value-per-soul basket can't save up. Real early
   3,200 rushes (Seven, Lady Geist, Wraith: T1) and late tier-4 items are under-bought
   (§2.2 C5 / C6).
-- **Sustain over more than one trade.** Valuing healing over more than one trade comes
-  first. Then refit the phase stat profile in fight-value units (C4, measured and held
-  back: Abrams late 0.02 → 0.22).
 - **In-phase upgrades.** H2 keeps Rapid Rounds → Swift Striker (84% of real Haze players
   build it early) out of one phase.
 - **Real ability tiers.** Use BuildClient's actual ability tiers for upgrade-granted
-  charges, instead of the per-phase prior (R2c).
+  charges (R2c) and kit self-heal (G3), instead of the per-phase prior.
+- **Enemy health over the game.** `REFERENCE_ENEMY_HEALTH` (2,500) prices Toxic Bullets
+  and Siphon Bullets. Enemy health grows over the game, so both are under-priced late
+  (user, G2c): scale it with the boon level.
+- **Unmeasured healing constants.** `RECOVERY_WEIGHT`, `GAP_FARM_SHARE` and
+  `SITUATIONAL_HEAL_SHARE` are reasoned, not fitted (G2a / G2b).
+- **Unpriced healing.** Parry and kill heals have no measured rate
+  (`UNPRICED_HEALING_KEYS`). Heals against creeps between trades are not modelled.
 - **Item tags.** `Item.tags` are slot-derived and only feed the unwired staged pipeline.
 - **Narrow Hero Basket column.** Item names truncate in the 260 px right column of
   `/build` at 1366.

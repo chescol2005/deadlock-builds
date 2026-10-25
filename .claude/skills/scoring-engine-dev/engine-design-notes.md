@@ -73,7 +73,8 @@ output, not just the exit code.
   the data supports it (gun/spirit lean from summed `spiritScaling`/
   `weaponScaling` in `lib/abilityCoefficients.ts`; tankiness/mobility from
   cross-hero z-scored `HeroBaseStats`); explicitly stubbed neutral, not
-  faked, where it doesn't yet (sustain/utility — deferred to Milestone G)
+  faked, where it doesn't yet (sustain/utility — deferred to Milestone G; sustain now comes
+  from the kit, G3)
 - Basket selection (`lib/engine/basketSelect.ts::constructBasket()`) is
   greedy budgeted-maximum-coverage: marginal value per candidate =
   need-vector coverage gain (diminishing per category) + category-bonus
@@ -1792,8 +1793,15 @@ Remaining work:
 
 It is the measured counterpart to the hand-authored synergy table above.
 
-**G — need-vector enrichment (queued, stretch).** Parse
-`HeroAbility.upgrades[].statChanges` free text for a real sustain/lifesteal
-signal; hand-author a `hero.tags`/`hero_type`/`gun_tag` → category mapping
-(same upkeep shape as `GOAL_WEIGHTS_MAP`/`ANTI_SYNERGY_RULES`). Purely additive
-to the need vector, not a prerequisite for E or F.
+**G — closed 2026-10-25, re-scoped to kit and sustain enrichment** (`docs/milestone-g.md`).
+The queued scope fed the five non-family need categories, but the measured stat profile
+already sets those for every profiled hero. G instead fixed how sustain is valued:
+
+- healing between trades (G2a);
+- the unpriced healing keys and Siphon Bullets (G2b / G2c);
+- a hero's own self-healing and heal amp (G3, "A hero's own self-healing");
+- the profile refit in fight-value units (G4, "Profile in fight-value units").
+
+**The hero-tags mapping is retired.** `tags` are 116 distinct flavour words, some of them
+jokes. `hero_type` files spirit-heavy Infernus and Mina under marksman. `gun_tag` describes
+the weapon. None of them carries a sustain or role signal (data-verifier, 2026-10-25).
