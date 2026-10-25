@@ -228,6 +228,11 @@ When scaffolding new panels or components, follow these conventions:
 - Props are always typed with an explicit interface above the component
 - `useMemo` for all derived state — never `useState` for computed values
 - Tailwind only — no inline styles, no CSS modules
+- The site is dark-only (`color-scheme: dark` in `globals.css`, Work 3b): design
+  panels for the dark zinc + amber theme, never for a light one
+- Touch: tap targets get `pointer-coarse:min-h-10 pointer-coarse:min-w-10` (40px
+  on touch screens, desktop size unchanged); `InfoTooltip` opens on tap. `/build`
+  stacks its four panels below `xl` (Fixture 16)
 - Icon imports from `lucide-react` only (installed Milestone C — it was
   documented here before it was ever added to `package.json`; if a future
   convention doc references a package, verify it's actually installed)
@@ -665,8 +670,9 @@ are the recommendation numbers in `docs/competitive-analysis.md`):
    **2d UI** ✅ (StarterBuildPanel, plain-English reasons). Left for the scoring
    review: phase stat profile still in the old
    units, a few stat keys on heuristic weights, real 3,200 rushes (T1 known gaps).
-3. Per-page metadata / OG images (rec. 2) ✅ (3a: metadata, share previews,
-   sitemap) + mobile pass on `/build` (rec. 3, 3b next)
+3. ✅ Per-page metadata / OG images (rec. 2, 3a: metadata, share previews,
+   sitemap) + mobile pass on `/build` (rec. 3, 3b: stacked layout below xl, touch
+   drag and tap targets, dark-only theme)
 
 Then, **before marking F ✅ Closed**, do the item scoring review. Cover both
 suggestion paths: `lib/scoring/` (`scoreItems`, goal weights, anti-synergy) and
@@ -760,6 +766,10 @@ throwaway script for this — and if that pipeline changes, update the probe.
 15. Fail-open fetch `catch`: call `unstable_rethrow(err)` (from `next/navigation`)
     first. Next marks routes dynamic by throwing from `fetch`; swallowing it
     prerendered `/items` with zero items. Fixture 14 enforces this
+16. Drag-and-drop loops (React #185, production only): a droppable that opens on
+    hover must stay open while the drag is over its own children, or opening it
+    moves `over` onto a child, it closes, and dnd-kit re-renders forever
+    (`CollapsibleFixedSection`, Fixture 16). Test touch drags on a prod build
 
 ---
 

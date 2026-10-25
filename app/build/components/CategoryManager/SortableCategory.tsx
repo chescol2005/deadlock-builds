@@ -143,6 +143,7 @@ export function SortableCategory({
               transition: "color 0.12s",
             }}
             title="Delete category"
+            className="pointer-coarse:min-h-10 pointer-coarse:min-w-10"
             aria-label="Delete category"
           >
             ✕
@@ -161,6 +162,7 @@ export function SortableCategory({
               lineHeight: 1,
               flexShrink: 0,
             }}
+            className="touch-manipulation pointer-coarse:min-h-10 pointer-coarse:min-w-10"
             title="Drag to reorder"
             aria-label="Drag to reorder category"
           >

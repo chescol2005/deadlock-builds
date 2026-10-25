@@ -5,7 +5,8 @@ import {
   DndContext,
   closestCenter,
   MeasuringStrategy,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragOverlay,
@@ -136,7 +137,12 @@ export function CategoryManager({
   // veteran organizational concepts, not core to placing an item.
   simplified?: boolean;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // Mouse drags after 6px as before. Touch needs press-and-hold (250ms, 5px
+  // tolerance) so a swipe scrolls the page instead of starting a drag.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+  );
 
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 

@@ -1144,6 +1144,49 @@ async function run() {
   );
 
   // -----------------------------------------------
+  // Fixture 16: /build on phones, touch and theme (Work 3b)
+  // -----------------------------------------------
+  console.log("\n16. /build on phones, touch and theme");
+  const buildClientSrc = readFileSync("app/build/BuildClient.tsx", "utf-8");
+  assert(
+    !buildClientSrc.includes("gridTemplateColumns") &&
+      buildClientSrc.includes("grid-cols-1") &&
+      buildClientSrc.includes("xl:grid-cols-[280px_minmax(0,1fr)_300px_260px]"),
+    "/build layout stacks below xl (no fixed inline 4-column grid)",
+  );
+  assert(
+    (buildClientSrc.match(/className="order-\d/g) ?? []).length === 4,
+    "/build: all four panels carry a stacking order for narrow screens",
+  );
+  const dndSrc = readFileSync("app/build/components/CategoryManager/index.tsx", "utf-8");
+  assert(
+    /useSensor\(TouchSensor, \{ activationConstraint: \{ delay: \d+, tolerance: \d+ \} \}\)/.test(
+      dndSrc,
+    ) &&
+      dndSrc.includes("useSensor(MouseSensor") &&
+      !dndSrc.includes("PointerSensor"),
+    "game-plan drag: press-and-hold on touch (a swipe scrolls), distance drag on mouse",
+  );
+  const sectionsSrc = readFileSync("app/build/components/CategoryManager/Sections.tsx", "utf-8");
+  assert(
+    /showContent = !collapsed \|\| isOver \|\| overOwnItem/.test(sectionsSrc),
+    "a phase section stays open while a drag hovers its own items (else open/close loops, React #185)",
+  );
+  const tooltipSrc = readFileSync("app/components/Tooltip.tsx", "utf-8");
+  assert(
+    tooltipSrc.includes("onClick") &&
+      tooltipSrc.includes('"pointerdown"') &&
+      tooltipSrc.includes('"Escape"') &&
+      tooltipSrc.includes("pointer-coarse:"),
+    "InfoTooltip opens on tap and closes on an outside tap or Escape (touch has no hover)",
+  );
+  const globalsCss = readFileSync("app/globals.css", "utf-8");
+  assert(
+    globalsCss.includes("color-scheme: dark") && !globalsCss.includes("prefers-color-scheme"),
+    "site is dark-only (panels are designed dark; no light-mode switch)",
+  );
+
+  // -----------------------------------------------
   // Summary
   // -----------------------------------------------
   console.log(`\n=== ${passed} passed, ${failed} failed ===`);

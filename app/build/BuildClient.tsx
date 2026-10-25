@@ -561,9 +561,9 @@ export default function BuildClient({
   const ultimateUnlocked = manualBoonLevel >= 7;
 
   return (
-    <main style={{ padding: 32 }}>
-      <header style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0 }}>Build</h1>
+    <main className="px-4 py-6 md:p-8">
+      <header className="flex flex-wrap items-center gap-3">
+        <h1 className="m-0 text-2xl font-bold">Build</h1>
 
         <select
           value={heroId}
@@ -578,7 +578,7 @@ export default function BuildClient({
             if (!next) router.push("/build");
             else router.push(`/build/${next}`);
           }}
-          style={{ padding: 8, borderRadius: 8 }}
+          className="max-w-full rounded-lg border border-white/20 bg-zinc-900 p-2"
         >
           <option value="">Select a hero…</option>
           {heroes.map((h) => (
@@ -628,7 +628,7 @@ export default function BuildClient({
         ) : null}
 
         {heroId ? (
-          <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 8 }}>
+          <div className="flex flex-wrap items-center gap-1.5 md:ml-2">
             <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>Goal:</span>
             {GOALS.map(({ value, label }) => (
               <button
@@ -661,15 +661,7 @@ export default function BuildClient({
         ) : null}
 
         {heroId ? (
-          <div
-            style={{
-              marginLeft: "auto",
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              position: "relative",
-            }}
-          >
+          <div className="relative flex flex-wrap items-center gap-2 sm:ml-auto">
             <span style={{ fontSize: 12, opacity: 0.5 }}>
               {activeCount}/{MAX_ACTIVE_ITEMS} active · {buildItems.length} items
             </span>
@@ -713,18 +705,15 @@ export default function BuildClient({
               {copyState === "copied" ? "Copied!" : "Copy Share Link"}
             </button>
             {copyState === "failed" && failedUrl ? (
+              // Left-aligned on phones (where this row wraps to the start),
+              // right-aligned from sm, never wider than the screen.
               <div
+                className="absolute top-[calc(100%+8px)] left-0 z-50 w-[min(400px,calc(100vw-2rem))] sm:right-0 sm:left-auto"
                 style={{
-                  position: "absolute",
-                  top: "calc(100% + 8px)",
-                  right: 0,
                   background: "#1e1e2e",
                   border: "1px solid rgba(255,255,255,0.2)",
                   borderRadius: 8,
                   padding: "10px 14px",
-                  zIndex: 50,
-                  minWidth: 320,
-                  maxWidth: 400,
                 }}
               >
                 <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
@@ -755,18 +744,13 @@ export default function BuildClient({
       {!heroId ? (
         <BuildEmptyState />
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "280px minmax(0, 1fr) 300px 260px",
-            gap: 0,
-            marginTop: 24,
-            alignItems: "start",
-            justifyContent: "stretch",
-          }}
-        >
+        // Four columns from xl (1280px). Below that the panels stack: build +
+        // starter, then boon level + hero stats + abilities (the boon level
+        // drives everything after it), active build + summary, suggestions.
+        // Two columns from md, one on phones.
+        <div className="mt-6 grid grid-cols-1 items-start gap-6 md:grid-cols-2 xl:grid-cols-[280px_minmax(0,1fr)_300px_260px] xl:gap-0">
           {/* Left panel */}
-          <div>
+          <div className="order-2 min-w-0 md:col-span-2 xl:order-none xl:col-span-1">
             {/* Boon level control */}
             <div
               style={{
@@ -785,6 +769,8 @@ export default function BuildClient({
                 <InfoTooltip content="Boon Level simulates how far into a match you are — it estimates the souls you've earned and unlocks ability points, ability slots, and stat scaling as it rises. Use it to preview your build at different points in a game." />
                 <button
                   onClick={() => setManualBoonLevel(Math.max(0, manualBoonLevel - 1))}
+                  aria-label="Lower boon level"
+                  className="pointer-coarse:min-h-10 pointer-coarse:min-w-10"
                   style={{
                     width: 24,
                     height: 24,
@@ -806,6 +792,8 @@ export default function BuildClient({
                 </span>
                 <button
                   onClick={() => setManualBoonLevel(Math.min(35, manualBoonLevel + 1))}
+                  aria-label="Raise boon level"
+                  className="pointer-coarse:min-h-10 pointer-coarse:min-w-10"
                   style={{
                     width: 24,
                     height: 24,
@@ -882,7 +870,7 @@ export default function BuildClient({
           </div>
 
           {/* Center panel */}
-          <div style={{ marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="order-1 min-w-0 md:col-span-2 xl:order-none xl:col-span-1 xl:ml-3 xl:border-l xl:border-white/[0.08] xl:pl-3">
             {buildItems.length === 0 ? (
               <div
                 style={{
@@ -933,7 +921,7 @@ export default function BuildClient({
           </div>
 
           {/* Right panel */}
-          <div style={{ marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="order-3 min-w-0 xl:order-none xl:ml-3 xl:border-l xl:border-white/[0.08] xl:pl-3">
             <BuildSummaryPanel
               selectedItems={buildItems}
               assignments={itemAssignments}
@@ -949,7 +937,7 @@ export default function BuildClient({
           </div>
 
           {/* Far right panel */}
-          <div style={{ marginLeft: 12, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="order-4 min-w-0 xl:order-none xl:ml-3 xl:border-l xl:border-white/[0.08] xl:pl-3">
             <SuggestedItemsPanel
               allItems={allItems}
               currentBuild={buildItems}
