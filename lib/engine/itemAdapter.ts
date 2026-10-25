@@ -498,6 +498,9 @@ function deriveCategoryValues(
           gunDps: dps.gun,
           abilityDps: dps.ability,
           chargedAbilityDps: chargedAbilityDps(heroDamage.abilities, heroDamage.spiritPower),
+          ...(heroDamage.survival.ownedGapHeal !== undefined
+            ? { ownedGapHeal: heroDamage.survival.ownedGapHeal }
+            : {}),
         }
       : null;
     for (const estimate of estimateEffectValues(stats)) {

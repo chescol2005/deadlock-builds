@@ -79,9 +79,11 @@ export interface HeroDamageModel {
   /**
    * Max health at this boon level and base move speed (m/s), for the
    * fight-value model (heroFight.ts). Omitted: non-damage stats keep the
-   * hero-agnostic valuation.
+   * hero-agnostic valuation. `ownedGapHeal`: HP the hero's base regen and the
+   * owned build already restore between trades (heroFight.ownedGapHeal), so an
+   * item's recovery is priced on top of it (Milestone G2a).
    */
-  survival?: { maxHealth: number; moveSpeed: number };
+  survival?: { maxHealth: number; moveSpeed: number; ownedGapHeal?: number };
 }
 
 /**

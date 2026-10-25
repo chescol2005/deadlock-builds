@@ -1369,7 +1369,7 @@ raw value), so it only ever set where the curve bends.
 - **Everything else** (`heroFight.ts`): +1% effective HP is worth +1% DPS, because a 1v1
   is won on DPS × effective HP. Health is % of max HP; resist is the effective-HP gain
   against a 50/50 bullet/spirit mix; a barrier is raw HP (absorbed after resist); healing
-  is HP over the trade; CC is the share of the trade the enemy can't fight. Mobility,
+  is HP over the trade plus recovery before the next one (Milestone G2a, below); CC is the share of the trade the enemy can't fight. Mobility,
   utility and economy have no identity and use named exchange rates (`FARM_TO_FIGHT`,
   `MOBILITY_PER_SPEED_PERCENT`, ...). Each effect estimate carries a `unit` + `quantity`
   (`effectEstimator.ts`) and converts in `estimateFightValue`. Engine fixture 21l checks a
@@ -1463,6 +1463,42 @@ Alone, the value scale does not meet the phase gate (live, 2026-10-24: M1 12/24)
 correct values, a hero's strongest category wins every early pick (Haze opened 86% gun).
 The value scale decides WHICH items; "Spend like real players" (below) decides how much
 of each shop.
+
+### Healing between trades (Milestone G2a, 2026-10-25)
+
+Healing over one 10 s trade made regen and lifesteal worth little; that sank the C4
+profile refit (`docs/item-scoring-review.md` §2.2). `heroFight.ts` now adds RECOVERY:
+HP restored in the 30 s gap (`TRADE_GAP_SECONDS`) before the next trade
+(`docs/milestone-g.md` §3.1).
+
+- **What heals in the gap.**
+  - Regen ticks the whole gap.
+  - Out-of-combat regen ticks only in the quiet stretch (`1 − GAP_FARM_SHARE` of the gap),
+    after its delay _inside_ that stretch: 4 s, or an item's own `RestoreDelay`
+    (Fortitude 10 s).
+  - Lifesteal heals only while farming, at the non-hero rate (bullet 60%, spirit 40%).
+  - A heal over time longer than the trade finishes in the gap.
+- **Weight and cap.** Recovery HP is worth `RECOVERY_WEIGHT` (0.5) of in-trade HP and
+  saturates at `RECOVERY_CAP_PCT` (50% of max HP, about what a trade costs).
+- **Unmeasured judgment values.** `RECOVERY_WEIGHT`, `RECOVERY_CAP_PCT` and
+  `GAP_FARM_SHARE` are reasoned, not fitted. G4 (the profile refit) is where they get
+  tested against real play.
+- **The cap is for the whole build.** Recovery is marginal over `ownedGapHeal`: the
+  hero's base regen plus the owned items (`withOwnedGapHeal` in `heroBasket.ts`, from the
+  already-owned build only). Out-of-combat regen no longer counts inside a trade (hero
+  damage holds it off for 4 s). `ownedGapHeal` reads the owned items' raw stats only:
+  estimator heals (heal-over-time actives) and spirit scaling are left out. That
+  slightly under-counts owned healing, so a candidate's recovery is slightly
+  over-credited.
+- **Bug that already happened once.** The first version took the delay off the whole gap
+  and then halved it. That gave Fortitude 10 s of regen (22.5% of HP), so it beat Colossus
+  for Abrams late and freed two slots for gun items: Abrams late moved 0.02 → 0.22 and
+  mean L1 0.114 → 0.130. The delay runs inside the quiet stretch (Fortitude: 5 s).
+- **Result.** Live gates unchanged (M1 24/24, mean L1 0.114, M3 0.080, O2 0.760). 14 of 72
+  baselines changed: 10 headline relabels (Extra Regen, Healing Booster), two with term
+  values only, and three late swaps (Lady
+  Geist Enchanter's Emblem → Bullet Lifesteal, Seven Greater Expansion → Superior
+  Cooldown, Wraith Mystic Vulnerability → Arcane Surge). Engine fixture 28.
 
 ## Spend like real players (shop budgets, laning tempo, buy order)
 

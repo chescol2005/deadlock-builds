@@ -15,7 +15,8 @@ import type { HeroAbility } from "../abilityCoefficients";
 import type { HeroBaseStats } from "../heroStats";
 import { calculateStatsAtBoon } from "../heroStats";
 import type { HeroDamageModel } from "./heroDamage";
-import { abilityChargeCredit } from "./heroDamage";
+import { abilityChargeCredit, heroDps } from "./heroDamage";
+import { ownedGapHeal } from "./heroFight";
 import { BOON_THRESHOLDS } from "../boonSystem";
 import type { HeroAccuracy, ItemAnalytics } from "../analyticsStore";
 import { resolveAccuracyAtRank } from "../analyticsStore";
@@ -159,7 +160,7 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   // of THIS hero's fight value, through its own weapon, ability kit, health
   // and move speed (heroDamage.ts, heroFight.ts). Undefined model (no usable
   // weapon data) = the hero-agnostic valuation.
-  const heroDamage = deriveHeroDamageModel({
+  const damageModel = deriveHeroDamageModel({
     baseStats: heroBaseStats,
     abilities: heroAbilities,
     boonLevel: input.boonLevel,
@@ -168,6 +169,10 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     // The phase this basket shops in, so charges are priced in the same phase.
     phase: phaseForSouls(input.souls),
   });
+  // Candidates' recovery is priced on top of what the owned build already
+  // heals; owned items on top of base regen only, never on top of themselves.
+  const heroDamage = withOwnedGapHeal(damageModel, heroBaseStats.healthRegen, ownedItems);
+  const ownedHeroDamage = withOwnedGapHeal(damageModel, heroBaseStats.healthRegen, []);
   const valuation = {
     spiritPower: input.spiritPower,
     boonLevel: input.boonLevel,
@@ -179,7 +184,10 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   );
   // Owned items, valued the same way: they seed the basket's coverage and
   // investment souls, and an upgrade candidate can consume them (PR 2c).
-  const ownedCandidates = toItemCandidates(ownedItems, valuation);
+  const ownedCandidates = toItemCandidates(ownedItems, {
+    ...valuation,
+    ...(ownedHeroDamage ? { heroDamage: ownedHeroDamage } : {}),
+  });
 
   const committed = ownedItems.reduce((sum, i) => sum + i.cost, 0);
 
@@ -260,6 +268,30 @@ function resolveHeroAccuracy(
     .filter((a) => Number.isFinite(a) && a > 0)
     .sort((a, b) => a - b);
   return known.length > 0 ? Math.min(1, known[Math.floor(known.length / 2)]) : 1;
+}
+
+/**
+ * The model with `survival.ownedGapHeal` set: HP the hero's base regen and the
+ * owned items restore between trades, so a candidate's recovery is priced on
+ * top of it (Milestone G2a). From the hero and the ALREADY-OWNED build only.
+ */
+export function withOwnedGapHeal(
+  model: HeroDamageModel | undefined,
+  baseRegen: number,
+  ownedItems: ReadonlyArray<Item>,
+): HeroDamageModel | undefined {
+  if (!model?.survival) return model;
+  const dps = heroDps(model);
+  // A component another owned item upgrades from was consumed: count it once.
+  const consumed = new Set(ownedItems.flatMap((i) => i.componentItems ?? []));
+  const active = ownedItems.filter((i) => !consumed.has(i.id));
+  const healHp = ownedGapHeal(baseRegen, active, {
+    maxHealth: model.survival.maxHealth,
+    moveSpeed: model.survival.moveSpeed,
+    gunDps: dps.gun,
+    abilityDps: dps.ability,
+  });
+  return { ...model, survival: { ...model.survival, ownedGapHeal: healHp } };
 }
 
 /**

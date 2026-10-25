@@ -103,9 +103,17 @@ import {
   UPGRADE_CHARGE_CREDIT,
   abilityChargeCredit,
 } from "../heroDamage";
-import { estimateFightValue, fightValues } from "../heroFight";
+import {
+  estimateFightValue,
+  fightValues,
+  gapHealHp,
+  ownedGapHeal,
+  RECOVERY_CAP_PCT,
+  RECOVERY_WEIGHT,
+  recoveryValue,
+} from "../heroFight";
 import { normalizeItem } from "../../itemNormalizer";
-import { deriveHeroDamageModel } from "../heroBasket";
+import { deriveHeroDamageModel, withOwnedGapHeal } from "../heroBasket";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
 import { resolveScaledStats, toItemCandidate } from "../itemAdapter";
@@ -4738,6 +4746,162 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
       near(headshot, 45 * 0.5 * 0.7),
     "C3: no damage model: a timed, non-innate fire rate is conditional; a cooldown headshot is a flat proc",
     `fire rate ${fireRate(undefined)} / innate ${fireRate(["BonusFireRate"])}, headshot ${headshot}`,
+  );
+}
+
+console.log("\n28. Healing between trades (Milestone G2a, docs/milestone-g.md §3.1)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const fm = { maxHealth: 1000, moveSpeed: 7, gunDps: 30, abilityDps: 10 };
+
+  // G2-4: damage, health, resist and mobility keep their value, and what the
+  // build already heals does not touch them.
+  const nonHeal = { BonusHealth: 100, BulletResist: 20, BonusMoveSpeed: 1, CooldownReduction: 10 };
+  const plain = fightValues(nonHeal, fm);
+  assert(
+    plain.sustain === undefined &&
+      JSON.stringify(fightValues(nonHeal, { ...fm, ownedGapHeal: 500 })) ===
+        JSON.stringify(plain) &&
+      near(plain.bonusHealth ?? 0, 10) &&
+      near(plain.resist ?? 0, (1 / (0.5 * 0.8 + 0.5) - 1) * 100),
+    "G2-4: non-healing stats keep their value; owned healing does not change them",
+    JSON.stringify(plain),
+  );
+
+  // G2-1: regen counts in the trade AND in the 30 s gap; out-of-combat regen
+  // only in the gap's quiet stretch (15 s), after its 4 s delay.
+  const regen = fightValues({ BonusHealthRegen: 3 }, fm).sustain ?? 0;
+  const ooc = fightValues({ OutOfCombatHealthRegen: 2 }, fm).sustain ?? 0;
+  assert(
+    near(regen, 3 + recoveryValue(90, 1000)) &&
+      near(gapHealHp({ OutOfCombatHealthRegen: 2 }, fm), 2 * 11) &&
+      near(ooc, recoveryValue(22, 1000)),
+    "G2-1: regen = trade + gap recovery; out-of-combat regen only after its delay in the quiet stretch",
+    `regen ${regen}, out of combat ${ooc}`,
+  );
+
+  // Fortitude: its own RestoreDelay (10 s) wins over the 4 s default.
+  const fortitude = gapHealHp({ HealLifePercentOutOfCombat: 2.25, RestoreDelay: 10 }, fm);
+  assert(
+    near(fortitude, 22.5 * 5),
+    "G2-1: an item's RestoreDelay (Fortitude 10 s) replaces the 4 s out-of-combat delay",
+    `${fortitude}`,
+  );
+
+  // G2-3: lifesteal heals at full rate in the trade; in the gap only while
+  // farming, at the non-hero rate (bullet 60%).
+  const ls = fightValues({ BulletLifestealPercent: 10 }, fm).sustain ?? 0;
+  assert(
+    near(ls, ((0.1 * 30 * 10) / 1000) * 100 + recoveryValue(0.5 * 30 * 0.1 * 0.6 * 30, 1000)),
+    "G2-3: lifesteal = full rate in the trade + farming share of the gap at the non-hero rate",
+    `${ls}`,
+  );
+
+  // G2-3 (refactored lifesteal): spirit lifesteal on a timed item is
+  // conditional (0.4) unless innate; imbued lifesteal is always conditional.
+  const spiritLs = (stats: Record<string, number>, innate?: ReadonlySet<string>) =>
+    fightValues(stats, fm, innate).sustain ?? 0;
+  const lsGap = (share: number) => recoveryValue(0.5 * 30 * share * 0.4 * 10, 1000);
+  assert(
+    near(
+      spiritLs({ AbilityLifestealPercentHero: 20, AbilityCooldown: 10 }),
+      0.08 * 10 + lsGap(0.08),
+    ) &&
+      near(
+        spiritLs(
+          { AbilityLifestealPercentHero: 20, AbilityCooldown: 10 },
+          new Set(["AbilityLifestealPercentHero"]),
+        ),
+        0.2 * 10 + lsGap(0.2),
+      ) &&
+      near(spiritLs({ ImbueAbilityLifesteal: 22 }), 0.088 * 10 + lsGap(0.088)),
+    "G2-3: timed spirit lifesteal is conditional unless innate; imbued lifesteal is conditional",
+  );
+
+  // A self-drain (negative heal per second) gets no recovery: in-trade cost only.
+  const drainStats = { HealthDrainedPerSecond: 50, AbilityDuration: 20 };
+  const drain = estimateEffectValues(drainStats).find((e) => e.unit === "healPerSecond");
+  const dq = drain?.quantity ?? 0;
+  assert(
+    drain !== undefined &&
+      dq < 0 &&
+      near(estimateFightValue(drain, drainStats, fm) ?? 0, ((dq * 10) / 1000) * 100),
+    "G2-1: a self-drain outlasting the trade costs only in the trade, never negative recovery",
+  );
+
+  // G2-2 / G2-5: recovery grows with healing, flattens toward the cap, and the
+  // cap is for the whole build (owned healing lowers an item's recovery).
+  const half = recoveryValue(500, 1000);
+  const full = recoveryValue(1000, 1000);
+  assert(
+    full > half &&
+      full < 2 * half &&
+      recoveryValue(1e6, 1000) <= RECOVERY_WEIGHT * RECOVERY_CAP_PCT &&
+      Math.abs(recoveryValue(10, 1000) - RECOVERY_WEIGHT) < 0.01 &&
+      recoveryValue(200, 1000, 400) < recoveryValue(200, 1000) &&
+      (fightValues({ BonusHealthRegen: 3 }, { ...fm, ownedGapHeal: 400 }).sustain ?? 0) < regen,
+    "G2-2/G2-5: recovery is concave, capped, about linear while small, and marginal over owned healing",
+    `half ${half}, full ${full}`,
+  );
+
+  // A heal over time longer than the trade finishes in the gap.
+  const hotStats = { TotalHealthRegen: 200, RegenDuration: 20 };
+  const hot = estimateEffectValues(hotStats).find((e) => e.unit === "heal");
+  const hotValue = hot ? (estimateFightValue(hot, hotStats, fm) ?? 0) : 0;
+  const q = hot?.quantity ?? 0;
+  assert(
+    hot !== undefined && near(hotValue, (q / 1000) * 100 * 0.5 + recoveryValue(q * 0.5, 1000)),
+    "G2-1: a 20 s heal over time lands half in the trade, the rest as recovery",
+    `${hotValue}`,
+  );
+
+  // ownedGapHeal: the hero's base regen (always on) plus owned items' gap healing.
+  assert(
+    near(
+      ownedGapHeal(2, [{ stats: { BonusHealthRegen: 3 } }, { stats: { BonusHealth: 100 } }], fm),
+      2 * 30 + 3 * 30,
+    ),
+    "ownedGapHeal: base regen and owned items' regen over the 30 s gap",
+  );
+
+  // Production wiring: withOwnedGapHeal (runHeroBasket) sets survival.ownedGapHeal
+  // from base regen + OWNED items, and itemAdapter passes it to the fight model,
+  // so owning regen lowers a candidate regen item's sustain value.
+  const model: HeroDamageModel = {
+    gun: { perShot: 10, shotsPerSecond: 3, clip: 20, reload: 2, overhead: 0 },
+    accuracy: 1,
+    abilities: [{ baseDamage: 100, spiritScaling: 1, cooldown: 10 }],
+    spiritPower: 0,
+    survival: { maxHealth: 1000, moveSpeed: 7 },
+  };
+  const regenItem = (id: string): Item => ({
+    id,
+    numericId: 9901,
+    name: id,
+    category: "vitality",
+    tier: 1,
+    cost: 800,
+    tags: [],
+    stats: { BonusHealthRegen: 3 },
+    statScaling: {},
+  });
+  const sustainWith = (m: HeroDamageModel | undefined) =>
+    toItemCandidate(regenItem("g2_candidate"), {
+      spiritPower: 0,
+      boonLevel: 10,
+      ...(m ? { heroDamage: m } : {}),
+    }).categoryValues.sustain;
+  const ownsRegen = withOwnedGapHeal(model, 2, [regenItem("g2_owned")]);
+  const ownsNothing = withOwnedGapHeal(model, 2, []);
+  const noSurvival: HeroDamageModel = { ...model, survival: undefined };
+  assert(
+    ownsRegen?.survival?.ownedGapHeal === 2 * 30 + 3 * 30 &&
+      ownsNothing?.survival?.ownedGapHeal === 2 * 30 &&
+      sustainWith(ownsRegen) < sustainWith(ownsNothing) &&
+      withOwnedGapHeal(undefined, 2, []) === undefined &&
+      withOwnedGapHeal(noSurvival, 2, []) === noSurvival,
+    "G2-2 wiring: owned regen lowers a candidate's recovery; no model / no survival pass through",
+    `owns regen ${sustainWith(ownsRegen)}, owns nothing ${sustainWith(ownsNothing)}`,
   );
 }
 
