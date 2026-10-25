@@ -213,6 +213,7 @@ export function SortableItem({
         transition: "background 0.12s, color 0.12s",
         lineHeight: 1,
       }}
+      className="pointer-coarse:min-h-10 pointer-coarse:min-w-10"
       aria-label={`Remove ${item.name}`}
     >
       ✕
@@ -242,6 +243,7 @@ export function SortableItem({
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      className="touch-manipulation"
       {...attributes}
       {...listeners}
     >
@@ -336,6 +338,7 @@ export function DraggableFixedItem({
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      className="touch-manipulation"
       {...attributes}
       {...listeners}
     >
@@ -374,6 +377,7 @@ export function DraggableFixedItem({
             transition: "background 0.12s, color 0.12s",
             lineHeight: 1,
           }}
+          className="pointer-coarse:min-h-10 pointer-coarse:min-w-10"
           aria-label={`Remove ${item.name} from section`}
         >
           ↩
@@ -397,6 +401,7 @@ export function DraggableFixedItem({
             transition: "background 0.12s, color 0.12s",
             lineHeight: 1,
           }}
+          className="pointer-coarse:min-h-10 pointer-coarse:min-w-10"
           aria-label={`Remove ${item.name} from build`}
         >
           ✕

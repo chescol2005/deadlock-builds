@@ -204,9 +204,8 @@ function AbilityCard({
               <button
                 onClick={() => onLevelChange(slot, (level - 1) as AbilityLevel)}
                 disabled={!canDecrement}
+                className="h-6 w-6 pointer-coarse:min-h-10 pointer-coarse:min-w-10"
                 style={{
-                  width: 24,
-                  height: 24,
                   borderRadius: 5,
                   border: "1px solid rgba(255,255,255,0.2)",
                   background: "transparent",
@@ -237,9 +236,8 @@ function AbilityCard({
                 <button
                   onClick={() => onLevelChange(slot, (level + 1) as AbilityLevel)}
                   disabled={!canIncrement}
+                  className="h-6 w-6 pointer-coarse:min-h-10 pointer-coarse:min-w-10"
                   style={{
-                    width: 24,
-                    height: 24,
                     borderRadius: 5,
                     border: "1px solid rgba(255,255,255,0.2)",
                     background: "transparent",

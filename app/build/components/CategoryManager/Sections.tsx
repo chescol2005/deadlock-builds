@@ -40,9 +40,15 @@ export function CollapsibleFixedSection({
   onToggleOptional?: (itemId: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(items.length === 0);
-  const { setNodeRef, isOver } = useDroppable({ id: zoneId });
+  const { setNodeRef, isOver, over } = useDroppable({ id: zoneId });
 
-  const showContent = !collapsed || isOver;
+  // A collapsed section opens while a drag hovers it, and must STAY open while
+  // the drag hovers one of its own items. Otherwise opening it reveals those
+  // items, `over` moves onto one, the zone is no longer hovered, it closes, the
+  // items vanish, `over` moves back... and that flip loops until React stops
+  // with error #185 (seen on every phone drag in production).
+  const overOwnItem = over !== null && items.some((it) => it.id === over.id);
+  const showContent = !collapsed || isOver || overOwnItem;
 
   return (
     <div
@@ -82,7 +88,7 @@ export function CollapsibleFixedSection({
         <span style={{ fontWeight: 700, fontSize: 14, flex: 1, color: accentColor }}>{label}</span>
         {items.length > 0 ? <span style={{ fontSize: 12, opacity: 0.6 }}>{items.length}</span> : null}
         {headerExtra ? <span style={{ fontSize: 11, opacity: 0.6 }}>{headerExtra}</span> : null}
-        <span style={{ fontSize: 11, opacity: 0.45 }}>{collapsed && !isOver ? "▶" : "▼"}</span>
+        <span style={{ fontSize: 11, opacity: 0.45 }}>{showContent ? "▼" : "▶"}</span>
       </button>
 
       {/* Drop zone + sortable content */}

@@ -40,10 +40,10 @@ export function StarButton({
           lineHeight: 1,
           color: isActive ? "#facc15" : "rgba(255,255,255,0.3)",
           opacity: disabled ? 0.35 : 1,
-          width: 22,
           textAlign: "center",
           transition: "color 0.12s, opacity 0.12s",
         }}
+        className="w-[22px] pointer-coarse:min-h-10 pointer-coarse:min-w-10"
       >
         {isActive ? "★" : "☆"}
       </button>
@@ -75,10 +75,10 @@ export function SellButton({ isSell, onToggle }: { isSell: boolean; onToggle: ()
           fontSize: 13,
           lineHeight: 1,
           color: isSell ? "#f87171" : "rgba(255,255,255,0.22)",
-          width: 18,
           textAlign: "center",
           transition: "color 0.12s",
         }}
+        className="w-[18px] pointer-coarse:min-h-10 pointer-coarse:min-w-10"
       >
         💰
       </button>
@@ -118,10 +118,10 @@ export function OptionalButton({
           fontWeight: 700,
           lineHeight: 1,
           color: isOptional ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.2)",
-          width: 18,
           textAlign: "center",
           transition: "color 0.12s, border-color 0.12s",
         }}
+        className="w-[18px] pointer-coarse:min-h-10 pointer-coarse:min-w-10"
       >
         ?
       </button>

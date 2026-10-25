@@ -92,6 +92,7 @@ export function ItemBrowser({
                   letterSpacing: 0.2,
                   cursor: "pointer",
                 }}
+                className="pointer-coarse:min-h-10"
               >
                 {t.label}
               </button>
@@ -232,7 +233,6 @@ export function ItemBrowser({
                           onClick={() => onToggle(it)}
                           disabled={!isSelected && slotsFull}
                           style={{
-                            width: 96,
                             flexShrink: 0,
                             padding: "5px 6px",
                             borderRadius: 8,
@@ -249,6 +249,7 @@ export function ItemBrowser({
                             whiteSpace: "nowrap",
                             textAlign: "center",
                           }}
+                          className="w-24 pointer-coarse:min-h-10"
                         >
                           {isSelected
                             ? "Added"
