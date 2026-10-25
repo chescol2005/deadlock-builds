@@ -196,3 +196,33 @@ upgrades (H2), real ability tiers for charge credit.
   - The effect: Fortitude got 22.5% of HP and beat Colossus for Abrams late. Abrams late
     moved 0.02 → 0.22, Infernus mid 0.12 → 0.25, and the mean L1 rose to 0.130.
   - The fix: the delay now runs inside the quiet stretch of the gap.
+
+**G2b: unpriced healing keys (2026-10-25).** Shipped.
+
+- **Priced:**
+  - Vampiric Burst, Spiritual Overflow and Infuser lifesteal;
+  - Restorative Shot, Radiant Regeneration, Dispel Magic and Veil Walker heals, per proc
+    per cooldown; the last two are situational (0.4);
+  - Headhunter's % max HP per headshot, scaled by the hero's gun share;
+  - Lifestrike's fixed heal per melee hit;
+  - Mystic / Radiant Regeneration.
+  - Timed lifesteal counts in the trade, not between trades.
+  - Engine fixture 29 checks every healing key in the frozen catalogue.
+- **Left out, with reasons** (`UNPRICED_HEALING_KEYS`):
+  - parry heals (Rebuttal, Counterspell) and Healbane's kill heal: no measured parry or
+    kill rate;
+  - Siphon Bullets: max-HP steal, semantics unverified;
+  - Lifestrike's % of melee damage;
+  - heals against creeps (`HealFromNPC`, `NonHeroHealPct`);
+  - heal amp: G3-5.
+
+  Mystic Conduit (`HealAmount`) is not in the current catalogue.
+
+- **Live gates unchanged:** M1 24 / 24, mean L1 0.114, M3 0.080, O2 0.760.
+- **Baselines.** 9 of 72 changed:
+  - 4 relabel a headline to coverage, with the same items (Restorative Shot, Mystic
+    Regeneration);
+  - Abrams buys Restorative Shot early and Lifestrike late, as real Abrams players do;
+  - Haze late takes Headhunter;
+  - Infernus late swaps Escalating Exposure for Dispel Magic and three smaller items;
+  - Lady Geist boon 22 owning early changes only term values.

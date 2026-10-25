@@ -27,6 +27,7 @@ import type { ScoreCategory } from "./types";
 import type { EffectEstimate } from "./effectEstimator";
 import {
   castsPerTrade,
+  HEADSHOT_IN_TRADE,
   MELEE_HITS_PER_TRADE,
   MELEE_LANDS,
   TRADE_GAP_SECONDS,
@@ -107,15 +108,27 @@ function conditionalFor(stats: ItemStats, innate?: ReadonlySet<string>) {
   return (k: string) => (timed && !innate?.has(k) ? CONDITIONAL : 1);
 }
 
-/** Lifesteal shares (0-1) of gun and of ability damage an item's stats give. */
-function lifestealShares(stats: ItemStats, innate?: ReadonlySet<string>) {
+/**
+ * Lifesteal shares (0-1) of gun and of ability damage an item's stats give.
+ * `inGap`: only always-on lifesteal counts while farming between trades; a
+ * timed active (Vampiric Burst, 30 s cooldown) is not popped to farm.
+ */
+function lifestealShares(stats: ItemStats, innate?: ReadonlySet<string>, inGap = false) {
   const s = (k: string) => num(stats[k]);
   const cond = conditionalFor(stats, innate);
+  const on = (k: string) => (inGap ? (cond(k) === 1 ? 1 : 0) : cond(k));
+  // G2b: Vampiric Burst's active lifesteal (bullet), Spiritual Overflow's
+  // charged spirit lifesteal, Infuser's always-on passive spirit lifesteal
+  // (a separate API property from its active AbilityLifestealPercentHero).
   return {
-    bullet: (s("BulletLifestealPercent") / 100) * cond("BulletLifestealPercent"),
+    bullet:
+      (s("BulletLifestealPercent") / 100) * on("BulletLifestealPercent") +
+      (s("ActiveBonusLifesteal") / 100) * on("ActiveBonusLifesteal"),
     spirit:
-      (s("AbilityLifestealPercentHero") / 100) * cond("AbilityLifestealPercentHero") +
-      CONDITIONAL * (s("ImbueAbilityLifesteal") / 100),
+      (s("AbilityLifestealPercentHero") / 100) * on("AbilityLifestealPercentHero") +
+      CONDITIONAL * (s("ImbueAbilityLifesteal") / 100) +
+      (s("BonusSpiritLifesteal") / 100) * on("BonusSpiritLifesteal") +
+      s("AbilityLifestealPercentHeroPassive") / 100,
   };
 }
 
@@ -127,7 +140,7 @@ export function gapHealHp(
 ): number {
   const s = (k: string) => num(stats[k]);
   const hp = m.maxHealth > 0 ? m.maxHealth : 0;
-  const lifesteal = lifestealShares(stats, innate);
+  const lifesteal = lifestealShares(stats, innate, true);
   const outOfCombatPerSecond =
     s("OutOfCombatHealthRegen") + (s("HealLifePercentOutOfCombat") / 100) * hp;
   // RestoreDelay is only on Fortitude in the catalogue (checked 2026-10-25),
@@ -208,6 +221,9 @@ export const HERO_FIGHT_KEYS: ReadonlySet<string> = new Set([
   "BulletLifestealPercent",
   "AbilityLifestealPercentHero",
   "ImbueAbilityLifesteal",
+  "ActiveBonusLifesteal",
+  "BonusSpiritLifesteal",
+  "AbilityLifestealPercentHeroPassive",
   "HealPercentAmount",
   "BonusMoveSpeed",
   "ActiveBonusMoveSpeed",
@@ -377,6 +393,12 @@ export function estimateFightValue(
       );
       return ((q * heals * MELEE_LANDS) / hp) * 100;
     }
+    case "healPerProc":
+      // Cooldown-gated: castsPerTrade counts procs (and misses for long cooldowns).
+      return (q / hp) * 100 * castsPerTrade(cooldown);
+    case "healPercentPerHeadshot":
+      // A headshot needs the gun: scaled by this hero's gun share of damage.
+      return q * castsPerTrade(cooldown) * HEADSHOT_IN_TRADE * (m.gunDps / dps);
     case "health":
       return (q / hp) * 100;
     case "ccSeconds":

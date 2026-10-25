@@ -82,7 +82,7 @@ import type {
 } from "../pairLift";
 import { findSynergyRules, SYNERGY_RULES } from "../synergy";
 import { ANTI_SYNERGY_RULES } from "../../scoring/antiSynergy";
-import { estimateEffectValues } from "../effectEstimator";
+import { EFFECT_CONFIDENCE, estimateEffectValues, UNPRICED_HEALING_KEYS } from "../effectEstimator";
 import { heroPhaseItems, PHASE_ITEM_MIN_RATE, phaseItemBasis } from "../phaseItems";
 import type { PhaseItemsTable } from "../phaseItems";
 import { buyOrder } from "../starterBuild";
@@ -3933,6 +3933,11 @@ console.log("\n21. One value scale (hero-relative damage and fight value)");
   const bag = {
     TotalHealthRegen: 300,
     LifestrikeHeal: 100,
+    LifestealHeal: 120,
+    HealFromHero: 50,
+    HealPercentPerHeadshot: 4,
+    Regeneration: 4,
+    RegenerationDuration: 7,
     SlowPercent: 20,
     SlowDuration: 2,
     TechPowerReduction: -10,
@@ -4805,7 +4810,7 @@ console.log("\n28. Healing between trades (Milestone G2a, docs/milestone-g.md §
   assert(
     near(
       spiritLs({ AbilityLifestealPercentHero: 20, AbilityCooldown: 10 }),
-      0.08 * 10 + lsGap(0.08),
+      0.08 * 10, // timed: no gap lifesteal (G2b)
     ) &&
       near(
         spiritLs(
@@ -4902,6 +4907,102 @@ console.log("\n28. Healing between trades (Milestone G2a, docs/milestone-g.md §
       withOwnedGapHeal(noSurvival, 2, []) === noSurvival,
     "G2-2 wiring: owned regen lowers a candidate's recovery; no model / no survival pass through",
     `owns regen ${sustainWith(ownsRegen)}, owns nothing ${sustainWith(ownsNothing)}`,
+  );
+}
+
+console.log("\n29. Unpriced healing keys (Milestone G2b, docs/milestone-g.md G2-7)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const fm = { maxHealth: 1000, moveSpeed: 7, gunDps: 30, abilityDps: 10 };
+  const sustainOf = (stats: Record<string, number>) =>
+    (fightValues(stats, fm).sustain ?? 0) +
+    estimateEffectValues(stats)
+      .filter((e) => e.category === "sustain")
+      .reduce((sum, e) => sum + (estimateFightValue(e, stats, fm) ?? 0), 0);
+
+  // G2-7: every healing key in the frozen catalogue is priced (removing it
+  // changes the item's sustain) or listed in UNPRICED_HEALING_KEYS with a
+  // reason, never both. Scanned from the catalogue, so a new or renamed key
+  // fails here until someone decides.
+  const HEALING_KEY = /Heal|Lifesteal|Regen|Steal/;
+  // Matches the pattern but is not healing: health, damage, anti-heal on the
+  // enemy, thresholds, durations and intervals that only qualify a heal.
+  const NOT_HEALING = new Set([
+    "BonusBaseHealth",
+    "BonusHealth",
+    "CurrentHealthDamage",
+    "DotHealthPercent",
+    "HealAmpReceivePenaltyPercent",
+    "HealAmpRegenPenaltyPercent",
+    "HealInterval",
+    "HealthThreshold",
+    "LowHealthThreshold",
+    "MaxHealthDamage",
+    "MaxHealthLossPercent",
+    "MaxHealthPercentAsDPS",
+    "MinimumHealAmount",
+    "NonHeroAbilityLifestealTooltipOnly",
+    "RegenDuration",
+    "RegenerationDuration",
+    "StealDuration",
+    "LifestealDuration",
+  ]);
+  const wrong: string[] = [];
+  let checked = 0;
+  for (const item of loadFrozen().allItems) {
+    for (const [key, v] of Object.entries(item.stats)) {
+      if (!HEALING_KEY.test(key) || NOT_HEALING.has(key) || !v) continue;
+      checked++;
+      const without = { ...item.stats };
+      delete without[key];
+      const priced = Math.abs(sustainOf(item.stats) - sustainOf(without)) > 1e-12;
+      if (priced === key in UNPRICED_HEALING_KEYS) wrong.push(`${item.name} ${key}`);
+    }
+  }
+  assert(
+    checked > 30 && wrong.length === 0,
+    `G2-7: all ${checked} healing keys in the catalogue are priced or deliberately excluded, not both`,
+    wrong.join("; "),
+  );
+
+  // Timed lifesteal (Vampiric Burst's active) heals in the trade but not while
+  // farming between trades.
+  const burstStats = { ActiveBonusLifesteal: 70, AbilityCooldown: 30, AbilityDuration: 5 };
+  assert(
+    gapHealHp(burstStats, fm) === 0 && sustainOf(burstStats) > 0,
+    "G2b: an active lifesteal counts in the trade, not in the gap",
+  );
+
+  // Cooldown-gated heals count once per proc (castsPerTrade); Headhunter's %
+  // max HP lands on a headshot (HEADSHOT_IN_TRADE).
+  const shot = sustainOf({ HealFromHero: 50, AbilityCooldown: 6 });
+  const head = sustainOf({ HealPercentPerHeadshot: 4, AbilityCooldown: 8 });
+  assert(
+    near(shot, ((50 * EFFECT_CONFIDENCE) / 1000) * 100 * castsPerTrade(6)) &&
+      near(head, 4 * EFFECT_CONFIDENCE * castsPerTrade(8) * HEADSHOT_IN_TRADE * (30 / 40)),
+    "G2b: Restorative Shot heals per proc; Headhunter heals % max HP per headshot, by gun share",
+    `shot ${shot}, headhunter ${head}`,
+  );
+
+  // Infuser's passive spirit lifesteal is always on; its active and Vampiric
+  // Burst's are conditional (0.4) like any timed stat.
+  const passive = sustainOf({ AbilityLifestealPercentHeroPassive: 13, AbilityCooldown: 30 });
+  const active = sustainOf({ AbilityLifestealPercentHero: 13, AbilityCooldown: 30 });
+  assert(
+    near(passive, 1.3 + recoveryValue(0.5 * 30 * 0.13 * 0.4 * 10, 1000)) &&
+      near(active, 0.52) &&
+      sustainOf({ ActiveBonusLifesteal: 70, AbilityCooldown: 30 }) >
+        sustainOf({ ActiveBonusLifesteal: 35, AbilityCooldown: 30 }),
+    "G2b: passive spirit lifesteal is always on; active lifesteal is conditional",
+    `passive ${passive}, active ${active}`,
+  );
+
+  // Mystic Regeneration: 4 HP/s for 7 s, all inside a 10 s trade.
+  const mystic = sustainOf({ Regeneration: 4, RegenerationDuration: 7 });
+  assert(
+    near(mystic, ((4 * 7 * EFFECT_CONFIDENCE) / 1000) * 100),
+    "G2b: Mystic Regeneration's 7 s regen lands inside the trade",
+    `${mystic}`,
   );
 }
 

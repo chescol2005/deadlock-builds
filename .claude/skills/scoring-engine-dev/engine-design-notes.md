@@ -1500,6 +1500,42 @@ HP restored in the 30 s gap (`TRADE_GAP_SECONDS`) before the next trade
   Geist Enchanter's Emblem → Bullet Lifesteal, Seven Greater Expansion → Superior
   Cooldown, Wraith Mystic Vulnerability → Arcane Surge). Engine fixture 28.
 
+**G2b: healing keys that were unpriced (2026-10-25).** About 18 shopable healing keys were
+read by nothing.
+
+- **Lifesteal** (`heroFight.lifestealShares`):
+  - Vampiric Burst `ActiveBonusLifesteal` is bullet lifesteal and conditional.
+  - Spiritual Overflow `BonusSpiritLifesteal` is conditional.
+  - Infuser `AbilityLifestealPercentHeroPassive` is always on.
+  - Between trades only always-on lifesteal heals: nobody pops a 30 s active to farm.
+- **Estimates** (`effectEstimator`):
+  - `healPerProc`: once per cooldown, counted with `castsPerTrade`. It covers Restorative
+    Shot `HealFromHero`, Radiant Regeneration `HealingPerCast`, Dispel Magic
+    `HealOnActivate` and Veil Walker `HealOnVeil`. The last two are situational
+    (`SITUATIONAL_HEAL_SHARE` 0.4: a debuff to purge, a veil nearby).
+  - Mystic / Radiant `Regeneration` × `RegenerationDuration`: also `healPerProc`, so
+    Radiant's regen and per-cast heal count on the same per-cast basis. A missing
+    duration falls back to 7 s, not 0.
+  - `healPercentPerHeadshot`: Headhunter, times `HEADSHOT_IN_TRADE` and the hero's gun
+    share (a headshot needs the gun).
+  - Lifestrike's fixed `LifestealHeal`: per melee hit, in the same loop as Melee
+    Lifesteal's `LifestrikeHeal`.
+- **Deliberately unpriced, with reasons:** `UNPRICED_HEALING_KEYS`.
+  - Parry heals and kill heals: no measured parry or kill rate.
+  - Siphon Bullets: semantics unverified.
+  - Lifestrike's % of melee damage: the estimate has no melee damage.
+  - Heals against creeps: farming heals are not modelled.
+  - Heal amp: priced in G3.
+- **Fixture.** Engine fixture 29 scans the frozen catalogue: every key matching
+  `/Heal|Lifesteal|Regen|Steal/` must change its item's sustain, or be listed in
+  `UNPRICED_HEALING_KEYS`, or be in the fixture's `NOT_HEALING` set (thresholds,
+  durations, anti-heal). A new or renamed key fails it until someone decides.
+- **Result.** Live gates unchanged.
+  - Baselines: 9 of 72 changed.
+  - Abrams buys Restorative Shot early and Lifestrike late, as real Abrams players do.
+  - Haze late takes Headhunter.
+  - Infernus late swaps Escalating Exposure for Dispel Magic and three smaller items.
+
 ## Spend like real players (shop budgets, laning tempo, buy order)
 
 With one value scale, a hero's strongest category wins every pick, and real builds are a
