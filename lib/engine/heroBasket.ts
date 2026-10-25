@@ -16,7 +16,8 @@ import type { HeroBaseStats } from "../heroStats";
 import { calculateStatsAtBoon } from "../heroStats";
 import type { HeroDamageModel } from "./heroDamage";
 import { abilityChargeCredit, heroDps } from "./heroDamage";
-import { ownedGapHeal } from "./heroFight";
+import { ownedGapHeal, ownedTradeHealHp } from "./heroFight";
+import { kitHealPerTrade } from "./kitHeal";
 import { BOON_THRESHOLDS } from "../boonSystem";
 import type { HeroAccuracy, ItemAnalytics } from "../analyticsStore";
 import { resolveAccuracyAtRank } from "../analyticsStore";
@@ -33,6 +34,7 @@ import {
   adjustSplitForAccuracy,
   applyCategorySplit,
   applyStatProfile,
+  hasStatProfile,
   phaseForSouls,
   phaseView,
   FINAL_SPLIT_BASIS,
@@ -116,9 +118,8 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   // the first 10 minutes, 17% by the end). The phase's stat profile also sets
   // the categories the kit cannot derive (antiHeal, sustain, utility, economy,
   // mobility), which were a flat placeholder for every hero.
-  const view = input.categorySplit
-    ? phaseView(input.categorySplit, phaseForSouls(input.souls))
-    : null;
+  const phase = phaseForSouls(input.souls);
+  const view = input.categorySplit ? phaseView(input.categorySplit, phase) : null;
   let split = view
     ? {
         ...view.shares,
@@ -136,11 +137,34 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   }
   const mode = input.categorySplitMode ?? "both";
 
+  // The hero's damage and survival model, with its own kit healing (Milestone
+  // G3): heal amplification prices on it, and a hero with no measured profile
+  // takes its sustain need from it.
+  const damageModel = withKitHeal(
+    deriveHeroDamageModel({
+      baseStats: heroBaseStats,
+      abilities: heroAbilities,
+      boonLevel: input.boonLevel,
+      spiritPower: input.spiritPower,
+      accuracy: resolveHeroAccuracy(heroId, gunAccuracyByHeroId),
+      // The phase this basket shops in, so charges are priced in the same phase.
+      phase: phase,
+    }),
+    heroAbilities,
+    phase,
+  );
+  const survival = damageModel?.survival;
+  const profileApplies = mode !== "term-only" && hasStatProfile(view?.profile);
   const kitNeed = deriveHeroNeedVector({
     abilities: heroAbilities,
     baseStats: heroBaseStats,
     roster: heroRoster,
     gunAccuracyByHeroId,
+    // Fallback only: the measured profile replaces sustain AND rescales the
+    // vector by its total, so kit heal must not enter when a profile applies.
+    ...(survival?.kitHealHp !== undefined && !profileApplies
+      ? { kitHealPercent: (survival.kitHealHp / survival.maxHealth) * 100 }
+      : {}),
   });
   const needVector =
     mode === "term-only"
@@ -160,15 +184,6 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   // of THIS hero's fight value, through its own weapon, ability kit, health
   // and move speed (heroDamage.ts, heroFight.ts). Undefined model (no usable
   // weapon data) = the hero-agnostic valuation.
-  const damageModel = deriveHeroDamageModel({
-    baseStats: heroBaseStats,
-    abilities: heroAbilities,
-    boonLevel: input.boonLevel,
-    spiritPower: input.spiritPower,
-    accuracy: resolveHeroAccuracy(heroId, gunAccuracyByHeroId),
-    // The phase this basket shops in, so charges are priced in the same phase.
-    phase: phaseForSouls(input.souls),
-  });
   // Candidates' recovery is priced on top of what the owned build already
   // heals; owned items on top of base regen only, never on top of themselves.
   const heroDamage = withOwnedGapHeal(damageModel, heroBaseStats.healthRegen, ownedItems);
@@ -224,7 +239,7 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     pairLift: input.pairLift,
     ownedCandidates,
     categorySplit: mode === "need-only" ? undefined : split,
-    phase: phaseForSouls(input.souls),
+    phase: phase,
     laningSouls: input.souls,
     // The late phase (and a hero with no phase data) uses the FINAL split: a
     // cumulative share, so the budgets count souls already held per shop.
@@ -232,11 +247,11 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     // An empty phase (no item above the table's floor) is "no signal", not
     // "nobody buys anything".
     phaseItems:
-      input.phaseItems && Object.keys(input.phaseItems[phaseForSouls(input.souls)]).length > 0
+      input.phaseItems && Object.keys(input.phaseItems[phase]).length > 0
         ? {
-            rates: input.phaseItems[phaseForSouls(input.souls)],
+            rates: input.phaseItems[phase],
             scope: input.phaseItems.scope,
-            basis: phaseItemBasis(phaseForSouls(input.souls)),
+            basis: phaseItemBasis(phase),
           }
         : undefined,
     // Spend each shop's measured phase share (shop budgets); the split term's
@@ -285,13 +300,40 @@ export function withOwnedGapHeal(
   // A component another owned item upgrades from was consumed: count it once.
   const consumed = new Set(ownedItems.flatMap((i) => i.componentItems ?? []));
   const active = ownedItems.filter((i) => !consumed.has(i.id));
-  const healHp = ownedGapHeal(baseRegen, active, {
+  const fight = {
     maxHealth: model.survival.maxHealth,
     moveSpeed: model.survival.moveSpeed,
     gunDps: dps.gun,
     abilityDps: dps.ability,
+  };
+  const healHp = ownedGapHeal(baseRegen, active, fight);
+  const tradeHeal = ownedTradeHealHp(active, fight);
+  return {
+    ...model,
+    survival: { ...model.survival, ownedGapHeal: healHp, ownedTradeHealHp: tradeHeal },
+  };
+}
+
+/**
+ * The model with `survival.kitHealHp` set: HP the hero's own kit heals it per
+ * trade in this phase (kitHeal.ts, Milestone G3).
+ */
+export function withKitHeal(
+  model: HeroDamageModel | undefined,
+  abilities: ReadonlyArray<HeroAbility>,
+  phase: GamePhase,
+): HeroDamageModel | undefined {
+  if (!model?.survival) return model;
+  const dps = heroDps(model);
+  const kitHealHp = kitHealPerTrade(abilities, {
+    phase,
+    spiritPower: model.spiritPower,
+    maxHealth: model.survival.maxHealth,
+    gunDps: dps.gun,
+    abilityDps: dps.ability,
+    ...(model.meleeDamage !== undefined ? { meleeDamage: model.meleeDamage } : {}),
   });
-  return { ...model, survival: { ...model.survival, ownedGapHeal: healHp } };
+  return { ...model, survival: { ...model.survival, kitHealHp } };
 }
 
 /**

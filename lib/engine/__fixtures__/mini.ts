@@ -8,7 +8,13 @@
 
 import type { ItemAnalytics } from "../../analyticsStore";
 import type { HeroAbility, AbilityUpgradeTier } from "../../abilityCoefficients";
-import { calculateAbilityDamage, damagePerCastFactor } from "../../abilityCoefficients";
+import {
+  calculateAbilityDamage,
+  damagePerCastFactor,
+  mapApiAbilityToHeroAbility,
+} from "../../abilityCoefficients";
+import type { HeroAbilityRaw } from "../../api/deadlockApi";
+import { kitHealPerTrade, selfHealValue } from "../kitHeal";
 import type { HeroBaseStats } from "../../heroStats";
 import type { Item } from "../../items";
 import {
@@ -115,10 +121,12 @@ import {
   ownedGapHeal,
   RECOVERY_CAP_PCT,
   RECOVERY_WEIGHT,
+  ownedTradeHealHp,
   recoveryValue,
 } from "../heroFight";
 import { normalizeItem } from "../../itemNormalizer";
-import { deriveHeroDamageModel, withOwnedGapHeal } from "../heroBasket";
+import { deriveHeroDamageModel, runHeroBasket, withKitHeal, withOwnedGapHeal } from "../heroBasket";
+import { BOON_THRESHOLDS } from "../../boonSystem";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
 import { resolveScaledStats, toItemCandidate } from "../itemAdapter";
@@ -4921,7 +4929,7 @@ console.log("\n28. Healing between trades (Milestone G2a, docs/milestone-g.md §
 console.log("\n29. Unpriced healing keys (Milestone G2b, docs/milestone-g.md G2-7)");
 {
   const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
-  const fm = { maxHealth: 1000, moveSpeed: 7, gunDps: 30, abilityDps: 10 };
+  const fm = { maxHealth: 1000, moveSpeed: 7, gunDps: 30, abilityDps: 10, ampableHealHp: 100 };
   const sustainOf = (stats: Record<string, number>) =>
     (fightValues(stats, fm).sustain ?? 0) +
     estimateEffectValues(stats)
@@ -4955,6 +4963,11 @@ console.log("\n29. Unpriced healing keys (Milestone G2b, docs/milestone-g.md G2-
     "StealDuration",
     "LifestealDuration",
   ]);
+  // Keys priced as one stat (heal amp: the larger of the pair, G3-5): removed together.
+  const PRICED_TOGETHER: Record<string, string[]> = {
+    HealAmpCastPercent: ["HealAmpRegenPercent"],
+    HealAmpRegenPercent: ["HealAmpCastPercent"],
+  };
   const wrong: string[] = [];
   let checked = 0;
   for (const item of loadFrozen().allItems) {
@@ -4963,6 +4976,7 @@ console.log("\n29. Unpriced healing keys (Milestone G2b, docs/milestone-g.md G2-
       checked++;
       const without = { ...item.stats };
       delete without[key];
+      for (const pair of PRICED_TOGETHER[key] ?? []) delete without[pair];
       const priced = Math.abs(sustainOf(item.stats) - sustainOf(without)) > 1e-12;
       if (priced === key in UNPRICED_HEALING_KEYS) wrong.push(`${item.name} ${key}`);
     }
@@ -5048,6 +5062,220 @@ console.log("\n29. Unpriced healing keys (Milestone G2b, docs/milestone-g.md G2-
     near(mystic, ((4 * 7 * EFFECT_CONFIDENCE) / 1000) * 100),
     "G2b: Mystic Regeneration's 7 s regen lands inside the trade",
     `${mystic}`,
+  );
+}
+
+console.log("\n30. A hero's own self-healing (Milestone G3, docs/milestone-g.md §3.2)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const raw = (
+    name: string,
+    properties: HeroAbilityRaw["properties"],
+    upgrades: HeroAbilityRaw["upgrades"] = [],
+    className = `g3_${name}`,
+  ): HeroAbilityRaw => ({ id: 1, class_name: className, name, properties, upgrades });
+  const heals = (r: HeroAbilityRaw) => mapApiAbilityToHeroAbility(r, "signature1").selfHeals ?? [];
+
+  // G3-1: base, per-tier and spirit scaling are recorded; an ally-only heal
+  // (Kelvin Frost Grenade) and a kill-gated one are not; a multiplier key is
+  // read as a percent; Card Trick's Heart heal counts one suit in four.
+  const flat = heals(
+    raw(
+      "Self Patch",
+      {
+        HealAmount: {
+          value: 40,
+          scale_function: { class_name: "scale_function_healing_spirit_scale", stat_scale: 1.4 },
+        },
+      },
+      [{ property_upgrades: [{ name: "HealAmount", bonus: 25 }] }],
+    ),
+  );
+  const ally = heals(
+    raw("Frost Grenade", { HealAmount: { value: 60 } }, [], "ability_ice_grenade"),
+  );
+  // A scale upgrade on another stat (boon level) is not spirit scaling; a
+  // multiplier key's spirit scaling is read as a percent like its base.
+  const boonScaled = heals(
+    raw("Boon Heal", { HealAmount: { value: 50 } }, [
+      {
+        property_upgrades: [
+          {
+            name: "HealAmount",
+            bonus: 2,
+            upgrade_type: "EAddToScale",
+            scale_stat_filter: "ELevelUpBoons",
+          },
+        ],
+      },
+    ]),
+  );
+  const multScaled = heals(
+    raw("Scaled Scorn", {
+      DamageHealMult: {
+        value: "1.2",
+        scale_function: { class_name: "scale_function_healing_spirit_scale", stat_scale: 0.01 },
+      },
+    }),
+  );
+  assert(
+    boonScaled.length === 1 &&
+      boonScaled[0].tierSpiritScale.every((v) => v === 0) &&
+      multScaled.length === 1 &&
+      near(multScaled[0].spiritScale, 1),
+    "G3-1: only spirit-power scale upgrades count; a multiplier's spirit scaling is a percent too",
+    JSON.stringify({ boonScaled, multScaled }),
+  );
+  const kill = heals(raw("Rake", { RakeHealPerKill: { value: 25 } }));
+  const mult = heals(raw("Scorn", { DamageHealMult: { value: "1.2" } }));
+  const heart = heals(
+    raw("Card Trick", {
+      HeartHeal: {
+        value: 60,
+        scale_function: { class_name: "scale_function_healing_spirit_scale", stat_scale: 0.5 },
+      },
+    }),
+  );
+  assert(
+    flat.length === 1 &&
+      flat[0].kind === "flat" &&
+      flat[0].base === 40 &&
+      flat[0].spiritScale === 1.4 &&
+      flat[0].tierBonus[0] === 25 &&
+      ally.length === 0 &&
+      kill.length === 0 &&
+      mult.length === 1 &&
+      near(mult[0].base, 120) &&
+      heart.length === 1 &&
+      near(heart[0].base, 15) &&
+      near(heart[0].spiritScale, 0.125),
+    "G3-1: self-heal parsed with tiers and scaling; ally / kill heals skipped; x-multiplier as %; Heart 1 in 4",
+    JSON.stringify({ flat, ally, kill, mult, heart }),
+  );
+
+  // Tiers count by the per-phase prior (T1: early 0.5, mid 1); spirit scaling adds.
+  assert(
+    near(selfHealValue(flat[0], "early", 0), 40 + 0.5 * 25) &&
+      near(selfHealValue(flat[0], "mid", 10), 40 + 25 + 1.4 * 10),
+    "G3-1: a heal's value credits upgrade tiers by phase and adds spirit scaling",
+  );
+
+  // G3-2: on the frozen kits, known self-healers heal > 0 and Seven exactly 0.
+  const frozenKits = loadFrozen().kits;
+  const kitHeal = (name: string) => {
+    const k = frozenKits.find((x) => x.name === name);
+    if (!k) return NaN;
+    return kitHealPerTrade(k.heroAbilities, {
+      phase: "mid",
+      spiritPower: 50,
+      maxHealth: 1500,
+      gunDps: 100,
+      abilityDps: 50,
+      meleeDamage: 60,
+    });
+  };
+  const healers = ["Abrams", "Lady Geist", "Wraith", "Warden", "Haze", "Infernus"];
+  assert(
+    healers.every((n) => kitHeal(n) > 0) && kitHeal("Seven") === 0,
+    "G3-2: known self-healers heal > 0 per trade; Seven (no self-heal) exactly 0",
+    healers.map((n) => `${n} ${kitHeal(n).toFixed(0)}`).join(", ") + `, Seven ${kitHeal("Seven")}`,
+  );
+
+  // G3-3: kit heal raises the sustain need (neutral without it, at most +50%).
+  const kits0 = frozenKits[0];
+  const roster = frozenKits.map((k) => k.heroBaseStats);
+  const sustainFor = (kitHealPercent?: number) =>
+    deriveHeroNeedVector({
+      abilities: kits0.heroAbilities,
+      baseStats: kits0.heroBaseStats,
+      roster,
+      ...(kitHealPercent !== undefined ? { kitHealPercent } : {}),
+    }).sustain;
+  assert(
+    sustainFor() === 1 &&
+      sustainFor(0) === 1 &&
+      near(sustainFor(10), 1.25) &&
+      near(sustainFor(40), 1.5),
+    "G3-3: kit heal raises the sustain need: neutral at 0, +50% at 20%+ of max HP per trade",
+  );
+
+  // G3-5: heal amp is % more of the healing the hero has (kit + owned
+  // lifesteal); with none, it prices at 0.
+  const fm = { maxHealth: 1000, moveSpeed: 7, gunDps: 30, abilityDps: 10 };
+  const booster = { HealAmpCastPercent: 20, HealAmpRegenPercent: 20 };
+  assert(
+    fightValues(booster, fm).sustain === undefined &&
+      near(fightValues(booster, { ...fm, ampableHealHp: 300 }).sustain ?? 0, 6) &&
+      ownedTradeHealHp([{ stats: { BulletLifestealPercent: 10 } }], fm) === 0.1 * 30 * 10,
+    "G3-5: heal amp = amp x (kit + owned lifesteal) healing; a hero with no healing gets 0",
+  );
+
+  // Through the real pipeline on frozen Abrams (a self-healer):
+  // - G3-3 fallback only: with a measured profile, kit heal leaves the need
+  //   vector exactly as it is (the profile rescales the vector by its total, so
+  //   kit heal must not enter); without one, kit heal raises sustain;
+  // - G3-5: Healing Booster is worth more to Abrams with his kit heal.
+  const frozenData = loadFrozen();
+  const abrams = frozenData.kits.find((k) => k.name === "Abrams");
+  const strip = (a: HeroAbility): HeroAbility => {
+    const copy = { ...a };
+    delete copy.selfHeals;
+    return copy;
+  };
+  const runAbrams = (heals: boolean, profiled: boolean) => {
+    if (!abrams) return null;
+    const split = heroCategorySplit(frozenData.tables.categorySplit, abrams.id) ?? undefined;
+    return runHeroBasket({
+      heroAbilities: heals ? abrams.heroAbilities : abrams.heroAbilities.map(strip),
+      heroBaseStats: abrams.heroBaseStats,
+      heroRoster: frozenData.roster,
+      allItems: frozenData.allItems,
+      itemAnalytics: frozenData.itemAnalytics,
+      heroAccuracy: frozenData.heroAccuracy,
+      rankTier: null,
+      ...(profiled && split ? { categorySplit: split } : {}),
+      ownedItems: [],
+      souls: BOON_THRESHOLDS[16]?.souls ?? 0,
+      boonLevel: 16,
+      spiritPower: 20,
+    });
+  };
+  const withHeal = runAbrams(true, true);
+  const noHeal = runAbrams(false, true);
+  const boosterSustain = (run: ReturnType<typeof runAbrams>) =>
+    run?.candidates.find((c) => c.itemId === "upgrade_healing_booster")?.categoryValues.sustain ??
+    NaN;
+  assert(
+    withHeal !== null &&
+      noHeal !== null &&
+      JSON.stringify(withHeal.needVector) === JSON.stringify(noHeal.needVector) &&
+      (runAbrams(true, false)?.needVector.sustain ?? 0) >
+        (runAbrams(false, false)?.needVector.sustain ?? 0) &&
+      boosterSustain(withHeal) > boosterSustain(noHeal),
+    "G3-3/G3-5 (frozen Abrams): profiled need unchanged by kit heal; unprofiled sustain rises; Booster worth more",
+    `booster ${boosterSustain(withHeal)} vs ${boosterSustain(noHeal)}`,
+  );
+
+  // Owned items are valued on the hero alone: with no owned build, the model
+  // carries kit heal but zero owned trade healing (no candidate feeds back).
+  const abramsModel = abrams
+    ? withKitHeal(
+        deriveHeroDamageModel({
+          baseStats: abrams.heroBaseStats,
+          abilities: abrams.heroAbilities,
+          boonLevel: 16,
+          spiritPower: 20,
+          accuracy: 0.5,
+          phase: "mid",
+        }),
+        abrams.heroAbilities,
+        "mid",
+      )
+    : undefined;
+  const ownedOnly = withOwnedGapHeal(abramsModel, 1, []);
+  assert(
+    (ownedOnly?.survival?.kitHealHp ?? 0) > 0 && ownedOnly?.survival?.ownedTradeHealHp === 0,
+    "G3-5: with nothing owned, the model has the kit heal and zero owned trade healing",
   );
 }
 

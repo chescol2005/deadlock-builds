@@ -204,6 +204,11 @@ export function heroCategorySplit(
   };
 }
 
+/** True when `applyStatProfile` would apply this profile (it sets the five non-family categories). */
+export function hasStatProfile(p: StatProfile | null | undefined): boolean {
+  return validProfile(p ?? undefined);
+}
+
 function validProfile(p: StatProfile | undefined): boolean {
   if (!p) return false;
   const values = Object.values(p);

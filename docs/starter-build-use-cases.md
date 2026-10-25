@@ -159,6 +159,10 @@ by `npm run fit-category-split`.
 - **M3 Mid-game overlap only falls.** Mean pairwise Jaccard of the reference heroes' mid
   phases is at most a recorded baseline. The baseline lives in the fixture and can only be
   lowered (a numeric ratchet).
+  - **Exception, 2026-10-25 (Milestone G3, user-approved).** Raised 0.076 → 0.0781 (measured overlap 0.08802). Pricing
+    heal amplification put Healing Booster in both Abrams' and Lady Geist's mid phase, and
+    real players buy it there (21% and 53%). M3 rose 0.080 → 0.088 against a 0.086 limit.
+    In the same change, mean L1 improved 0.114 → 0.111 and O2 0.760 → 0.780.
 
 **Baseline, 2026-10-20** (`main` at `d7dc373`): real vs engine split, gun/spirit/vitality %,
 with L1 distance.

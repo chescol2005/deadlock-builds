@@ -111,8 +111,6 @@ export const UNPRICED_HEALING_KEYS: Readonly<Record<string, string>> = {
     "Lifestrike: % of melee damage, unknown to the estimate (fixed heal priced)",
   HealFromNPC: "Restorative Shot vs creeps: farming heals between trades are not modelled",
   NonHeroHealPct: "melee heals vs creeps: farming heals between trades are not modelled",
-  HealAmpCastPercent: "heal amplification: priced on the hero's kit heal in G3 (G3-5)",
-  HealAmpRegenPercent: "heal amplification: priced on the hero's kit heal in G3 (G3-5)",
 };
 
 /**

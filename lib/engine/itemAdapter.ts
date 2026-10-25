@@ -515,6 +515,8 @@ function deriveCategoryValues(
           abilityDps: dps.ability,
           chargedAbilityDps: chargedAbilityDps(heroDamage.abilities, heroDamage.spiritPower),
           landedShotsPerSecond: landedShotsPerSecond(heroDamage),
+          ampableHealHp:
+            (heroDamage.survival.kitHealHp ?? 0) + (heroDamage.survival.ownedTradeHealHp ?? 0),
           ...(heroDamage.survival.ownedGapHeal !== undefined
             ? { ownedGapHeal: heroDamage.survival.ownedGapHeal }
             : {}),

@@ -48,6 +48,44 @@ export type HeroAbility = {
    * tier is bought (review R2c; see UPGRADE_CHARGE_CREDIT in heroDamage.ts).
    */
   upgradeCharges?: { tier: 1 | 2 | 3; charges: number };
+  /**
+   * How this ability heals its caster (Milestone G3), one entry per heal
+   * property: base value, what each upgrade tier adds, and spirit scaling.
+   * Absent = no self-heal. Converted to HP per trade by lib/engine/kitHeal.ts.
+   */
+  selfHeals?: SelfHeal[];
+};
+
+/**
+ * What a self-heal property measures (Milestone G3, docs/milestone-g.md §2.1):
+ * - abilityLifesteal: % of this ability's own damage (or, for a buff with no
+ *   damage of its own, of the hero's ability damage while it lasts);
+ * - gunLifesteal / meleeLifesteal: % of gun / melee damage while it lasts;
+ * - flat: HP per cast; perSecond: HP per second over the ability's duration;
+ * - maxHpPercent / maxHpPercentPerSecond: % of max HP (per cast / per second);
+ * - missingHpPercent: % of MISSING HP per cast;
+ * - incomingDamagePercent: % of the damage taken (Abrams Infernal Resilience).
+ */
+export type SelfHealKind =
+  | "abilityLifesteal"
+  | "gunLifesteal"
+  | "meleeLifesteal"
+  | "flat"
+  | "perSecond"
+  | "maxHpPercent"
+  | "maxHpPercentPerSecond"
+  | "missingHpPercent"
+  | "incomingDamagePercent";
+
+export type SelfHeal = {
+  key: string;
+  kind: SelfHealKind;
+  base: number;
+  /** Added by upgrade tiers T1..T3 (0 where a tier adds nothing). */
+  tierBonus: [number, number, number];
+  /** HP per spirit power at base, and what each tier adds to it. */
+  spiritScale: number;
+  tierSpiritScale: [number, number, number];
 };
 
 // Damage keys that are a rate: one cast deals the value per second.
@@ -147,6 +185,117 @@ function isSpiritScaled(p: {
   );
 }
 
+/**
+ * Self-heal properties across the 44 heroes' kits (data-verifier and a live
+ * roster survey, 2026-10-25), by what they measure. Not listed on purpose:
+ * kill-gated heals (Mina RakeHealPerKill, Drifter HealOnKillPct: no measured
+ * kill rate, as for items in G2b), heals that only work on allies or summons
+ * (ExternalBonusHealthRegen, MaxHealthRegenPct, InfestHeal, TurretHealMult,
+ * TetherSharedHealPct), and modifiers of other heals.
+ */
+export const KIT_SELF_HEAL_KEYS: Readonly<Record<string, SelfHealKind>> = {
+  AbilityLifestealPercentHero: "abilityLifesteal",
+  TechLifestealPercent: "abilityLifesteal",
+  LifestealPercentHero: "abilityLifesteal",
+  LifeStealPercentOnHit: "abilityLifesteal",
+  HealingFactor: "abilityLifesteal",
+  LifeDrainHealthMult: "abilityLifesteal",
+  HealPctVsHeroes: "abilityLifesteal",
+  TargetLifesteal: "abilityLifesteal",
+  BeamLifesteal: "abilityLifesteal",
+  HealthStealPctHero: "abilityLifesteal",
+  DamageHealMult: "abilityLifesteal",
+  BulletLifesteal: "gunLifesteal",
+  BulletLifestealPercent: "gunLifesteal",
+  MeleeLifesteal: "meleeLifesteal",
+  HealAmount: "flat",
+  HealFixedHealth: "flat",
+  HealOnHit: "flat",
+  HeartHeal: "flat",
+  HealPerPickup: "flat",
+  TotalHealthRegen: "flat",
+  BonusHealthRegen: "perSecond",
+  HealingPerSecond: "perSecond",
+  HealthRegen: "perSecond",
+  HealMaxHealthPercent: "maxHpPercentPerSecond",
+  // Ivy Stone Form 6%, Yamato Shadow Transformation 15%: the API gives no
+  // "/s", so read as a total per cast (the lower reading).
+  MaxHealthRegen: "maxHpPercent",
+  HealMaxHealth: "maxHpPercent",
+  MissingHealthPercentHeal: "missingHpPercent",
+  MissingHPHeal: "missingHpPercent",
+  MissingHealthBurstPct: "missingHpPercent",
+  RegenIncomingDamagePercent: "incomingDamagePercent",
+};
+
+/** Keys stored as a multiplier (1.2x), not a percent: scaled to percent. */
+const MULTIPLIER_HEAL_KEYS: ReadonlySet<string> = new Set(["DamageHealMult"]);
+
+/**
+ * Share of casts a heal property applies to, when only some casts heal. Wraith
+ * Card Trick summons a card of a random suit and only Heart cards heal: one
+ * suit of four (API description, 2026-10-25).
+ */
+const KIT_HEAL_SHARE: Readonly<Record<string, number>> = { HeartHeal: 0.25 };
+
+/**
+ * Abilities whose heal goes to allies, not the caster: the property keys don't
+ * say, only the description does (data-verifier, 2026-10-25).
+ */
+export const ALLY_HEAL_ABILITIES: ReadonlySet<string> = new Set([
+  "ability_ice_grenade", // Kelvin Frost Grenade: HealAmount heals allies
+  "ability_bookworm_knightcharge", // Paige Rallying Charge
+  "citadel_ability_mobile_resupply", // McGinnis Medicinal Specter
+  "ability_familiar_helpinghands", // Rem Lil Helpers
+  "ability_nurse_healing_needles", // Nurse Harrow Healing Needles: the "heal allies" ability
+]);
+
+function selfHealsOf(raw: HeroAbilityRaw): SelfHeal[] {
+  if (ALLY_HEAL_ABILITIES.has(raw.class_name)) return [];
+  const props = raw.properties ?? {};
+  const tiers = raw.upgrades ?? [];
+  const keys = new Set([
+    ...Object.keys(props),
+    ...tiers.flatMap((u) => (u.property_upgrades ?? []).map((pu) => pu.name)),
+  ]);
+  const out: SelfHeal[] = [];
+  for (const key of keys) {
+    const kind = KIT_SELF_HEAL_KEYS[key];
+    if (!kind) continue;
+    const share = KIT_HEAL_SHARE[key] ?? 1;
+    const unit = (MULTIPLIER_HEAL_KEYS.has(key) ? 100 : 1) * share;
+    const prop = props[key];
+    const base = (safeNum(prop?.value) ?? 0) * unit;
+    const fn = prop?.scale_function;
+    const healScaled =
+      fn?.class_name === "scale_function_healing_spirit_scale" ||
+      (prop ? isSpiritScaled(prop) : false);
+    const spiritScale = healScaled ? (fn?.stat_scale ?? 0) * unit : 0;
+    const tierBonus: [number, number, number] = [0, 0, 0];
+    const tierSpiritScale: [number, number, number] = [0, 0, 0];
+    for (let i = 0; i < 3; i += 1) {
+      for (const pu of tiers[i]?.property_upgrades ?? []) {
+        if (pu.name !== key) continue;
+        const bonus = safeNum(pu.bonus) ?? 0;
+        if (pu.upgrade_type === "EAddToScale") {
+          // Only spirit-power scaling (no filter, or ETechPower): a scale on
+          // another stat (boon level) is not HP per spirit power.
+          if (!pu.scale_stat_filter || pu.scale_stat_filter === "ETechPower") {
+            tierSpiritScale[i] += bonus * unit;
+          }
+        } else tierBonus[i] += bonus * unit;
+      }
+    }
+    const any =
+      base > 0 ||
+      spiritScale > 0 ||
+      tierBonus.some((b) => b > 0) ||
+      tierSpiritScale.some((b) => b > 0);
+    if (any) out.push({ key, kind, base, tierBonus, spiritScale, tierSpiritScale });
+  }
+  return out.sort((a, b) => a.key.localeCompare(b.key));
+}
+
 export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureSlot): HeroAbility {
   const props = raw.properties ?? {};
 
@@ -217,6 +366,8 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
   const passive = desc["passive"] ?? null;
   const active = desc["active"] ?? null;
 
+  const selfHeals = selfHealsOf(raw);
+
   const upgrades: [AbilityUpgradeTier, AbilityUpgradeTier, AbilityUpgradeTier] = [
     buildUpgradeTier(raw.upgrades, 0, desc),
     buildUpgradeTier(raw.upgrades, 1, desc),
@@ -242,6 +393,7 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
     ...(damageKey ? { damageKey } : {}),
     ...(damageSeconds != null ? { damageSeconds } : {}),
     ...(baseCharges >= 1 ? { charges: baseCharges } : upgradeCharges ? { upgradeCharges } : {}),
+    ...(selfHeals.length > 0 ? { selfHeals } : {}),
   };
 }
 

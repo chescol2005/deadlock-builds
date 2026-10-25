@@ -1563,6 +1563,79 @@ cooldown-gated proc is `requiresHit`, not `perHit`. A missing `ProcCooldown` fal
 **Result.** Live gates unchanged. Siphon enters 4 of 72 baselines: Haze and Warden late,
 both empty and owning early.
 
+## A hero's own self-healing (kitHeal.ts, Milestone G3)
+
+`docs/milestone-g.md` §3.2.
+
+**Parser.** `mapApiAbilityToHeroAbility` records `HeroAbility.selfHeals`: each self-heal
+property's base value, per-tier bonus and spirit scaling (`scale_function_healing_spirit_scale`,
+or an `EAddToScale` upgrade). `KIT_SELF_HEAL_KEYS` gives each key one of these kinds:
+
+- lifesteal on the ability's own damage, or on gun or melee damage;
+- a flat heal per cast;
+- a heal per second over the duration;
+- % of max HP, % of max HP per second, or % of missing HP;
+- % of damage taken.
+
+**Not parsed:**
+
+- `ALLY_HEAL_ABILITIES`: Kelvin Frost Grenade, Paige Rallying Charge, McGinnis Medicinal
+  Specter, Rem Lil Helpers, Nurse Harrow Healing Needles. The keys don't say who is healed,
+  only the descriptions do.
+- Kill-gated heals.
+- `KIT_HEAL_SHARE`: only part of some properties counts. Wraith Card Trick heals only on
+  Heart cards, one random suit in four (`HeartHeal` × 0.25). Without it, Wraith's kit came
+  to 21% of max HP per trade and Healing Booster flooded Wraith mid.
+
+**Kit heal per trade.** `kitHealPerTrade` uses the damage trade model (`castsPerTrade`,
+`TRADE_SECONDS`) and credits tiers by phase with `UPGRADE_CHARGE_CREDIT`. Named
+assumptions:
+
+- `MISSING_HP_SHARE` 0.5;
+- `TRADE_DAMAGE_TAKEN_SHARE` 0.5.
+
+`withKitHeal` (heroBasket) sets `survival.kitHealHp`.
+
+**Uses:**
+
+- **Heal amp (G3-5).** `HealAmpCastPercent` / `HealAmpRegenPercent` multiply
+  `ampableHealHp`: kit heal plus the owned items' in-trade lifesteal
+  (`ownedTradeHealHp`). Item regen is left out (wiki Healing_Booster). The two keys are
+  one stat, so the larger is used once.
+- **Sustain need (G3-3).** `kitSustainNeed` gives neutral at 0 and up to +50% at 20% of max
+  HP per trade. It is used only where no measured profile exists. Across the 42 parseable
+  profiled heroes, kit heal rank-correlates with the measured sustain share (Spearman 0.40 early, 0.38 mid, 0.31 late). Drifter and Solomon have no parseable damage model.
+
+**Result:**
+
+- **Live:** mean L1 0.114 → 0.111, O2 0.760 → 0.780, Abrams mid 0.14 → 0.06.
+- **M3 rose 0.080 → 0.088.** Healing Booster mid for Abrams and Lady Geist, whose real
+  players buy it 21% and 53% of the time. The user approved raising the ratchet 0.076 → 0.0781
+  (measured overlap 0.08802).
+- **Baselines:** 6 of 72 changed, all Healing Booster.
+
+**Review fixes (auditor and /code-review):**
+
+- Kit heal enters the need vector only when no measured profile applies
+  (`hasStatProfile`). `applyStatProfile` rescales the whole vector by its total, so even a
+  replaced sustain changed every profiled hero's magnitudes.
+- Only spirit-power `EAddToScale` upgrades count as spirit scaling, and a multiplier key's
+  spirit scaling is read as a percent like its base.
+- A passive (cooldown 0) has no own damage to lifesteal from, as in `abilityDps`. Melee
+  lifesteal is scaled by the buff's uptime.
+- Ally-only abilities are keyed by class name, not display name.
+- Heal amp takes the larger of the two keys after the timed-stat weight. Healing Tempo's
+  cast amp is innate.
+
+**Accepted and documented:**
+
+- An owned Booster does not raise a candidate lifesteal item's value (owned-only
+  valuation).
+- `HealOnHit` / `HealPerPickup` count once per cast.
+- A per-second heal with no duration counts the whole trade.
+- For a hero with no profile, kit heal raises the sustain need and is also what heal amp
+  prices on.
+
 ## Spend like real players (shop budgets, laning tempo, buy order)
 
 With one value scale, a hero's strongest category wins every pick, and real builds are a
