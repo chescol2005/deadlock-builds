@@ -4,7 +4,8 @@ import type { Item, ItemCategory, ItemTier } from "./items";
 
 let cachedItems: Item[] | null = null;
 
-function deriveUpgradesInto(items: Item[]): Item[] {
+/** Each item's `upgradesInto`: the items that list it as a component. */
+export function deriveUpgradesInto(items: Item[]): Item[] {
   return items.map((item) => ({
     ...item,
     upgradesInto: items

@@ -85,6 +85,12 @@ Ordered by impact.
 
 ### 2.1 Baselines and noise (PR R1, no scoring change)
 
+**Done 2026-10-25 (R1).** 77 baseline cases on inputs captured 2026-10-25 (patch
+09-29-2026). Post-patch ratchets: M3 0.096, O2 0.679 (36 / 53), mean L1 0.113. The gate
+was checked by setting `PHASE_ITEM_WEIGHT` to 0, which changed every Abrams basket. Doubling
+`LANING_TEMPO` changed **no** baseline: at these checkpoints the shop budgets already
+exclude what tempo would. That matters for C5.
+
 - **Frozen inputs.** `npm run capture-inputs` writes one pinned snapshot of the live
   inputs to `lib/engine/__fixtures__/frozen/`. It covers items, the 8 reference hero
   kits, analytics, accuracy and the three tables.
