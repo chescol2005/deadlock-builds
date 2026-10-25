@@ -189,6 +189,9 @@ export type AbilityUpgradeEntry = {
   property_upgrades?: Array<{
     name: string;
     bonus: string | number;
+    /** "EAddToScale": the bonus adds to the property's scaling coefficient. */
+    upgrade_type?: string;
+    scale_stat_filter?: string;
   }>;
 };
 

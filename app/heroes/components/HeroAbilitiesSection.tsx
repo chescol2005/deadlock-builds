@@ -1,4 +1,5 @@
 import type { HeroAbility } from "@/lib/abilityCoefficients";
+import { isDamageRate } from "@/lib/abilityCoefficients";
 
 const TIER_COSTS = [1, 2, 5] as const;
 
@@ -78,7 +79,10 @@ function AbilityCard({ ability }: { ability: HeroAbility }) {
       ability.castRange != null ? (
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-black/20 p-3 text-xs">
           {ability.baseDamage != null ? (
-            <StatPair label="Base Damage" value={String(ability.baseDamage)} />
+            <StatPair
+              label={isDamageRate(ability) ? "Damage per second" : "Base Damage"}
+              value={String(ability.baseDamage)}
+            />
           ) : null}
           {ability.spiritScaling != null ? (
             <StatPair label="Spirit Scaling" value={`☆×${ability.spiritScaling}`} />

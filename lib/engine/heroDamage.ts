@@ -52,9 +52,14 @@ export interface GunMods {
 }
 
 export interface DamagingAbility {
+  /** Per cast (a DPS ability's rate x its seconds, see damagePerCastFactor). */
   baseDamage: number | null;
   spiritScaling: number | null;
   cooldown: number | null;
+  /** Seconds one cast keeps hitting (a DPS ability); absent = one hit. */
+  seconds?: number;
+  /** Has charges: Extra Charge / Rapid Recharge spirit applies to it. */
+  charged?: boolean;
 }
 
 export interface HeroDamageModel {
@@ -63,6 +68,8 @@ export interface HeroDamageModel {
   accuracy: number;
   abilities: ReadonlyArray<DamagingAbility>;
   spiritPower: number;
+  /** Light melee damage at this boon level (melee damage items). */
+  meleeDamage?: number;
   /**
    * Max health at this boon level and base move speed (m/s), for the
    * fight-value model (heroFight.ts). Omitted: non-damage stats keep the
@@ -144,6 +151,29 @@ export function heroDps(model: HeroDamageModel): { gun: number; ability: number;
   return { gun, ability, total: gun + ability };
 }
 
+/** Melee hits landed in a trade (shared with heroFight's melee heals). */
+export const MELEE_HITS_PER_TRADE = 3;
+/** Share of melee attempts that land. */
+export const MELEE_LANDS = 0.5;
+/**
+ * A stacking spirit amp (Escalating Exposure) gains at most one stack per this
+ * many seconds of continuous spirit damage on a target (its "Max Frequency Per
+ * Target", ProcCooldown 0.7 s; data-verifier 2026-10-25).
+ */
+const AMP_STACK_INTERVAL = 0.7;
+
+/** Spirit hits one target takes from this kit in a trade (stacks for an amp). */
+function spiritHitsPerTrade(abilities: ReadonlyArray<DamagingAbility>, interval: number): number {
+  let hits = 0;
+  for (const a of abilities) {
+    const cd = num(a.cooldown ?? undefined);
+    if (!(num(a.baseDamage ?? undefined) > 0) || !(cd > 0)) continue;
+    const perCast = a.seconds != null && a.seconds > 0 ? Math.max(1, a.seconds / interval) : 1;
+    hits += castsPerTrade(cd) * perCast;
+  }
+  return hits;
+}
+
 /** Stat keys `damageValues` prices; itemAdapter skips its heuristic for them. */
 export const HERO_RELATIVE_GUN_KEYS: ReadonlySet<string> = new Set([
   "WeaponPower",
@@ -167,7 +197,15 @@ export const HERO_RELATIVE_SPIRIT_KEYS: ReadonlySet<string> = new Set([
   "BonusSpirit",
   "ImbuedTechPower",
   "TechDamagePercent",
+  "BonusSpiritForChargedAbilities",
+  "MagicIncreasePerStack",
+  // Priced at 0 on purpose: Mystic Reverb's "Current Health Bonus Damage" is in
+  // no tooltip and not on the wiki (data-verifier 2026-10-25), so unconfirmed.
+  // The item's real effect is the TechDamagePercent proc.
+  "MaxHealthDamage",
 ]);
+/** Melee keys `damageValues` prices as gun-category damage. */
+export const HERO_RELATIVE_MELEE_KEYS: ReadonlySet<string> = new Set(["BonusMeleeDamagePercent"]);
 
 /**
  * gunDamage / spiritDamage for an item's damage STATS, in % of this hero's
@@ -229,9 +267,68 @@ export function damageValues(
     s("BonusSpirit") +
     c * s("ImbuedTechPower") +
     (sp * s("TechPowerPercent")) / 100;
-  const abilityAfter =
-    abilityDps(model.abilities, sp + deltaSp) * (1 + s("TechDamagePercent") / 100);
-  const spiritGain = abilityAfter - dps.ability;
+  const spAfter = sp + deltaSp;
+  const abilityAfter = abilityDps(model.abilities, spAfter);
+  let spiritGain = abilityAfter - dps.ability;
+
+  // Item scoring review C2 (docs/item-scoring-review.md §1.3 items 4-5).
+  // Extra spirit for charged abilities only (Extra Charge 7, Rapid Recharge 14):
+  // nothing for a kit without charges (Haze, Abrams).
+  const chargedSp = s("BonusSpiritForChargedAbilities");
+  if (chargedSp > 0) {
+    const charged = model.abilities.filter((a) => a.charged);
+    spiritGain += abilityDps(charged, spAfter + chargedSp) - abilityDps(charged, spAfter);
+  }
+  // Mystic Reverb: +50% of ONE imbued ability's hit (at least MinimumDamage),
+  // once per item cooldown, not a permanent +50% to every ability.
+  const reverbPct = s("TechDamagePercent");
+  if (reverbPct > 0) {
+    let best = 0;
+    let bestCasts = 0;
+    for (const a of model.abilities) {
+      const cd = num(a.cooldown ?? undefined);
+      const perCast = num(a.baseDamage ?? undefined) + num(a.spiritScaling ?? undefined) * spAfter;
+      // "The first instance" of a damage-over-time ability is one second of it,
+      // not the whole cast (Lightning Ball: 75, not 75 x 5).
+      const firstHit = a.seconds != null && a.seconds > 0 ? perCast / a.seconds : perCast;
+      if (!(cd > 0) || !(firstHit > best)) continue;
+      best = firstHit;
+      bestCasts = castsPerTrade(cd);
+    }
+    if (best > 0) {
+      const itemCd = s("AbilityCooldown");
+      const procs = itemCd > 0 ? Math.min(bestCasts, castsPerTrade(itemCd)) : bestCasts;
+      spiritGain +=
+        (Math.max(s("MinimumDamage"), (best * reverbPct) / 100) * procs) / TRADE_SECONDS;
+    }
+  }
+  // Escalating Exposure: +MagicIncreasePerStack% spirit damage per stack, one
+  // stack per spirit hit (at most every AMP_STACK_INTERVAL s), MaxStacks cap.
+  // Over a trade the target carries about half the stacks it reaches.
+  const perStack = s("MagicIncreasePerStack");
+  if (perStack > 0) {
+    // MaxStacks is on the only item with this key (Escalating Exposure 12); a
+    // missing cap counts as a single stack rather than an invented one.
+    const reached = Math.min(
+      Math.max(1, s("MaxStacks")),
+      spiritHitsPerTrade(model.abilities, AMP_STACK_INTERVAL),
+    );
+    spiritGain += (abilityAfter * perStack * (reached / 2)) / 100;
+  }
+
+  // Melee damage items: % of the hero's light melee on the hits it lands in a
+  // trade. Colossus carries it on its active (7 s of 37 s), so it counts at
+  // that uptime unless the API lists it as innate.
+  const meleePct = s("BonusMeleeDamagePercent");
+  if (meleePct > 0 && num(model.meleeDamage) > 0) {
+    const uptime =
+      timed && !innate?.has("BonusMeleeDamagePercent") && s("AbilityCooldown") > 0
+        ? Math.min(1, s("AbilityDuration") / s("AbilityCooldown"))
+        : 1;
+    gunGain +=
+      ((meleePct / 100) * num(model.meleeDamage) * MELEE_HITS_PER_TRADE * MELEE_LANDS * uptime) /
+      TRADE_SECONDS;
+  }
 
   return {
     gunDamage: (gunGain / dps.total) * 100,

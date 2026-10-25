@@ -1394,18 +1394,51 @@ raw value), so it only ever set where the curve bends.
   otherwise price at 0). It sets `survival` only when health and move speed are known, so
   defence keeps the heuristic rather than pricing at 0.
 
-**Not yet on the scale (known follow-ups for the item scoring review):**
+**Brought onto the scale by the item scoring review (R2a, 2026-10-25;
+`docs/item-scoring-review.md` C1–C3):**
 
-- A few stat keys still add heuristic weights next to the fight values in hero mode
-  (`BonusMeleeDamagePercent`, `MaxHealthDamage`, `MagicIncreasePerStack`,
-  `BonusSpiritForChargedAbilities`).
-- The phase stat profile in `heroCategorySplit.json` (which sets the targets of antiHeal,
-  sustain, utility, economy, mobility) was fitted with hero-agnostic values, in the old
-  units. The shop budgets now carry most of the mix, but refit the profile with
-  fight-value units in the scoring review.
-- Several fixes apply only with a hero model: the flat headshot bonus, Kinetic Dash's timed
-  fire rate and the once-per-cooldown melee heal. The hero-agnostic path (no weapon data)
-  keeps the old reading for those.
+- **Ability damage per cast (C1).** `mapApiAbilityToHeroAbility` picks the ability's own
+  damage property, from damage-class keys that are not modifiers (`Percent` / `Pct` /
+  `Bonus`):
+  1. a positive key named exactly `Damage`;
+  2. else the spirit-scaled positive key, else the first positive one;
+  3. else a zero-base key an upgrade raises (Haze Fixation `ProcDamage`).
+
+  A rate key (`…DPS`, `…PerSecond`) records `damageSeconds` from `AbilityDuration`, then
+  `MaxLifetime`, then `BurnDuration`. The damage model and the need vector multiply base
+  and scaling by it once (`damagePerCastFactor`). The UI keeps showing the rate, labelled
+  "dmg/s". Upgrades apply to the ability's own key; an `EAddToScale` bonus scales with its
+  `scale_stat_filter` (spirit or weapon; unknown filters add nothing). The hero damage
+  model ignores ability levels, so the upgrade fix changes only the planner's numbers.
+  Checked roster-wide on 2026-10-25: 139 of 176 abilities unchanged and every change
+  reviewed (PR R2a body).
+
+- **Mystic Reverb (`TechDamagePercent`).** A proc: 50% of the strongest ability's first
+  hit, at least `MinimumDamage`, once per item cooldown and at most once per cast of that
+  ability. For a damage-over-time ability the first hit is one second of it. It was a
+  permanent +50% to all ability damage.
+- **`MaxHealthDamage`.** Inert on both paths: it is unconfirmed (in no tooltip, not on the
+  wiki).
+- **Escalating Exposure (`MagicIncreasePerStack`).** An amp on ability damage at half the
+  stacks a trade reaches: one stack per spirit hit, at most one per 0.7 s, capped at
+  `MaxStacks`.
+- **Charged abilities.** `HeroAbility.charges` comes from `AbilityCharges >= 1`.
+  `BonusSpiritForChargedAbilities` adds spirit only to charged abilities.
+  `BonusAbilityCharges` is valued on the charged abilities' share of ability DPS
+  (`HeroFightModel.chargedAbilityDps`), so Haze and Abrams get nothing for either.
+- **Melee damage % (`BonusMeleeDamagePercent`).** % of light melee on the hits landed in a
+  trade (`MELEE_HITS_PER_TRADE` x `MELEE_LANDS`, now in `heroDamage.ts`). Colossus counts
+  at its 7 / 37 s active uptime.
+- **No damage model (C3).**
+  - A timed, non-innate fire rate is conditional (Kinetic Dash).
+  - A cooldown headshot bonus is a flat proc: damage x `EFFECT_CONFIDENCE` x
+    `HEADSHOT_IN_TRADE`, counted as hit-dependent.
+  - Melee Lifesteal's value was always one heal; only its reason text said "per hit".
+    `fitCategorySplit` values items on this path, so a refit picks up C3.
+
+**Still open:** the phase stat profile in `heroCategorySplit.json`, which sets the targets
+of antiHeal, sustain, utility, economy and mobility, was fitted with hero-agnostic values
+in the old units. That is C4.
 
 **Bugs found on the way** (data-verifier 2026-10-24, live item text):
 
