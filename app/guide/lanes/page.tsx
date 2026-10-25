@@ -1,7 +1,8 @@
+import { guideMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { LanesPageClient } from "./components/LanesPageClient";
 
-export const metadata = { title: "Lane Mechanics Guide | Deadlock Foundry" };
+export const metadata = guideMetadata("/guide/lanes", "Lane Mechanics Guide");
 
 export default function LanesGuidePage() {
   return (

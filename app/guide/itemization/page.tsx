@@ -1,7 +1,8 @@
+import { guideMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { ItemizationPageClient } from "./components/ItemizationPageClient";
 
-export const metadata = { title: "Itemization Guide | Deadlock Foundry" };
+export const metadata = guideMetadata("/guide/itemization", "Itemization Guide");
 
 export default function ItemizationGuidePage() {
   return (

@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+import { redirect, unstable_rethrow } from "next/navigation";
 import BuildClient from "../BuildClient";
 import { fetchHeroById, fetchUpgradeItems, normalizeUpgradeItems } from "@/lib/deadlock";
 import { fetchVisibleHeroesEnriched } from "@/lib/heroApi";
-import { deserializeBuild } from "@/lib/buildSerializer";
 import type { BuildState } from "@/lib/buildSerializer";
 import { getItems } from "@/lib/itemStore";
 import { getHeroAccuracy, getItemAnalytics, getRankTiers } from "@/lib/analyticsStore";
@@ -18,6 +18,27 @@ import categorySplitTableJson from "@/lib/engine/data/heroCategorySplit.json";
 import { heroPhaseItems } from "@/lib/engine/phaseItems";
 import type { PhaseItemsTable } from "@/lib/engine/phaseItems";
 import phaseItemsTableJson from "@/lib/engine/data/heroPhaseItems.json";
+import { buildPageMetadata, buildPreview, decodeBuildParam } from "@/lib/seo";
+
+// The share preview: the hero plus the shared build's items (lib/seo.ts). Same
+// cached fetches as the page, so this adds no extra API round-trips.
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ heroId: string }>;
+  searchParams: Promise<{ build?: string }>;
+}): Promise<Metadata> {
+  const { heroId } = await params;
+  const { build } = await searchParams;
+  try {
+    const [hero, allItems] = await Promise.all([fetchHeroById(heroId), getItems()]);
+    return buildPageMetadata(hero, buildPreview(hero, decodeBuildParam(build), allItems), build);
+  } catch (err) {
+    unstable_rethrow(err);
+    return { title: "Build planner" };
+  }
+}
 
 export default async function BuildHeroPage({
   params,
@@ -90,14 +111,9 @@ export default async function BuildHeroPage({
   // same way. null when the hero was not fitted (phaseItemTerm inert).
   const phaseItems = heroPhaseItems(phaseItemsTableJson as unknown as PhaseItemsTable, heroIdNum);
 
-  let initialState: BuildState | null = null;
-  if (build) {
-    try {
-      initialState = deserializeBuild(build);
-    } catch {
-      // Malformed param — fall through to empty state
-    }
-  }
+  // Malformed or missing param: empty state. Same decoder as generateMetadata,
+  // so the share preview and the opened build always agree.
+  const initialState: BuildState | null = decodeBuildParam(build);
 
   return (
     <BuildClient

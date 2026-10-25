@@ -1,7 +1,8 @@
+import { guideMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { BoonsPageClient } from "./components/BoonsPageClient";
 
-export const metadata = { title: "Boons Guide | Deadlock Foundry" };
+export const metadata = guideMetadata("/guide/boons", "Boons Guide");
 
 export default function BoonsGuidePage() {
   return (

@@ -8,6 +8,7 @@ import type { AbilityUpgradeTier } from "@/lib/abilityCoefficients";
 import { scoreItems } from "@/lib/scoring/scoreItems";
 import { calculateStatTotals } from "@/lib/buildCalculations";
 import { serializeBuild, deserializeBuild } from "@/lib/buildSerializer";
+import type { BuildState } from "@/lib/buildSerializer";
 import { getBoonThreshold, getAbilityPointsAtSouls, getAbilityUnlockOrder } from "@/lib/boonSystem";
 import {
   CAMPS,
@@ -35,6 +36,23 @@ import {
 } from "@/lib/buildUtils";
 import { GUIDES, NAV_SECTIONS, isActiveSection } from "@/lib/navigation";
 import { runStarterBuildFixtures } from "./starterBuildFixtures";
+import {
+  DEFAULT_OG_IMAGE,
+  FALLBACK_SITE_URL,
+  PREVIEW_ITEM_LIMIT,
+  SITE_NAME,
+  STATIC_ROUTES,
+  buildPageMetadata,
+  buildPreview,
+  buildPreviewImagePath,
+  decodeBuildParam,
+  guideMetadata,
+  heroPageMetadata,
+  itemPageMetadata,
+  pngVariant,
+  siteUrl,
+  sitemapEntries,
+} from "@/lib/seo";
 
 let passed = 0;
 let failed = 0;
@@ -881,10 +899,20 @@ async function run() {
   // prerendered with zero items. Fail-open must mean "API down", never this.
   console.log("\n14. Fail-open fetchers rethrow Next's internal errors");
 
-  const FAIL_OPEN_FILES = ["lib/api/deadlockApi.ts", "lib/api/analyticsApi.ts", "lib/heroStore.ts"];
+  const FAIL_OPEN_FILES = [
+    "lib/api/deadlockApi.ts",
+    "lib/api/analyticsApi.ts",
+    "lib/heroStore.ts",
+    "lib/ogAssets.ts",
+    "app/sitemap.ts",
+    "app/api/og/build/route.tsx",
+    "app/build/[heroId]/page.tsx",
+    "app/heroes/[...hero]/page.tsx",
+  ];
   for (const relPath of FAIL_OPEN_FILES) {
     const src = readFileSync(relPath, "utf-8");
-    const catches = src.match(/\} catch \(err\) \{\n\s*\S[^\n]*/g) ?? [];
+    // \r?: Windows checkouts have CRLF working copies (CI sees LF).
+    const catches = src.match(/\} catch \(err\) \{\r?\n\s*\S[^\r\n]*/g) ?? [];
     const unguarded = catches.filter((c) => !c.includes("unstable_rethrow(err);"));
     assert(
       catches.length > 0 && unguarded.length === 0,
@@ -964,6 +992,155 @@ async function run() {
   assert(
     upgradePath.length === 2 && detectAntiSynergies(upgradePath).length === 0,
     "detectAntiSynergies: Extra Charge + Rapid Recharge (component and upgrade) is not a conflict",
+  );
+
+  // -----------------------------------------------
+  // Fixture 15: Page metadata, share previews, sitemap (Work 3a)
+  // -----------------------------------------------
+  console.log("\n15. Page metadata, share previews, sitemap");
+
+  // Every page names itself: a static `metadata` export or `generateMetadata`.
+  const pageFiles: string[] = [];
+  const walkPages = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walkPages(full);
+      else if (entry.name === "page.tsx") pageFiles.push(full);
+    }
+  };
+  walkPages("app");
+  const unnamed = pageFiles.filter(
+    (f) =>
+      !/export (const metadata\b|async function generateMetadata\b)/.test(readFileSync(f, "utf-8")),
+  );
+  assert(
+    pageFiles.length >= 12 && unnamed.length === 0,
+    `every app/**/page.tsx exports metadata or generateMetadata (${pageFiles.length} pages)`,
+    unnamed.join(", "),
+  );
+  const layoutSrc = readFileSync("app/layout.tsx", "utf-8");
+  assert(
+    layoutSrc.includes("metadataBase: siteUrl()") && layoutSrc.includes("template:"),
+    "root layout sets metadataBase and the title template",
+  );
+  const hardcodedSuffix = pageFiles.filter((f) =>
+    readFileSync(f, "utf-8").includes("| Deadlock Foundry"),
+  );
+  assert(
+    hardcodedSuffix.length === 0,
+    "no page hard-codes the site-name title suffix (the template adds it)",
+    hardcodedSuffix.join(", "),
+  );
+  for (const guide of GUIDES) {
+    const src = readFileSync(`app${guide.href}/page.tsx`, "utf-8");
+    assert(
+      src.includes(`guideMetadata("${guide.href}"`) &&
+        guideMetadata(guide.href, "x").description === guide.description,
+      `${guide.href}: metadata description comes from GUIDES`,
+    );
+  }
+
+  // siteUrl precedence: explicit > Vercel production domain > fallback.
+  assert(
+    siteUrl({ NEXT_PUBLIC_SITE_URL: "https://a.example" }).origin === "https://a.example" &&
+      siteUrl({ VERCEL_PROJECT_PRODUCTION_URL: "b.example" }).origin === "https://b.example" &&
+      siteUrl({}).toString() === new URL(FALLBACK_SITE_URL).toString(),
+    "siteUrl: NEXT_PUBLIC_SITE_URL, then VERCEL_PROJECT_PRODUCTION_URL, then the fallback",
+  );
+  assert(
+    siteUrl({ NEXT_PUBLIC_SITE_URL: "foundry.example" }).origin === "https://foundry.example" &&
+      siteUrl({ NEXT_PUBLIC_SITE_URL: "::not a url::" }).toString() ===
+        new URL(FALLBACK_SITE_URL).toString(),
+    "siteUrl: a bare host gets https://, an unparseable value falls back (never throws)",
+  );
+  const noArtHero = {
+    id: 1,
+    name: "X",
+    images: { icon_hero_card: "", icon_hero_card_webp: "https://x/c.webp" },
+  };
+  const ogOf = (m: ReturnType<typeof heroPageMetadata>) =>
+    (m.openGraph ?? {}) as { siteName?: string; images?: Array<{ url: string }> };
+  const heroOg = ogOf(heroPageMetadata(noArtHero));
+  const iconless = items.find((i) => i.id === items[0].id);
+  const itemOg = iconless ? ogOf(itemPageMetadata({ ...iconless, icon: "" })) : {};
+  assert(
+    heroOg.siteName === SITE_NAME &&
+      heroOg.images?.[0]?.url === "https://x/c.webp" &&
+      itemOg.siteName === SITE_NAME &&
+      itemOg.images?.[0]?.url === DEFAULT_OG_IMAGE.url,
+    "page OpenGraph keeps siteName; empty art falls back to WebP, then to the generic card",
+    JSON.stringify({ heroOg, itemOg }),
+  );
+  assert(
+    pngVariant("https://x/a/b.webp") === "https://x/a/b.png" &&
+      pngVariant("https://x/a/b.png") === "https://x/a/b.png" &&
+      pngVariant(undefined) === undefined,
+    "pngVariant: WebP assets map to their PNG twin (Satori can't decode WebP)",
+  );
+  assert(
+    decodeBuildParam("not-a-build!!") === null && decodeBuildParam(undefined) === null,
+    "decodeBuildParam: a malformed or missing share param is null, never a throw",
+  );
+
+  // A shared build previews its active items first, at most PREVIEW_ITEM_LIMIT,
+  // skipping ids the catalogue no longer has.
+  const previewIds = items.slice(0, PREVIEW_ITEM_LIMIT + 2).map((i) => i.id);
+  const previewState: BuildState = {
+    heroId: "13",
+    itemIds: [...previewIds, "upgrade_does_not_exist"],
+    abilityLevels: {},
+    heroLevel: 10,
+    categories: [],
+    phases: [...previewIds, "x"].map(() => null),
+    active: [...previewIds, "x"].map((_, k) => k === 3),
+    sell: [...previewIds, "x"].map(() => false),
+    optional: [...previewIds, "x"].map(() => false),
+  };
+  const testHero = { id: 13, name: "Haze", images: { icon_hero_card_webp: "https://x/haze.webp" } };
+  const encodedPreview = serializeBuild(previewState);
+  const preview = buildPreview(testHero, decodeBuildParam(encodedPreview), items);
+  assert(
+    preview.items.length === PREVIEW_ITEM_LIMIT &&
+      preview.items[0].id === previewIds[3] &&
+      preview.itemCount === previewIds.length &&
+      preview.heroImage === "https://x/haze.png",
+    "buildPreview: active items first, capped, unknown ids skipped, PNG hero art",
+    JSON.stringify(preview.items.map((i) => i.id)),
+  );
+  const sharedMeta = buildPageMetadata(testHero, preview, encodedPreview);
+  const plainMeta = buildPageMetadata(testHero, buildPreview(testHero, null, items), null);
+  const imageOf = (m: typeof sharedMeta) => {
+    const images = m.openGraph?.images;
+    const first = Array.isArray(images) ? images[0] : images;
+    return typeof first === "object" && first !== null && "url" in first ? String(first.url) : "";
+  };
+  assert(
+    imageOf(sharedMeta) === buildPreviewImagePath(13, encodedPreview) &&
+      imageOf(sharedMeta).includes("build=") &&
+      sharedMeta.title === "Haze build" &&
+      String(sharedMeta.description).includes(preview.items[0].name) &&
+      imageOf(plainMeta) === "/api/og/build?hero=13" &&
+      plainMeta.title === "Haze build planner",
+    "buildPageMetadata: a share link previews its items; a plain hero link previews the hero",
+  );
+
+  // Sitemap: static routes (every guide included), hero + build pages, items;
+  // never a share link.
+  const entries = sitemapEntries(new URL("https://site.example"), [13, 6], ["upgrade_x"]);
+  const urls = entries.map((e) => e.url);
+  assert(
+    GUIDES.every((g) => urls.includes(`https://site.example${g.href}`)) &&
+      STATIC_ROUTES.every((r) => existsSync(r === "/" ? "app/page.tsx" : `app${r}/page.tsx`)) &&
+      urls.includes("https://site.example/build/13") &&
+      urls.includes("https://site.example/heroes/6") &&
+      urls.includes("https://site.example/items/upgrade_x") &&
+      urls.every((u) => !u.includes("?")) &&
+      entries.length === STATIC_ROUTES.length + 2 * 2 + 1,
+    "sitemapEntries: every guide and static route (each a real page), hero/build/item pages, no share links",
+  );
+  assert(
+    readFileSync("app/robots.ts", "utf-8").includes("/sitemap.xml"),
+    "robots.ts points crawlers at the sitemap",
   );
 
   // -----------------------------------------------

@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { GUIDES } from "@/lib/navigation";
 
-export const metadata = { title: "Guides | Deadlock Foundry" };
+export const metadata = {
+  title: "Guides",
+  description:
+    "Plain-English Deadlock guides: farming, lanes, boons and itemization, for players new to the game.",
+};
 
 export default function GuidesIndexPage() {
   return (
