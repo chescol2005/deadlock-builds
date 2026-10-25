@@ -75,6 +75,35 @@ import type { ScoreCategory } from "./types";
 export const EFFECT_CONFIDENCE = 0.5;
 
 /**
+ * Share of fights a situational heal fires in: Dispel Magic heals only when
+ * the purge removes an effect, Veil Walker only when a veil is near the fight.
+ * Unmeasured, so the engine's usual conditional weight (0.4).
+ */
+const SITUATIONAL_HEAL_SHARE = 0.4;
+/** Regeneration window when RegenerationDuration is missing: both shop items list 7 s (2026-10-25). */
+const DEFAULT_REGENERATION_SECONDS = 7;
+
+/**
+ * Shopable healing keys deliberately NOT priced, with the reason (Milestone G,
+ * docs/milestone-g.md G2-7). Every other healing key from §2.1 is priced by
+ * heroFight.fightValues or an estimate here; engine fixture 29 checks the list.
+ */
+export const UNPRICED_HEALING_KEYS: Readonly<Record<string, string>> = {
+  ParrySuccessHealPercentage: "Rebuttal: needs a successful parry; no measured parry rate",
+  HealOnSuccess: "Counterspell: needs a successful spell parry; no measured parry rate",
+  HealOnKill: "Healbane: needs a kill under the debuff; no measured kill rate",
+  HealthStealPctHero: "Siphon Bullets: temporary max-HP steal, semantics unverified",
+  StealPerHit: "Siphon Bullets: temporary max-HP steal, semantics unverified",
+  StealPerKill: "Siphon Bullets: temporary max-HP steal, semantics unverified",
+  LifestealHealPercent:
+    "Lifestrike: % of melee damage, unknown to the estimate (fixed heal priced)",
+  HealFromNPC: "Restorative Shot vs creeps: farming heals between trades are not modelled",
+  NonHeroHealPct: "melee heals vs creeps: farming heals between trades are not modelled",
+  HealAmpCastPercent: "heal amplification: priced on the hero's kit heal in G3 (G3-5)",
+  HealAmpRegenPercent: "heal amplification: priced on the hero's kit heal in G3 (G3-5)",
+};
+
+/**
  * Weight for raw heal/absorb amounts (hundreds-scale), matching
  * WEIGHT_LARGE_FLAT in itemAdapter.ts so a 325 heal and 325 max health land in
  * the same band.
@@ -237,6 +266,8 @@ export type EffectUnit =
   | "heal" // HP restored per cast / per stack set
   | "healPerSecond" // HP per second while the active is up (negative = self-drain)
   | "healPerMeleeHit"
+  | "healPerProc" // HP per proc of a cooldown-gated heal (next bullet, ability cast, veil)
+  | "healPercentPerHeadshot" // % max HP on a cooldown-gated headshot
   | "health" // flat max HP
   | "ccSeconds" // hard CC (stun / silence) seconds per application
   | "slowPercentSeconds" // movement slow % x seconds
@@ -469,14 +500,62 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
   if (heal != null) {
     add("sustain", heal * HEAL_WEIGHT, `${heal} health restored per cast`, "heal", heal);
   }
-  const lifestrike = num(stats, "LifestrikeHeal");
-  if (lifestrike != null) {
+  // Melee Lifesteal `LifestrikeHeal`; Lifestrike `LifestealHeal` (G2b): a fixed
+  // heal per melee hit plus 35% of the melee damage, of which only the fixed
+  // part is priced (the estimate has no melee damage).
+  for (const key of ["LifestrikeHeal", "LifestealHeal"] as const) {
+    const lifestrike = num(stats, key);
+    if (lifestrike != null) {
+      add(
+        "sustain",
+        lifestrike * HEAL_WEIGHT,
+        `${lifestrike} health on a melee hit, once per cooldown`,
+        "healPerMeleeHit",
+        lifestrike,
+      );
+    }
+  }
+
+  // ── Healing that was unpriced (Milestone G2b, docs/milestone-g.md G2-7) ──
+  // Cooldown-gated heals: next bullet on a hero (Restorative Shot), each ability
+  // cast (Radiant Regeneration), a purge that removed something (Dispel Magic,
+  // situational), walking through a veil (Veil Walker, situational).
+  for (const [key, basis, share] of [
+    ["HealFromHero", "on your next bullet hitting a hero", 1],
+    ["HealingPerCast", "when you cast an ability", 1],
+    ["HealOnActivate", "when the purge removes an effect", SITUATIONAL_HEAL_SHARE],
+    ["HealOnVeil", "when you walk through a veil", SITUATIONAL_HEAL_SHARE],
+  ] as const) {
+    const q = num(stats, key);
+    if (q != null) {
+      add("sustain", q * share * HEAL_WEIGHT, `${q} health ${basis}`, "healPerProc", q * share);
+    }
+  }
+  // Regeneration for RegenerationDuration on each trigger: spirit damage to a
+  // hero (Mystic Regeneration) or an ability cast (Radiant Regeneration, per
+  // cooldown like its per-cast heal). Missing duration is not zero: fall back
+  // to the catalogue's 7 s.
+  const regenRate = num(stats, "Regeneration");
+  if (regenRate != null) {
+    const regenFor = num(stats, "RegenerationDuration") ?? DEFAULT_REGENERATION_SECONDS;
+    const total = regenRate * regenFor;
     add(
       "sustain",
-      lifestrike * HEAL_WEIGHT,
-      `${lifestrike} health on a melee hit, once per cooldown`,
-      "healPerMeleeHit",
-      lifestrike,
+      total * HEAL_WEIGHT,
+      `${regenRate} health per second for ${regenFor}s`,
+      "healPerProc",
+      total,
+    );
+  }
+  // Headhunter: % max HP on the next headshot.
+  const headshotHeal = num(stats, "HealPercentPerHeadshot");
+  if (headshotHeal != null) {
+    add(
+      "sustain",
+      headshotHeal,
+      `${headshotHeal}% max health on your next headshot`,
+      "healPercentPerHeadshot",
+      headshotHeal,
     );
   }
 
