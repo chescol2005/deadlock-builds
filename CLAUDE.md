@@ -92,6 +92,13 @@ changes have to meet written expectations, not just compile.
   with recorded baseline baskets for a fixed set of heroes × soul levels. Any
   scoring change then shows up as a deliberate, reviewed diff, not silent drift.
   Assert invariants by default; snapshot exact baskets only where intended.
+  **Built (R1, 2026-10-25):** `lib/engine/__fixtures__/frozen/` holds a pinned
+  snapshot of the live inputs (`npm run capture-inputs`) and 77 recorded baseline
+  baskets (`baselines.json`: the 8 reference heroes x boon 5/10/16/22/29, the
+  starter build, `scoreItems` top 5 per goal). Engine harness section 25 fails on
+  any change; review it with `npm run baseline`, accept it with
+  `npm run baseline -- --update`, and describe the diff in the PR body. Live
+  ratchets (M3, O2) carry a 0.01 noise band; M1's mean distance must stay <= 0.12.
 
 ---
 
@@ -555,7 +562,9 @@ checklist enforced by convention, not by a bot:
   the category split with `npm run fit-category-split` and review its diff
   hero by hero ("Measured category split" in engine-design-notes.md). The same
   run rewrites `heroPhaseItems.json`; review its top early / mid items per hero
-  ("What players on this hero buy" in engine-design-notes.md).
+  ("What players on this hero buy" in engine-design-notes.md). After any refit,
+  `npm run capture-inputs -- --tables-only` then `npm run baseline` shows what the
+  new tables change; commit the updated baselines with the refit.
 - When `data-verifier` confirms a value changed, cite the source
   (deadlock.wiki page + date, or the exact API endpoint) directly in the
   code comment next to the changed constant — see `lib/boonSystem.ts`'s

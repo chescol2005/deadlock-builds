@@ -37,6 +37,8 @@ import {
   synergyTerm,
 } from "../basketSelect";
 import pairLiftTableJson from "../data/pairLiftTable.json";
+import { loadFrozen } from "./frozen/frozenInputs";
+import { computeBaselines, diffBaselines, readBaselines } from "./frozen/baselines";
 import categorySplitTableJson from "../data/heroCategorySplit.json";
 import {
   adjustSplitForAccuracy,
@@ -4345,6 +4347,33 @@ console.log("\n24. Audit follow-ups: cumulative budgets, pooled reasons, capped 
     "phaseItemTerm: the rarely-bought penalty is capped at half the coverage gain (never <= 0)",
     `coverage ${cov?.value}, penalty ${pen?.value}`,
   );
+}
+
+console.log("\n25. Baseline baskets on frozen inputs (item scoring review §2.1)");
+{
+  const now = computeBaselines(loadFrozen());
+  assert(
+    JSON.stringify(computeBaselines(loadFrozen())) === JSON.stringify(now),
+    "baselines: two runs on the frozen inputs are identical",
+  );
+  const recorded = readBaselines();
+  assert(recorded !== null, "baselines: baselines.json exists (npm run baseline -- --update)");
+  if (recorded) {
+    const diff = diffBaselines(recorded, now);
+    const changed = diff
+      .slice(0, 6)
+      .map((d) => d.key)
+      .join("; ");
+    assert(
+      diff.length === 0,
+      `baselines: ${Object.keys(now.cases).length} recorded baskets unchanged`,
+      diff.length > 0
+        ? `${diff.length} changed: ${changed}${diff.length > 6 ? "; ..." : ""}. Review with ` +
+            "`npm run baseline`; if intended, run `npm run baseline -- --update` and " +
+            "describe the diff in the PR body"
+        : undefined,
+    );
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
