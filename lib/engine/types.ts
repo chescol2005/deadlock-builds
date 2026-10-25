@@ -142,8 +142,31 @@ export type HeroNeedVector = Readonly<Record<ScoreCategory, number>>;
 export interface MarginalTerm {
   termId: string;
   value: number;
+  /** Exact reason with the numbers behind it (advanced breakdown). */
   reason: string;
+  /**
+   * The same reason as one plain-English sentence for a new player: no numbers,
+   * no internal category keys. Set by terms that can be a pick's headline; the
+   * simplified view falls back to `reason` when it is missing.
+   */
+  plain?: string;
 }
+
+/** Plain-English names for the need categories, for `MarginalTerm.plain`. */
+export const SCORE_CATEGORY_PLAIN: Readonly<Record<ScoreCategory, string>> = {
+  gunDamage: "gun damage",
+  spiritDamage: "spirit damage",
+  gunShred: "bullet-resist shred",
+  spiritShred: "spirit-resist shred",
+  antiHeal: "anti-heal",
+  bonusHealth: "health",
+  resist: "damage resistance",
+  shield: "barriers",
+  sustain: "healing",
+  mobility: "mobility",
+  utility: "utility",
+  economy: "soul income",
+};
 
 /** Mutable-per-iteration state the greedy loop threads through each term. */
 export interface BasketState {

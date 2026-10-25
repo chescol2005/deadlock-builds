@@ -679,6 +679,8 @@ async function run() {
     // panel is unprotected until it is added here — add new panels to this
     // list as they are built, or the checklist silently stops covering them.
     "app/build/components/HeroBasketSuggestion.tsx",
+    // Work 2d.
+    "app/build/components/StarterBuildPanel.tsx",
   ];
 
   for (const relPath of SIMPLIFIED_PANELS) {
@@ -695,6 +697,7 @@ async function run() {
     "app/build/components/SuggestedItemsPanel.tsx",
     "app/build/components/BuildSummaryPanel.tsx",
     "app/build/BuildClient.tsx",
+    "app/build/components/StarterBuildPanel.tsx",
     // Site nav + homepage.
     "app/components/SiteNav.tsx",
     "app/page.tsx",
