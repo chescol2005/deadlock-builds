@@ -5,7 +5,8 @@ import { HomeHeroPicker } from "@/app/components/HomeHeroPicker";
 import { InfoTooltip } from "@/app/components/Tooltip";
 
 export const metadata = {
-  title: "Deadlock Foundry — the build planner that explains itself",
+  // Absolute: the homepage title already names the site.
+  title: { absolute: "Deadlock Foundry — the build planner that explains itself" },
   description:
     "Pick a Deadlock hero and get item suggestions with a plain-English reason for each, tailored to the hero's kit and what you already own.",
 };

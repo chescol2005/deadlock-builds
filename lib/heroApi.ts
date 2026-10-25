@@ -81,6 +81,18 @@ export function slugifyHeroName(name: string) {
   return name.toLowerCase().replace(/\s+/g, "-");
 }
 
+/** /heroes/[...hero] takes a numeric id or a name slug ("lady-geist"). */
+export function isHeroIdKey(routeKey: string): boolean {
+  return /^[0-9]+$/.test(routeKey);
+}
+
+/** The hero a /heroes/[...hero] route key names; shared by the page and its metadata. */
+export async function fetchHeroByRouteKey(routeKey: string): Promise<DeadlockHeroDetail> {
+  return isHeroIdKey(routeKey)
+    ? fetchHeroById(routeKey)
+    : fetchHeroByName(routeKey.replace(/-/g, " "));
+}
+
 export async function fetchHeroByName(name: string): Promise<DeadlockHeroDetail> {
   const res = await fetch(`${ASSETS_BASE}/heroes/by-name/${encodeURIComponent(name)}`, {
     next: { revalidate: 3600 },

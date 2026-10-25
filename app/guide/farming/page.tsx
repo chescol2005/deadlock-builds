@@ -1,7 +1,8 @@
+import { guideMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { FarmingPageClient } from "./components/FarmingPageClient";
 
-export const metadata = { title: "Farming Guide | Deadlock Foundry" };
+export const metadata = guideMetadata("/guide/farming", "Farming Guide");
 
 export default function FarmingGuidePage() {
   return (

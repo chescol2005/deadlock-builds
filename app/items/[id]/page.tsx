@@ -1,9 +1,21 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getItems, getItemByClassname } from "@/lib/itemStore";
 import { getItemAnalytics } from "@/lib/analyticsStore";
 import type { Item, ItemCategory } from "@/lib/items";
 import { ItemStatsSection } from "../components/ItemStatsSection";
+import { itemPageMetadata } from "@/lib/seo";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const item = getItemByClassname(id, await getItems());
+  return item ? itemPageMetadata(item) : { title: "Item not found" };
+}
 
 const CATEGORY_TEXT_COLOR: Record<ItemCategory, string> = {
   gun: "text-orange-400",

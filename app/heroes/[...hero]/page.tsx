@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { fetchHeroById, fetchHeroByName } from "@/lib/heroApi";
+import type { Metadata } from "next";
+import { redirect, unstable_rethrow } from "next/navigation";
+import { fetchHeroByRouteKey, isHeroIdKey } from "@/lib/heroApi";
 import { getItems } from "@/lib/itemStore";
 import { getHeroStats } from "@/lib/heroStore";
 import { getHeroAnalytics } from "@/lib/analyticsStore";
@@ -10,6 +11,23 @@ import { ShopGrid } from "../components/ShopGrid";
 import { HeroDifficultyBadge, HeroArchetypeTags } from "@/app/components/HeroDifficultyBadge";
 import { HeroStatsSection } from "../components/HeroStatsSection";
 import { HeroAbilitiesSection } from "../components/HeroAbilitiesSection";
+import { heroPageMetadata } from "@/lib/seo";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ hero: string[] }>;
+}): Promise<Metadata> {
+  const { hero } = await params;
+  const routeKey = hero?.[0];
+  if (!routeKey) return { title: "Heroes" };
+  try {
+    return heroPageMetadata(await fetchHeroByRouteKey(routeKey));
+  } catch (err) {
+    unstable_rethrow(err);
+    return { title: "Heroes" };
+  }
+}
 
 export default async function HeroPage({ params }: { params: Promise<{ hero: string[] }> }) {
   const { hero } = await params;
@@ -19,11 +37,8 @@ export default async function HeroPage({ params }: { params: Promise<{ hero: str
   if (!routeKey) redirect("/heroes");
 
   const hasSubroute = segments.length > 1;
-  const isId = /^[0-9]+$/.test(routeKey);
-
-  const heroData = isId
-    ? await fetchHeroById(routeKey)
-    : await fetchHeroByName(routeKey.replace(/-/g, " "));
+  const isId = isHeroIdKey(routeKey);
+  const heroData = await fetchHeroByRouteKey(routeKey);
 
   if (!isId && !hasSubroute) redirect(`/heroes/${heroData.id}`);
 

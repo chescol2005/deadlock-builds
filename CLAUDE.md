@@ -400,6 +400,12 @@ lib/starterBuildApply.ts      — applyStarterBuild(): StarterBuild → planner 
 lib/basketReasons.ts          — headlineTerm()/headlineReason(): which reason a
                                 pick headlines in the simplified view (positive,
                                 never population data; MarginalTerm.plain first)
+lib/seo.ts                    — page metadata helpers (heroPageMetadata,
+                                itemPageMetadata, buildPageMetadata, guideMetadata),
+                                share-preview data (buildPreview, decodeBuildParam),
+                                sitemapEntries(), siteUrl() (Work 3a)
+lib/ogAssets.ts               — fetchImageDataUri(): fail-open image inlining for
+                                share-preview renders (PNG/JPEG/GIF only, Satori)
 lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cached,
                                 fail-open match-analytics (win rate, matches) from
                                 /v1/analytics/*; ItemAnalytics.itemId joins to
@@ -415,6 +421,10 @@ app/components/                — cross-route shared UI (Milestone C):
   SiteNav.tsx                  — sticky global nav, mounted in app/layout.tsx;
                                 collapses to a menu below md
   HomeHeroPicker.tsx           — homepage hero grid → /build/[heroId]
+app/api/og/build/route.tsx    — share-preview image (?hero=&build=): hero art +
+                                up to 6 items; the site's generic card without a hero
+app/sitemap.ts, app/robots.ts — sitemap (static routes, guides, hero/build/item
+                                pages; never share links) and robots
 app/page.tsx                  — homepage: pitch, hero picker, how-it-works,
                                 guides strip (fetch fails open to a /heroes link)
 app/guide/page.tsx            — guides index (cards from GUIDES)
@@ -472,6 +482,11 @@ app/guide/itemization/         — itemization guide (Milestone D2): categories/
 Every page gets the global `SiteNav`. `/guide/*` pages are linked from it, from
 the `/guide` index and from the homepage. To add a guide, add its entry to
 `GUIDES` in `lib/navigation.ts`; Fixture 12 enforces this.
+
+Every page exports `metadata` or `generateMetadata` (Fixture 15). Titles are
+bare ("Boons Guide"): the root layout's template adds "| Deadlock Foundry".
+Page metadata comes from `lib/seo.ts`; a page's own `openGraph` replaces the
+layout's, so spread `BASE_OPEN_GRAPH` into it.
 
 ---
 
@@ -650,7 +665,8 @@ are the recommendation numbers in `docs/competitive-analysis.md`):
    **2d UI** ✅ (StarterBuildPanel, plain-English reasons). Left for the scoring
    review: phase stat profile still in the old
    units, a few stat keys on heuristic weights, real 3,200 rushes (T1 known gaps).
-3. Per-page metadata / OG images (rec. 2) + mobile pass on `/build` (rec. 3)
+3. Per-page metadata / OG images (rec. 2) ✅ (3a: metadata, share previews,
+   sitemap) + mobile pass on `/build` (rec. 3, 3b next)
 
 Then, **before marking F ✅ Closed**, do the item scoring review. Cover both
 suggestion paths: `lib/scoring/` (`scoreItems`, goal weights, anti-synergy) and

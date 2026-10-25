@@ -4,7 +4,11 @@ import { getItemAnalytics } from "@/lib/analyticsStore";
 import type { ItemAnalytics } from "@/lib/analyticsStore";
 import { ItemsTableClient } from "./ItemsTableClient";
 
-export const metadata = { title: "Items | Deadlock Foundry" };
+export const metadata = {
+  title: "Items",
+  description:
+    "Every Deadlock shop item by category and tier, with stats, components and real win rates.",
+};
 
 export default async function ItemsPage() {
   const [items, itemAnalyticsMap] = await Promise.all([getItems(), getItemAnalytics()]);
