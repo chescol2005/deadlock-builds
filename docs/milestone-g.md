@@ -211,7 +211,6 @@ upgrades (H2), real ability tiers for charge credit.
 - **Left out, with reasons** (`UNPRICED_HEALING_KEYS`):
   - parry heals (Rebuttal, Counterspell) and Healbane's kill heal: no measured parry or
     kill rate;
-  - Siphon Bullets: max-HP steal, semantics unverified;
   - Lifestrike's % of melee damage;
   - heals against creeps (`HealFromNPC`, `NonHeroHealPct`);
   - heal amp: G3-5.
@@ -226,3 +225,13 @@ upgrades (H2), real ability tiers for charge credit.
   - Haze late takes Headhunter;
   - Infernus late swaps Escalating Exposure for Dispel Magic and three smaller items;
   - Lady Geist boon 22 owning early changes only term values.
+
+**G2c: Siphon Bullets (2026-10-25).** Shipped. The wiki page the user supplied settles
+the mechanics: each steal (at most once per 1.2 s) deals 2.5% of the target's max HP and
+heals the buyer by the same amount (counted once), at one rate for both halves: once per
+1.2 s, or fewer if the hero lands fewer shots; the heal is scaled by the gun share. The
+enemy's max HP is the 2,500 reference
+Toxic Bullets uses. Enemy health grows over the game, so both items are under-priced late
+(follow-up: scale with boon). `StealPerHit` / `StealPerKill` are flags; the kill steal was
+removed on 2026-03-06. Live gates unchanged; Siphon enters 4 of 72 baselines (Haze and
+Warden late).

@@ -63,6 +63,7 @@
 
 import type { ItemStats } from "../items";
 import type { ScoreCategory } from "./types";
+import { TRADE_SECONDS } from "./heroDamage";
 
 /**
  * Global discount applied to every estimate in this module.
@@ -84,6 +85,17 @@ const SITUATIONAL_HEAL_SHARE = 0.4;
 const DEFAULT_REGENERATION_SECONDS = 7;
 
 /**
+ * Typical enemy max health, for effects that deal or steal % of the TARGET's
+ * max health (Toxic Bullets, Siphon Bullets). Roughly the roster's max health
+ * mid-game. Enemy health grows over the game, so this under-prices both items
+ * late (follow-up: scale it with the boon level).
+ */
+export const REFERENCE_ENEMY_HEALTH = 2500;
+
+/** A gun proc's interval when ProcCooldown is missing: Siphon Bullets lists 1.2 s (2026-10-25). */
+export const DEFAULT_PROC_COOLDOWN_S = 1.2;
+
+/**
  * Shopable healing keys deliberately NOT priced, with the reason (Milestone G,
  * docs/milestone-g.md G2-7). Every other healing key from §2.1 is priced by
  * heroFight.fightValues or an estimate here; engine fixture 29 checks the list.
@@ -92,9 +104,9 @@ export const UNPRICED_HEALING_KEYS: Readonly<Record<string, string>> = {
   ParrySuccessHealPercentage: "Rebuttal: needs a successful parry; no measured parry rate",
   HealOnSuccess: "Counterspell: needs a successful spell parry; no measured parry rate",
   HealOnKill: "Healbane: needs a kill under the debuff; no measured kill rate",
-  HealthStealPctHero: "Siphon Bullets: temporary max-HP steal, semantics unverified",
-  StealPerHit: "Siphon Bullets: temporary max-HP steal, semantics unverified",
-  StealPerKill: "Siphon Bullets: temporary max-HP steal, semantics unverified",
+  StealPerHit: "Siphon Bullets: a flag (1); the steal is priced from HealthStealPctHero",
+  StealPerKill:
+    "Siphon Bullets: a flag (1); the permanent steal on kill was removed 2026-03-06 (deadlock.wiki)",
   LifestealHealPercent:
     "Lifestrike: % of melee damage, unknown to the estimate (fixed heal priced)",
   HealFromNPC: "Restorative Shot vs creeps: farming heals between trades are not modelled",
@@ -261,6 +273,7 @@ export type EffectUnit =
   | "damage"
   | "weaponPercent"
   | "maxHealthPercentPerSecond"
+  | "maxHealthPercentPerProc" // % of the TARGET's max health per cooldown-gated gun proc (quantity)
   | "dps"
   | "spiritPercent" // % more ability damage while up (value already uptime-weighted)
   | "heal" // HP restored per cast / per stack set
@@ -268,6 +281,7 @@ export type EffectUnit =
   | "healPerMeleeHit"
   | "healPerProc" // HP per proc of a cooldown-gated heal (next bullet, ability cast, veil)
   | "healPercentPerHeadshot" // % max HP on a cooldown-gated headshot
+  | "healPerGunProc" // HP per cooldown-gated gun proc (ProcCooldown, Siphon Bullets)
   | "health" // flat max HP
   | "ccSeconds" // hard CC (stun / silence) seconds per application
   | "slowPercentSeconds" // movement slow % x seconds
@@ -436,6 +450,40 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       crit * (procChance / 100),
       `+${crit}% crit damage x ${procChance}% proc`,
       "weaponPercent",
+    );
+  }
+
+  // ── Max HP steal (Siphon Bullets, G2c) ──
+  // deadlock.wiki Siphon_Bullets (2026-10-25): shooting a hero deals 2.5% of
+  // its max HP as damage, lowers its max HP by that much, and raises the
+  // buyer's max HP while healing them by the same amount; at most once per
+  // ProcCooldown (1.2 s). The heal only fills the new max HP, so it is counted
+  // once (sustain), not twice. Not counted (slight under-count): each steal is
+  // % of the target's CURRENT max HP, and the stolen max HP lasts 17 s into
+  // the gap.
+  // Cooldown-gated, so `requiresHit` (accuracy), not `perHit`: the hero-aware
+  // conversions use one steal rate, min(1 / ProcCooldown, landed shots / s).
+  // A missing ProcCooldown falls back to 1.2 s, not zero.
+  const steal = num(stats, "HealthStealPctHero");
+  if (steal != null && steal > 0) {
+    const cd = num(stats, "ProcCooldown");
+    const every = cd != null && cd > 0 ? cd : DEFAULT_PROC_COOLDOWN_S;
+    const stealsPerTrade = TRADE_SECONDS / every;
+    out.push({
+      category: "gunDamage",
+      value: steal * stealsPerTrade * EFFECT_CONFIDENCE,
+      basis: `${steal}% of the target's max health stolen per hit, once per ${every}s`,
+      requiresHit: true,
+      unit: "maxHealthPercentPerProc",
+      quantity: steal * EFFECT_CONFIDENCE,
+    });
+    const healPerSteal = (steal / 100) * REFERENCE_ENEMY_HEALTH;
+    add(
+      "sustain",
+      (healPerSteal / every) * HEAL_WEIGHT,
+      `${healPerSteal} max health gained and healed per steal`,
+      "healPerGunProc",
+      healPerSteal,
     );
   }
 

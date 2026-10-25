@@ -1522,7 +1522,7 @@ read by nothing.
     Lifesteal's `LifestrikeHeal`.
 - **Deliberately unpriced, with reasons:** `UNPRICED_HEALING_KEYS`.
   - Parry heals and kill heals: no measured parry or kill rate.
-  - Siphon Bullets: semantics unverified.
+  - Siphon Bullets' `StealPerHit` / `StealPerKill` flags (priced in G2c, below).
   - Lifestrike's % of melee damage: the estimate has no melee damage.
   - Heals against creeps: farming heals are not modelled.
   - Heal amp: priced in G3.
@@ -1535,6 +1535,33 @@ read by nothing.
   - Abrams buys Restorative Shot early and Lifestrike late, as real Abrams players do.
   - Haze late takes Headhunter.
   - Infernus late swaps Escalating Exposure for Dispel Magic and three smaller items.
+
+**G2c: Siphon Bullets (2026-10-25).** deadlock.wiki (Siphon_Bullets, checked with the user)
+says each steal does two things, at most once per `ProcCooldown` (1.2 s) while shooting a
+hero:
+
+- **Damage.** 2.5% of the target's max HP (`maxHealthPercentPerProc`).
+- **Survival.** The buyer's max HP rises by the same amount and they are healed by it. The
+  heal only fills the new max HP, so it is counted once, as `healPerGunProc` sustain,
+  scaled by the gun share like Headhunter.
+
+**One steal rate for both.** The rate is `min(1 / ProcCooldown, landed shots / s)`
+(`gunProcRate` in itemAdapter, `landedShotsPerSecond` on the fight model). A
+cooldown-gated proc is `requiresHit`, not `perHit`. A missing `ProcCooldown` falls back to
+1.2 s, not zero.
+
+**Enemy max HP.** Both items use `REFERENCE_ENEMY_HEALTH` (2,500, now in
+`effectEstimator.ts`). Enemy health grows over the game, so both under-price late.
+**Follow-up:** scale it with the boon level.
+
+**Not priced:**
+
+- `StealPerHit` and `StealPerKill` are flags. The permanent steal on kill was removed on
+  2026-03-06.
+- The Enhanced / Corrupted values are out of the planner's scope.
+
+**Result.** Live gates unchanged. Siphon enters 4 of 72 baselines: Haze and Warden late,
+both empty and owning early.
 
 ## Spend like real players (shop budgets, laning tempo, buy order)
 

@@ -25,6 +25,7 @@
 import type { ItemStats } from "../items";
 import type { ScoreCategory } from "./types";
 import type { EffectEstimate } from "./effectEstimator";
+import { DEFAULT_PROC_COOLDOWN_S } from "./effectEstimator";
 import {
   castsPerTrade,
   HEADSHOT_IN_TRADE,
@@ -52,6 +53,11 @@ export interface HeroFightModel {
    * healing past full is worth nothing for the build as a whole. Omitted = 0.
    */
   ownedGapHeal?: number;
+  /**
+   * Landed shots per second through this hero's weapon, for cooldown-gated gun
+   * procs (Siphon Bullets). Omitted = the proc's cooldown is never the limit.
+   */
+  landedShotsPerSecond?: number;
 }
 
 /** Seconds of a trade: converts per-second healing into effective HP. */
@@ -396,6 +402,14 @@ export function estimateFightValue(
     case "healPerProc":
       // Cooldown-gated: castsPerTrade counts procs (and misses for long cooldowns).
       return (q / hp) * 100 * castsPerTrade(cooldown);
+    case "healPerGunProc": {
+      // Siphon Bullets: once per ProcCooldown while shooting a hero (or less if
+      // the hero lands fewer shots), scaled by the gun share like Headhunter.
+      const cd = num(stats.ProcCooldown);
+      const every = cd > 0 ? cd : DEFAULT_PROC_COOLDOWN_S;
+      const rate = Math.min(1 / every, m.landedShotsPerSecond ?? 1 / every);
+      return ((q * rate * FIGHT_SECONDS) / hp) * 100 * (m.gunDps / dps);
+    }
     case "healPercentPerHeadshot":
       // A headshot needs the gun: scaled by this hero's gun share of damage.
       return q * castsPerTrade(cooldown) * HEADSHOT_IN_TRADE * (m.gunDps / dps);

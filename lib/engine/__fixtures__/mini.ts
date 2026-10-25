@@ -82,7 +82,12 @@ import type {
 } from "../pairLift";
 import { findSynergyRules, SYNERGY_RULES } from "../synergy";
 import { ANTI_SYNERGY_RULES } from "../../scoring/antiSynergy";
-import { EFFECT_CONFIDENCE, estimateEffectValues, UNPRICED_HEALING_KEYS } from "../effectEstimator";
+import {
+  EFFECT_CONFIDENCE,
+  estimateEffectValues,
+  REFERENCE_ENEMY_HEALTH,
+  UNPRICED_HEALING_KEYS,
+} from "../effectEstimator";
 import { heroPhaseItems, PHASE_ITEM_MIN_RATE, phaseItemBasis } from "../phaseItems";
 import type { PhaseItemsTable } from "../phaseItems";
 import { buyOrder } from "../starterBuild";
@@ -3936,6 +3941,8 @@ console.log("\n21. One value scale (hero-relative damage and fight value)");
     LifestealHeal: 120,
     HealFromHero: 50,
     HealPercentPerHeadshot: 4,
+    HealthStealPctHero: 2.5,
+    ProcCooldown: 1.2,
     Regeneration: 4,
     RegenerationDuration: 7,
     SlowPercent: 20,
@@ -3966,6 +3973,7 @@ console.log("\n21. One value scale (hero-relative damage and fight value)");
     "damage",
     "weaponPercent",
     "maxHealthPercentPerSecond",
+    "maxHealthPercentPerProc",
     "dps",
     "spiritPercent",
   ]);
@@ -4995,6 +5003,43 @@ console.log("\n29. Unpriced healing keys (Milestone G2b, docs/milestone-g.md G2-
         sustainOf({ ActiveBonusLifesteal: 35, AbilityCooldown: 30 }),
     "G2b: passive spirit lifesteal is always on; active lifesteal is conditional",
     `passive ${passive}, active ${active}`,
+  );
+
+  // G2c Siphon Bullets (deadlock.wiki): each steal, at most once per 1.2 s,
+  // deals 2.5% of the target's max HP (reference 2,500) and heals the buyer
+  // the same amount, counted once.
+  const siphonStats = { HealthStealPctHero: 2.5, ProcCooldown: 1.2 };
+  const siphon = estimateEffectValues(siphonStats);
+  const siphonDamage = siphon.filter((e) => e.category === "gunDamage");
+  const siphonHeal = sustainOf(siphonStats);
+  const perSteal = 0.025 * REFERENCE_ENEMY_HEALTH;
+  // Heal: once per 1.2 s for the trade, scaled by the gun share (30 / 40).
+  const healAt = (rate: number) =>
+    ((perSteal * EFFECT_CONFIDENCE * rate * 10) / 1000) * 100 * (30 / 40);
+  const slowShooter = siphon
+    .filter((e) => e.category === "sustain")
+    .reduce(
+      (sum, e) =>
+        sum + (estimateFightValue(e, siphonStats, { ...fm, landedShotsPerSecond: 0.5 }) ?? 0),
+      0,
+    );
+  assert(
+    siphonDamage.length === 1 &&
+      siphonDamage[0].unit === "maxHealthPercentPerProc" &&
+      siphonDamage[0].requiresHit === true &&
+      !siphonDamage[0].perHit &&
+      near(siphonDamage[0].quantity ?? 0, 2.5 * EFFECT_CONFIDENCE) &&
+      siphon.filter((e) => e.category === "sustain").length === 1 &&
+      near(siphonHeal, healAt(1 / 1.2)) &&
+      near(slowShooter, healAt(0.5)),
+    "G2c: Siphon Bullets steals once per 1.2 s (fewer if the hero lands fewer shots); one damage, one heal",
+    JSON.stringify(siphon),
+  );
+
+  // A missing ProcCooldown falls back to 1.2 s, not zero.
+  assert(
+    near(sustainOf({ HealthStealPctHero: 2.5 }), siphonHeal),
+    "G2c: a missing ProcCooldown falls back to 1.2 s",
   );
 
   // Mystic Regeneration: 4 HP/s for 7 s, all inside a 10 s trade.
