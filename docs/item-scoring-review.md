@@ -137,6 +137,66 @@ mostly `ImbuedTechPower` 28 on that one ability. Reverb is picked in none of the
 baseline baskets, before or after the fix, so the test now pins the proc and asserts it
 stays out of the baselines.
 
+### 2.2 results (PRs R2a #103 and R2b, 2026-10-25)
+
+**C1–C3 shipped (R2a, #103).** Live after R2a:
+
+- M1 24 / 24;
+- mean L1 0.114;
+- M3 0.080;
+- O2 38 / 50 = 0.760;
+- O1 8 / 8.
+
+**C4: measured, not shipped.** The refit valued each hero's purchases with its own damage
+model at the phase checkpoint.
+
+| Measure                | Result                                                      |
+| ---------------------- | ----------------------------------------------------------- |
+| M3 mid overlap         | 0.080 → 0.067 (better)                                      |
+| O2 mid picks in top 10 | 0.760 → 0.792 (better)                                      |
+| Mean L1 to real play   | 0.113 → 0.120, over the 0.12 gate                           |
+| Abrams late L1         | 0.02 → 0.22 (engine 41 / 22 / 38 against real 31 / 21 / 49) |
+
+- **The cause.** In fight-value units a 10 s trade gives healing little weight. The late
+  profile's sustain share drops from about 9% to about 2%, and mobility's rises from about
+  5% to about 17%. A tank's vitality items then lose value, and the pooled second budget
+  pass buys gun instead.
+- **Accepted gap.** The profile stays in the old units. The fitter variant is kept out of
+  the repo.
+- **Follow-up:** value sustain over more than one trade before refitting.
+
+**C5: measured, not shipped.**
+
+- Exempting early 3,200+ items that at least 20% of real players rush from the shop cap and
+  the laning tempo is **inert**: 0 of 77 baselines change and T1 stays 5 / 8.
+- **The cause.** Cultist Sacrifice is Seven's highest-value early item (120: coverage 47,
+  phase-item 67), but ranks 9th by value per soul (24.3 per 1,000). The cheaper items win
+  first, and by then fewer than 3,200 souls remain.
+- A rush is a plan to save, which a greedy per-soul pick cannot make. T1 (Seven, Lady
+  Geist, Wraith) stays an **accepted gap**.
+- Applying the exemption to every item at least 20% of players buy, rather than 3,200+
+  items only, broke the budgets (mean L1 0.206). Hence the cost floor.
+
+**C6: live sweep** (all 44 heroes × boon 5 / 10 / 16 / 22 / 29, empty build, against
+each hero's real per-phase buy rates). Accepted gaps, with reasons:
+
+- **Haze, Surge of Power:** no longer missed in mid (resolved by C1 / C2).
+- **Haze, Swift Striker early** (84% of real Haze players): structural. It upgrades from
+  Rapid Rounds, which the basket buys first. H2 (never an item and its own component in
+  one phase) keeps the upgrade to the next phase. Real players buy and upgrade within 10
+  minutes. Allowing in-phase upgrades would mean changing H2 (doc §4.1).
+- **Late tier-4 items under-bought** (Boundless Spirit, Unstoppable, Ricochet, Silencer,
+  Tankbuster are each among some hero's real late top 3): the same greedy value-per-soul
+  cause as C5. A shared follow-up with C5: rank or reserve for planned big items.
+- **Cheap items picked at boon 29 with an empty build** (Spirit Strike, Extra Health,
+  Monster Rounds, Battle Vest...): an artifact of the test case. Nobody reaches 30,000
+  souls owning nothing, and real players bought those items early. The starter build's
+  late phase owns the earlier phases and doesn't show it.
+- **Superior Cooldown for 27 of 44 heroes at boon 29** (empty build): the same artifact.
+  It is a real late buy (19% of Oracle+ Seven players after minute 20).
+- **Opening Rounds, Stamina Mastery:** in the real top 3 for 5–6 hero / phase pairs, but
+  low-coverage utility; tracked by O1 / O2, not fixed here.
+
 ### 2.3 `lib/scoring` (PR R3)
 
 - **Findings first:**

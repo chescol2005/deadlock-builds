@@ -677,9 +677,9 @@ are the recommendation numbers in `docs/competitive-analysis.md`):
    profile: M1 phase fidelity 6 → 11 of 24, with four keys accepted as regressions)
    → **value-scale stack** ✅ (one value scale, shop budgets + laning tempo, phase
    items: M1 24/24, M2 passes, mid overlap 0.373 → 0.093; use-case doc §5.7) →
-   **2d UI** ✅ (StarterBuildPanel, plain-English reasons). Left for the scoring
-   review: phase stat profile still in the old
-   units, a few stat keys on heuristic weights, real 3,200 rushes (T1 known gaps).
+   **2d UI** ✅ (StarterBuildPanel, plain-English reasons). Scoring-review outcomes
+   (stat keys fixed, profile refit and rush exemption measured and held back, sweep
+   gaps) are in `docs/item-scoring-review.md` §2.2 results.
 3. ✅ Per-page metadata / OG images (rec. 2, 3a: metadata, share previews,
    sitemap) + mobile pass on `/build` (rec. 3, 3b: stacked layout below xl, touch
    drag and tap targets, dark-only theme)
