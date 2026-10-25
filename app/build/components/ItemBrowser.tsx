@@ -46,6 +46,7 @@ export function ItemBrowser({
   selectedIds,
   onToggle,
   slotsFull = false,
+  effectiveCosts,
 }: {
   items: ShopItem[];
   activeTab: ShopCategory;
@@ -53,6 +54,11 @@ export function ItemBrowser({
   selectedIds: ReadonlySet<string>;
   onToggle: (item: ShopItem) => void;
   slotsFull?: boolean;
+  /**
+   * Price of an upgrade whose components the build owns (they are traded in),
+   * keyed by item id; only items cheaper than their list price are present.
+   */
+  effectiveCosts?: ReadonlyMap<string, number>;
 }) {
   const meta = TAB_META[activeTab];
 
@@ -207,9 +213,20 @@ export function ItemBrowser({
                                 alignItems: "center",
                               }}
                             >
-                              <span style={{ fontSize: 11, opacity: 0.75 }}>
-                                ${it.cost.toLocaleString("en-US")}
-                              </span>
+                              {effectiveCosts?.has(it.id) && !isSelected ? (
+                                <span className="text-[11px]">
+                                  <span className="text-amber-300">
+                                    ${(effectiveCosts.get(it.id) ?? it.cost).toLocaleString("en-US")}
+                                  </span>{" "}
+                                  <span className="line-through opacity-50">
+                                    ${it.cost.toLocaleString("en-US")}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, opacity: 0.75 }}>
+                                  ${it.cost.toLocaleString("en-US")}
+                                </span>
+                              )}
                               {it.isActive ? (
                                 <span
                                   style={{
@@ -255,7 +272,7 @@ export function ItemBrowser({
                             ? "Added"
                             : slotsFull
                               ? "Build Full"
-                              : `Add $${it.cost.toLocaleString("en-US")}`}
+                              : `Add $${(effectiveCosts?.get(it.id) ?? it.cost).toLocaleString("en-US")}`}
                         </button>
                       </li>
                     );

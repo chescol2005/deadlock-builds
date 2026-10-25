@@ -14,8 +14,6 @@ import { calculateStatTotals, combineStatTotal } from "../../../buildCalculation
 import { calculateStatsAtBoon } from "../../../heroStats";
 import type { Item } from "../../../items";
 import { headlineTerm } from "../../../basketReasons";
-import { scoreItems } from "../../../scoring/scoreItems";
-import type { BuildGoal } from "../../../scoring/goalWeights";
 import { heroPairLift } from "../../pairLift";
 import { heroCategorySplit } from "../../categorySplit";
 import { heroPhaseItems } from "../../phaseItems";
@@ -30,8 +28,6 @@ export const BASELINES_FILE = join(FROZEN_DIR, "baselines.json");
 
 /** Planner boon-slider indices: laning, early, mid-early, mid, late. */
 export const BASELINE_BOON_LEVELS = [5, 10, 16, 22, 29] as const;
-const GOALS: ReadonlyArray<BuildGoal> = ["burst", "dps", "tank", "sustain", "mobility"];
-const SCORE_TOP = 5;
 
 export interface BaselineFile {
   version: 1;
@@ -107,11 +103,6 @@ export function computeBaselines(data: FrozenData): BaselineFile {
         cases[`basket ${kit.name} boon${boon} owns-early`] = basketLines(base, earlyOwned, boon);
       }
     }
-  }
-  for (const goal of GOALS) {
-    cases[`scoreItems ${goal} empty`] = scoreItems(data.allItems, goal, [])
-      .slice(0, SCORE_TOP)
-      .map((s) => s.item.id);
   }
   return { version: 1, inputs: { captured: data.captured, patch: data.patch }, cases };
 }

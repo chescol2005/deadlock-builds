@@ -50,17 +50,9 @@ const RULE_REVIEW: Record<string, { verdict: ReviewVerdict; note: string }> = {
     verdict: "sound",
     note: "Reworded 2026-10-19. Lifesteal stacks multiplicatively (deadlock.wiki/Lifesteal), a small loss; it no longer claims 'far below the sum'.",
   },
-  [pairLiftKey("upgrade_critshot", "upgrade_glass_cannon")]: {
-    verdict: "opinion",
-    note: "Reworded 2026-10-19 as budget advice with no mechanical claim; the wrong soul total was removed.",
-  },
   [pairLiftKey("upgrade_cold_front", "upgrade_containment")]: {
     verdict: "sound",
     note: "Reworded 2026-10-19. Slows stack multiplicatively with a movement-speed floor (deadlock.wiki/Slow); the 'DR cap' claim was removed.",
-  },
-  [pairLiftKey("upgrade_cloaking_device_active", "upgrade_self_bubble")]: {
-    verdict: "opinion",
-    note: "Reworded 2026-10-19 as role advice; Shadow Weave is now described as stealth and ambush, not an escape.",
   },
 };
 

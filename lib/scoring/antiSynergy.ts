@@ -26,6 +26,13 @@ export type AntiSynergyRule = {
 //   win-rate penalty for any hero; they are warnings about tooltips and budget,
 //   not about lost games.
 //
+// - Item scoring review R3 (2026-10-25, data-verifier + user): only real
+//   diminishing returns stay. Lucky Shot + Glass Cannon and Shadow Weave +
+//   Ethereal Shift were budget advice, not conflicts, and were removed. No item
+//   text or wiki page states another conflicting pair. Leech + Vampiric Burst
+//   share a component, but that is not a cost: owning it only discounts the
+//   other upgrade.
+//
 // Exported read-only for the offline synergy audit report and the pair-table
 // fitter's audit-only handPairs; detectAntiSynergies is still the only consumer
 // in the app.
@@ -36,19 +43,9 @@ export const ANTI_SYNERGY_RULES: ReadonlyArray<AntiSynergyRule> = [
       "Leech and Vampiric Burst both grant bullet lifesteal. Lifesteal sources stack multiplicatively, so the second one adds a bit less healing than its tooltip suggests.",
   },
   {
-    itemIds: ["upgrade_critshot", "upgrade_glass_cannon"],
-    reason:
-      "Lucky Shot and Glass Cannon don't conflict mechanically, but both are expensive offensive gun items. Owning both puts a large share of your souls into one category; check whether some of that budget would serve you better elsewhere.",
-  },
-  {
     itemIds: ["upgrade_cold_front", "upgrade_containment"],
     reason:
       "Cold Front and Slowing Hex both slow movement. Slows stack multiplicatively and movement speed has a floor, so the second slow adds less than its tooltip suggests.",
-  },
-  {
-    itemIds: ["upgrade_cloaking_device_active", "upgrade_self_bubble"],
-    reason:
-      "Shadow Weave (stealth and ambush) and Ethereal Shift (brief invulnerability) are both actives for getting into or out of a fight. They don't conflict mechanically, but most builds only need one of them.",
   },
 ];
 

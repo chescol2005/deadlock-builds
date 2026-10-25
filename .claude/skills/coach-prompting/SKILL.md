@@ -25,8 +25,8 @@ src/lib/scoring/        ← coach NEVER imports from here
 Coach responses are **narrative strings only**. The coach:
 
 - Never modifies BuildState
-- Never calls scoreItems()
-- Never reads goalWeights or antiSynergy directly
+- Never calls the scoring engine (`lib/engine/`)
+- Never reads antiSynergy directly
 - Receives a pre-computed `CoachContext` object as input (see below)
 
 ---
@@ -66,7 +66,6 @@ interface CoachContext {
   currentBoonLevel: number;
   totalSpiritPower: number;
   totalBonusHealth: number;
-  selectedGoal: BuildGoal;
   triggerEvent: CoachTrigger; // what fired this coach call
 }
 
@@ -83,7 +82,6 @@ type CoachTrigger =
   | { type: "item_added"; item: CoachItem }
   | { type: "item_removed"; item: CoachItem }
   | { type: "build_reviewed" }
-  | { type: "goal_changed"; newGoal: BuildGoal }
   | { type: "hero_selected" }
   | { type: "user_asked"; question: string };
 ```
@@ -100,7 +98,6 @@ The coach is **proactive**. It fires automatically on these events:
 | `item_added` (tier 1-2) | If no items in same category yet            | Never                            |
 | `item_added` (tier 3-4) | Always — explain synergy or warn            | If anti-synergy detected         |
 | `item_removed`          | If build now has a dangerous gap            | If build now has a dangerous gap |
-| `goal_changed`          | Always — explain what the goal means        | Never                            |
 | `build_reviewed`        | Always                                      | Always                           |
 | `user_asked`            | Always                                      | Always                           |
 

@@ -207,6 +207,38 @@ each hero's real per-phase buy rates). Accepted gaps, with reasons:
 - **Checkpoint with the user:** fix it (hero-aware), keep it as a goal filter, or retire
   it. No code before the decision.
 
+**Result (2026-10-25): retired.**
+
+**Findings.**
+
+- `deriveTags` tags by item slot, and every item carries `mobility` and `utility`, so
+  only 6 tag sets exist across 156 items.
+- The five goals produce 2 distinct top-5 lists (Burst = DPS, Tank = Sustain =
+  Mobility), ordered by cost and then id.
+- Its reasons were false for many items: Restorative Shot and Fleetfoot read "Strong
+  burst damage, High DPS".
+- Only 28 of 129 hero-basket picks (8 heroes at boon 10 and 22) were in any goal's top 5.
+
+**Decision.** Retire it (user). The hero basket and the starter build are the
+suggestions. The changes:
+
+- `SuggestedItemsPanel`, the Goal buttons, `scoreItems.ts` and `goalWeights.ts` are
+  removed;
+- the 5 `scoreItems` baseline cases are dropped (77 → 72);
+- the `/items` tags column is removed, because it showed the same tags;
+- app Fixture 4 now checks that the retirement holds.
+
+**Anti-synergy** (data-verifier: all 4 ids live; no item text or wiki states another
+conflicting pair).
+
+- **Kept:** Leech + Vampiric Burst (lifesteal stacks multiplicatively) and Cold Front +
+  Slowing Hex (slows stack multiplicatively).
+- **Dropped:** Lucky Shot + Glass Cannon and Shadow Weave + Ethereal Shift. They were
+  budget advice, not conflicts.
+- **Not added:** a "buying Bullet Lifesteal twice" note on the lifesteal pair (user
+  correction). Leech and Vampiric Burst share the component, but owning it only
+  discounts the other upgrade, so nothing is bought twice.
+
 ### 2.4 Closing F (PR R4)
 
 - The measured pair reason appears in the simplified Hero Basket view, labelled as

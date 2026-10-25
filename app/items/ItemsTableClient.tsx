@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Item, ItemCategory, ItemTier } from "@/lib/items";
 import type { ItemAnalytics } from "@/lib/analyticsStore";
 import { DataTable, type DataTableColumn } from "@/app/components/DataTable";
-import { HeroArchetypeTags } from "@/app/components/HeroDifficultyBadge";
 import { STAT_PROPERTY_LABELS } from "@/lib/statLabels";
 
 const CATEGORY_OPTIONS: { value: ItemCategory; label: string }[] = [
@@ -232,12 +231,8 @@ export function ItemsTableClient({ items, itemAnalytics }: ItemsTableClientProps
           return winRate == null ? "—" : `${(winRate * 100).toFixed(1)}%`;
         },
       },
-      {
-        key: "tags",
-        label: "Tags",
-        sortable: false,
-        render: (it) => <HeroArchetypeTags tags={it.tags} />,
-      },
+      // No tags column: item tags are slot-derived (every item reads "mobility,
+      // utility"), so they told players nothing (item scoring review R3).
     ],
     [itemAnalytics],
   );

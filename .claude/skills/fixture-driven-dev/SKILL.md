@@ -69,9 +69,8 @@ Run after **any** change to these files:
 src/lib/buildUtils.ts
 src/lib/buildCalculations.ts
 src/lib/buildSerializer.ts
-src/lib/scoring/scoreItems.ts
-src/lib/scoring/goalWeights.ts
-src/lib/scoring/antiSynergy.ts
+lib/scoring/antiSynergy.ts
+lib/engine/* (also check `npm run baseline`)
 src/lib/boonSystem.ts
 src/lib/heroStats.ts
 src/lib/abilityCoefficients.ts
@@ -141,7 +140,6 @@ const EMPTY_BUILD: BuildState = {
   categories: [],
   abilityLevels: {},
   manualBoonLevel: 0,
-  selectedGoal: "damage",
 };
 
 const MOCK_GUN_T1: Item = {
@@ -209,15 +207,8 @@ fill gaps in this coverage map first:
 
 ### scoring (target: 12 cases)
 
-- [ ] `scoreItems` — empty items returns empty scores
-- [ ] `scoreItems` — gun items score higher for gun goal
-- [ ] `scoreItems` — spirit items score higher for spirit goal
-- [ ] `scoreItems` — anti-synergy detected and penalized
-- [ ] `scoreItems` — category investment bonus fires at threshold
-- [ ] `scoreItems` — upgrade chain item scores reflect full item value
 - [ ] `detectAntiSynergies` — no synergy conflicts returns empty
 - [ ] `detectAntiSynergies` — known conflict pair returns warning
-- [ ] Goal weight map — all goals have weights defined
 - [ ] Tie-breaking is deterministic (same input = same order always)
 
 ### boonSystem.ts (target: 8 cases)
