@@ -5,7 +5,9 @@
 // this table (and deadlock.wiki/Boon) express thresholds as total cumulative souls, so
 // the offset must be applied or every threshold undercounts by 600.
 // Verified hero-independent (identical on hero ids 1 and 2) and cross-checked against
-// deadlock.wiki/Boon on 2026-07-20 — hardcoded here rather than fetched because every
+// deadlock.wiki/Boon on 2026-07-20; re-verified 2026-10-25 against GET
+// /v1/assets/heroes/{1,6,13} level_info (0 diffs) and deadlock.wiki/Boon, unchanged by
+// patches 08-12, 08-22, 09-16 and 09-29-2026 — hardcoded here rather than fetched because every
 // consumer reads this table synchronously with no heroId in scope.
 
 export type BoonThreshold = {
