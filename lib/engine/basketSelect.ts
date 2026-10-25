@@ -26,12 +26,12 @@
 // - PURE. Same inputs → same output. No Date.now(), no Math.random(), no
 //   network, no global mutable state. Analytics data is PASSED IN via
 //   `ctx.itemAnalytics` — this module never fetches it.
-// - DETERMINISTIC. Ties are broken by the same total order as engine.ts /
-//   scoreItems.ts: value desc → cost asc → itemId asc. Input array order is
-//   never load-bearing.
+// - DETERMINISTIC. Ties are broken by the same total order as engine.ts:
+//   value desc → cost asc → itemId asc. Input array order is never
+//   load-bearing.
 // - EXPLAINABLE. Every contribution to a pick's marginal value is recorded as a
-//   `MarginalTerm` with a human-readable `reason`, the same bar as
-//   `scoreItems.ts`'s `scoreBreakdown` / `reason`.
+//   `MarginalTerm` with a human-readable `reason` (and a plain-English `plain`
+//   line where a term can headline a pick).
 // - NO AI. Zero imports from `lib/coach/`. Terms are plain arithmetic.
 //
 // Extension seam: `constructBasket` takes `terms` (default
@@ -704,8 +704,7 @@ export const coverageTerm: MarginalTermFn = {
  * `getCurrentBonusTier()` / `isApproachingSignificantBonus()` — never
  * re-hardcoded here, so a Valve patch to the tier table flows through.
  *
- * Additive and bounded (see CATEGORY_BONUS_MAX_FRACTION), following the
- * additive-bonus pattern in `lib/scoring/scoreItems.ts`: recorded as its own
+ * Additive and bounded (see CATEGORY_BONUS_MAX_FRACTION): recorded as its own
  * term for explainability, never folded into or mutating the coverage value.
  *
  * RELEVANCE GATE (`coversNeed`): the bonus only applies to a candidate that also

@@ -3783,7 +3783,6 @@
       "upgrade_ricochet|upgrade_toxic_bullets": {"lift":0.107,"se":0.026,"n":59559}
     },
     "3": {
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":0.036,"se":0.08,"n":1081},
       "upgrade_damage_recycler|upgrade_surging_power": {"lift":-0.042,"se":0.118,"n":338}
     },
     "7": {
@@ -3794,32 +3793,26 @@
     },
     "10": {
       "upgrade_aoe_root|upgrade_thermal_detonator": {"lift":0.101,"se":0.057,"n":2246},
-      "upgrade_cold_front|upgrade_containment": {"lift":0.019,"se":0.158,"n":395},
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":0.068,"se":0.124,"n":1386}
+      "upgrade_cold_front|upgrade_containment": {"lift":0.019,"se":0.158,"n":395}
     },
     "13": {
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":-0.061,"se":0.059,"n":2182},
       "upgrade_ricochet|upgrade_toxic_bullets": {"lift":-0.053,"se":0.041,"n":11095}
     },
     "14": {
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":-0.009,"se":0.099,"n":1565}
     },
     "15": {
       "upgrade_cold_front|upgrade_containment": {"lift":0.011,"se":0.067,"n":1358}
     },
     "16": {
-      "upgrade_cold_front|upgrade_containment": {"lift":-0.03,"se":0.085,"n":34805},
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":-0.003,"se":0.13,"n":1182}
+      "upgrade_cold_front|upgrade_containment": {"lift":-0.03,"se":0.085,"n":34805}
     },
     "17": {
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":0.064,"se":0.11,"n":2041}
     },
     "18": {
       "upgrade_cold_front|upgrade_containment": {"lift":-0.105,"se":0.04,"n":6319}
     },
     "19": {
-      "upgrade_cold_front|upgrade_containment": {"lift":0.029,"se":0.096,"n":604},
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":-0.032,"se":0.09,"n":2146}
+      "upgrade_cold_front|upgrade_containment": {"lift":0.029,"se":0.096,"n":604}
     },
     "20": {
       "upgrade_aoe_root|upgrade_thermal_detonator": {"lift":-0.025,"se":0.03,"n":11631},
@@ -3842,7 +3835,6 @@
       "upgrade_ricochet|upgrade_toxic_bullets": {"lift":-0.083,"se":0.052,"n":60097}
     },
     "58": {
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":0.041,"se":0.082,"n":1223},
       "upgrade_damage_recycler|upgrade_surging_power": {"lift":0,"se":0.112,"n":405},
       "upgrade_ricochet|upgrade_toxic_bullets": {"lift":0.047,"se":0.095,"n":902}
     },
@@ -3855,14 +3847,11 @@
       "upgrade_ricochet|upgrade_toxic_bullets": {"lift":-0.075,"se":0.065,"n":1637}
     },
     "64": {
-      "upgrade_cloaking_device_active|upgrade_self_bubble": {"lift":-0.001,"se":0.073,"n":916},
       "upgrade_cold_front|upgrade_containment": {"lift":-0.03,"se":0.04,"n":3561},
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":0.117,"se":0.057,"n":2723},
       "upgrade_damage_recycler|upgrade_surging_power": {"lift":-0.054,"se":0.116,"n":355},
       "upgrade_ricochet|upgrade_toxic_bullets": {"lift":0.077,"se":0.067,"n":1704}
     },
     "65": {
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":0.018,"se":0.058,"n":2192},
       "upgrade_ricochet|upgrade_toxic_bullets": {"lift":-0.025,"se":0.112,"n":458}
     },
     "67": {
@@ -3871,8 +3860,7 @@
     "69": {
       "upgrade_aoe_root|upgrade_thermal_detonator": {"lift":0.034,"se":0.099,"n":1043},
       "upgrade_cold_front|upgrade_containment": {"lift":0.017,"se":0.093,"n":2342},
-      "upgrade_crackshot|upgrade_dps_aura": {"lift":0.03,"se":0.111,"n":391},
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":0.012,"se":0.195,"n":356}
+      "upgrade_crackshot|upgrade_dps_aura": {"lift":0.03,"se":0.111,"n":391}
     },
     "72": {
       "upgrade_cold_front|upgrade_containment": {"lift":-0.041,"se":0.086,"n":657}
@@ -3885,8 +3873,7 @@
       "upgrade_cold_front|upgrade_containment": {"lift":-0.055,"se":0.046,"n":3137}
     },
     "79": {
-      "upgrade_cold_front|upgrade_containment": {"lift":-0.065,"se":0.059,"n":1711},
-      "upgrade_critshot|upgrade_glass_cannon": {"lift":0.013,"se":0.221,"n":513}
+      "upgrade_cold_front|upgrade_containment": {"lift":-0.065,"se":0.059,"n":1711}
     },
     "80": {
       "upgrade_cold_front|upgrade_containment": {"lift":-0.023,"se":0.07,"n":1119}

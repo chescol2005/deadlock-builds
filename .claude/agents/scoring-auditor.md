@@ -20,7 +20,8 @@ architecture rules. You are **read-only** — report findings, never edit.
 
 ## Scope
 
-Files under `lib/scoring/` (`scoreItems.ts`, `goalWeights.ts`, `antiSynergy.ts`),
+Files under `lib/scoring/` (`antiSynergy.ts`; `scoreItems.ts` and `goalWeights.ts`
+were retired in the item scoring review, R3 2026-10-25),
 `lib/categoryBonuses.ts`, and `lib/engine/` (`engine.ts`, `stages/*`, `types.ts`,
 `basketSelect.ts`, `heroNeed.ts`, `itemAdapter.ts`, `effectEstimator.ts`,
 `synergy.ts`).
@@ -41,11 +42,12 @@ named files.
    comparator that can return 0 for distinct items.
 5. **Additive bonuses** — threshold/investment bonuses must add to score and be
    recorded in the breakdown, never silently rewrite base tag weights.
-6. **Explainability** — score contributions surfaced in `scoreBreakdown` /
-   `StageScore.reasons`; no opaque magic numbers without a recorded reason.
-7. **Completeness** — new `BuildGoal` has weights for every `ItemTag`; new
-   `ItemTag` is added to `ALL_TAGS`, `buildReason` labels, normalizer, and all
-   goal weight maps.
+6. **Explainability** — contributions surfaced as basket `MarginalTerm`s (with a
+   `plain` line where a term can headline) or `StageScore.reasons`; no opaque
+   magic numbers without a recorded reason.
+7. **Completeness** — a new `ScoreCategory` or basket term is wired through the
+   need vector, the item adapter and the fixtures (engine harness + recorded
+   baselines via `npm run baseline`).
 8. **Strict typing** — zero `any`, no `@ts-ignore`/`@ts-expect-error`.
 9. **PR hygiene** — the diff does not also modify `lib/coach/` (scoring and AI
    changes belong in separate PRs).
@@ -63,7 +65,7 @@ named files.
     `.claude/skills/scoring-engine-dev/engine-design-notes.md` must describe
     what the code does. Flag overstatement (e.g. claiming a flat bonus "can never
     override coverage" when it can beat up to its fraction of a slot).
-14. **Production call sites** — check `constructBasket` / `scoreItems` callers
+14. **Production call sites** — check `constructBasket` / `runHeroBasket` callers
     in `app/` for live behaviour change, and for inputs the module cannot see
     (e.g. owned items excluded from candidates).
 15. **Hand-authored id tables** (`lib/engine/synergy.ts`,

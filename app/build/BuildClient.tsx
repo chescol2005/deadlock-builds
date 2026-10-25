@@ -10,7 +10,6 @@ import { getItemAssignments } from "@/lib/buildSerializer";
 import { ItemBrowser } from "@/app/build/components/ItemBrowser";
 import { AbilityLevelingPanel } from "@/app/build/components/AbilityLevelingPanel";
 import { BuildSummaryPanel } from "@/app/build/components/BuildSummaryPanel";
-import { SuggestedItemsPanel } from "@/app/build/components/SuggestedItemsPanel";
 import { CategoryManager } from "@/app/build/components/CategoryManager";
 import type {
   AssignmentData,
@@ -19,12 +18,12 @@ import type {
   ItemAssignment,
   ItemDestination,
 } from "@/lib/items";
-import type { BuildGoal } from "@/lib/scoring/goalWeights";
 import {
   canActivateItem,
   cleanAssignmentMap,
   cleanCategories,
   getConsumedComponents,
+  getEffectiveAddCost,
   MAX_ACTIVE_ITEMS,
   resolveAddItem,
 } from "@/lib/buildUtils";
@@ -61,14 +60,6 @@ const VIEW_MODE_TABS = [
   { value: "simplified", label: "Simplified" },
   { value: "advanced", label: "Advanced" },
 ] as const;
-
-const GOALS: { value: BuildGoal; label: string }[] = [
-  { value: "burst", label: "Burst" },
-  { value: "dps", label: "DPS" },
-  { value: "tank", label: "Tank" },
-  { value: "sustain", label: "Sustain" },
-  { value: "mobility", label: "Mobility" },
-];
 
 const DEFAULT_ASSIGNMENT: AssignmentData = {
   phase: null,
@@ -124,7 +115,6 @@ export default function BuildClient({
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
   const [activeTab, setActiveTab] = useState<ShopCategory>("weapon");
-  const [selectedGoal, setSelectedGoal] = useState<BuildGoal>("burst");
   // New players should never see the full complexity at once — default to
   // the simplified view; veterans opt into Advanced for full control.
   const [viewMode, setViewMode] = useState<"simplified" | "advanced">("simplified");
@@ -272,6 +262,19 @@ export default function BuildClient({
   }
 
   const consumedComponents = useMemo(() => getConsumedComponents(buildItems), [buildItems]);
+
+  // Upgrades of owned components cost less (the components are traded in); the
+  // shop shows that price (it was the retired Suggested Items panel's job).
+  const upgradeCosts = useMemo(() => {
+    const owned = new Set(buildItems.map((i) => i.id));
+    const out = new Map<string, number>();
+    for (const item of allItems) {
+      if (owned.has(item.id) || !(item.componentItems ?? []).some((c) => owned.has(c))) continue;
+      const cost = getEffectiveAddCost(item, buildItems, allItems);
+      if (cost < item.cost) out.set(item.id, cost);
+    }
+    return out;
+  }, [buildItems, allItems]);
 
   function handleAddSuggestedItem(item: Item) {
     setBuildItems((prev) =>
@@ -421,10 +424,10 @@ export default function BuildClient({
     }
   }
 
-  // Hero-need basket (Milestone E). Distinct from SuggestedItemsPanel, which
-  // ranks every candidate INDEPENDENTLY against a player-chosen goal preset:
-  // this derives what the hero's own kit needs and then picks a SET of items
-  // that jointly covers it across gun/spirit/vitality.
+  // Hero-need basket (Milestone E): derives what the hero's own kit needs and
+  // picks a SET of items that jointly covers it across gun/spirit/vitality. The
+  // goal-based "Suggested Items" panel was retired in the item scoring
+  // review (R3, 2026-10-25): it was hero-unaware and its reasons were often false.
   //
   // The soul budget is whatever the current boon level affords minus what the
   // build already commits, so the basket answers "what should I buy at this
@@ -624,32 +627,6 @@ export default function BuildClient({
               </div>
               <div style={{ opacity: 0.7, fontSize: 12 }}>{selectedHero.class_name}</div>
             </div>
-          </div>
-        ) : null}
-
-        {heroId ? (
-          <div className="flex flex-wrap items-center gap-1.5 md:ml-2">
-            <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>Goal:</span>
-            {GOALS.map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setSelectedGoal(value)}
-                style={{
-                  padding: "5px 12px",
-                  borderRadius: 999,
-                  border: `1px solid ${selectedGoal === value ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.2)"}`,
-                  background:
-                    selectedGoal === value ? "rgba(255,255,255,0.15)" : "transparent",
-                  color: "inherit",
-                  fontWeight: selectedGoal === value ? 700 : 400,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {label}
-              </button>
-            ))}
           </div>
         ) : null}
 
@@ -917,6 +894,7 @@ export default function BuildClient({
               selectedIds={selectedIds}
               onToggle={handleToggleItem}
               slotsFull={false}
+              effectiveCosts={upgradeCosts}
             />
           </div>
 
@@ -938,24 +916,10 @@ export default function BuildClient({
 
           {/* Far right panel */}
           <div className="order-4 min-w-0 xl:order-none xl:ml-3 xl:border-l xl:border-white/[0.08] xl:pl-3">
-            <SuggestedItemsPanel
-              allItems={allItems}
-              currentBuild={buildItems}
-              selectedGoal={selectedGoal}
-              onAdd={handleAddSuggestedItem}
-              consumedComponents={consumedComponents}
-              slotsFull={false}
-              simplified={simplified}
-            />
-
-            {/* Additive surface — deliberately alongside SuggestedItemsPanel,
-                not replacing it. The two answer different questions: "what is
-                the best next item for my goal?" vs. "what set of items covers
-                this hero's needs?" */}
             {/* Tailwind-only per the Component Patterns rule. The inline styles
                 elsewhere in this file predate that convention — don't copy them
                 into new markup. */}
-            <div className="mt-4">
+            <div>
               {rankTiers.length > 0 && heroAccuracy && heroAccuracy.size > 0 && (
                 <div className="mb-2.5">
                   <label

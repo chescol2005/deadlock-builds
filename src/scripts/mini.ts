@@ -5,7 +5,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { getItems } from "@/lib/itemStore";
 import type { AbilityUpgradeTier } from "@/lib/abilityCoefficients";
-import { scoreItems } from "@/lib/scoring/scoreItems";
 import { calculateStatTotals } from "@/lib/buildCalculations";
 import { serializeBuild, deserializeBuild } from "@/lib/buildSerializer";
 import type { BuildState } from "@/lib/buildSerializer";
@@ -205,58 +204,26 @@ async function run() {
   }
 
   // -----------------------------------------------
-  // Fixture 4: Scoring engine
+  // Fixture 4: Goal-based suggestions retired (item scoring review R3)
   // -----------------------------------------------
-  console.log("\n4. Scoring engine");
-  const dpsResults = scoreItems(items, "dps", []);
-  assert(dpsResults.length > 0, "scoreItems returns results for DPS goal");
+  // scoreItems ranked by slot-derived tags (every item tagged mobility + utility),
+  // ignored the hero and gave false reasons; the hero basket and the starter
+  // build replace it (docs/item-scoring-review.md §2.3). Keep it gone.
+  console.log("\n4. Goal-based suggestions retired");
+  const retired = [
+    "lib/scoring/scoreItems.ts",
+    "lib/scoring/goalWeights.ts",
+    "app/build/components/SuggestedItemsPanel.tsx",
+  ];
   assert(
-    dpsResults[0].item.category === "gun",
-    "Top DPS item is gun category",
-    `Got: ${dpsResults[0].item.category}`,
+    retired.every((f) => !existsSync(f)),
+    "scoreItems, goal weights and SuggestedItemsPanel are removed",
+    retired.filter((f) => existsSync(f)).join(", "),
   );
+  const buildClientRetired = readFileSync("app/build/BuildClient.tsx", "utf-8");
   assert(
-    dpsResults.every((r, i) => i === 0 || r.score <= dpsResults[i - 1].score),
-    "Results are sorted descending by score (ties allowed)",
-  );
-  assert(
-    typeof dpsResults[0].reason === "string" && dpsResults[0].reason.length > 0,
-    "Reason string populated",
-  );
-
-  // Tie-breaking: equal-score items must resolve by cost ascending, then id ascending
-  const tiedGroups = new Map<number, typeof dpsResults>();
-  for (const r of dpsResults) {
-    const group = tiedGroups.get(r.score) ?? [];
-    group.push(r);
-    tiedGroups.set(r.score, group);
-  }
-  const exampleTie = [...tiedGroups.values()].find((g) => g.length > 1);
-  assert(!!exampleTie, "At least one score tie exists in DPS results (exercises tie-break path)");
-  if (exampleTie) {
-    const sortedByRule = [...exampleTie].sort(
-      (a, b) => a.item.cost - b.item.cost || a.item.id.localeCompare(b.item.id),
-    );
-    assert(
-      exampleTie.every((r, i) => r.item.id === sortedByRule[i].item.id),
-      "Tied scores resolve by cost ascending, then id ascending",
-      `Tied group: ${exampleTie.map((r) => `${r.item.id}(${r.item.cost})`).join(", ")}`,
-    );
-  }
-
-  const tankResults = scoreItems(items, "tank", []);
-  assert(
-    tankResults[0].item.category === "vitality",
-    "Top Tank item is vitality category",
-    `Got: ${tankResults[0].item.category}`,
-  );
-
-  // Items already in build are excluded from results
-  const firstDps = dpsResults[0].item;
-  const dpsExcluded = scoreItems(items, "dps", [firstDps]);
-  assert(
-    !dpsExcluded.find((r) => r.item.id === firstDps.id),
-    "Item already in build is excluded from results",
+    !/SuggestedItemsPanel|selectedGoal|scoreItems/.test(buildClientRetired),
+    "/build has no goal selector and no goal-ranked panel",
   );
 
   // -----------------------------------------------
@@ -692,7 +659,6 @@ async function run() {
     "app/build/components/CategoryManager/index.tsx",
     "app/build/components/AbilityLevelingPanel.tsx",
     "app/build/components/BuildSummaryPanel.tsx",
-    "app/build/components/SuggestedItemsPanel.tsx",
     // Milestone E. It already complied, but the list is hardcoded, so a new
     // panel is unprotected until it is added here — add new panels to this
     // list as they are built, or the checklist silently stops covering them.
@@ -712,7 +678,6 @@ async function run() {
   const TOOLTIP_ADOPTERS = [
     "app/build/components/CategoryManager/FlagButtons.tsx",
     "app/build/components/AbilityLevelingPanel.tsx",
-    "app/build/components/SuggestedItemsPanel.tsx",
     "app/build/components/BuildSummaryPanel.tsx",
     "app/build/BuildClient.tsx",
     "app/build/components/StarterBuildPanel.tsx",

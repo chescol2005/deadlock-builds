@@ -2,14 +2,12 @@
 name: scoring-engine-dev
 description: >
   Author and modify the deterministic scoring engine for Deadlock Foundry.
-  Use this skill whenever touching lib/scoring/scoreItems.ts,
-  lib/scoring/goalWeights.ts, lib/scoring/antiSynergy.ts, lib/categoryBonuses.ts,
+  Use this skill whenever touching lib/scoring/antiSynergy.ts, lib/categoryBonuses.ts,
   lib/engine/engine.ts, lib/engine/stages/*, lib/engine/basketSelect.ts,
   lib/engine/heroNeed.ts, lib/engine/itemAdapter.ts,
   lib/engine/effectEstimator.ts, lib/engine/synergy.ts,
   lib/engine/pairLift.ts, lib/engine/data/pairLiftTable.json, or
-  lib/engine/types.ts. Also use when adding a new build goal or item tag,
-  changing tag weights, adding a scoring stage or basket marginal term,
+  lib/engine/types.ts. Also use when adding a scoring stage or basket marginal term,
   adjusting the investment/category bonus, or debugging why item ranking or
   suggestions look wrong or non-deterministic. Trigger on "scoring", "score
   items", "goal weights", "anti-synergy", "ranking", "suggested items",
@@ -44,44 +42,37 @@ These come straight from CLAUDE.md and are not up for debate:
 
 ---
 
-## Three scoring surfaces — know which you're in
+## Two scoring surfaces — know which you're in
 
-- **`lib/scoring/scoreItems.ts`** — the shipped independent ranker.
-  `ScoredItem[]` with a per-tag `scoreBreakdown` and a human `reason`.
-  Tag-weight based.
-- **`lib/engine/engine.ts` + `stages/*`** — a staged pipeline
-  (`ScoringStage[]`, `EngineInput` → `EngineOutput`) with `SCORE_CATEGORIES`
-  and `IntentWeights`. Each stage implements `score(input, candidate): StageScore`.
-- **Basket selection** — `constructBasket()` in `lib/engine/basketSelect.ts`:
-  greedy joint selection of a SET of items against a hero need vector
-  (`heroNeed.ts`), with `Item` → `ItemCandidate` via `itemAdapter.ts` /
-  `effectEstimator.ts`. Marginal value is a sum of pluggable `MarginalTermFn`
-  terms. Wired into `app/build/BuildClient.tsx` through `HeroBasketSuggestion`.
+- **Basket selection** (the shipped one) — `constructBasket()` in
+  `lib/engine/basketSelect.ts`: greedy joint selection of a SET of items against
+  a hero need vector (`heroNeed.ts`), with `Item` → `ItemCandidate` via
+  `itemAdapter.ts` / `effectEstimator.ts`. Marginal value is a sum of pluggable
+  `MarginalTermFn` terms. Wired into `/build` through `HeroBasketSuggestion` and
+  the starter build (`runHeroBasket`, `buildStarterBuild`).
+- **`lib/engine/engine.ts` + `stages/*`** — a staged pipeline (`ScoringStage[]`,
+  `EngineInput` → `EngineOutput`), not wired into the app.
+
+The goal-based `lib/scoring/scoreItems.ts` ranker and `goalWeights.ts` were
+retired in the item scoring review (R3, 2026-10-25): item tags are slot-derived,
+so it ignored the hero and its reasons were often false. `lib/scoring/` now holds
+only `antiSynergy.ts`.
 
 All must obey the rules above. When adding logic, put it in the surface that
 already owns that concept; don't duplicate a weight table across them.
 
-**Fixtures:** `lib/scoring/` is covered by `src/scripts/mini.ts`; `lib/engine/`
-by a SEPARATE harness, `lib/engine/__fixtures__/mini.ts`. `npm run mini` chains
-both — read the whole output, since a failure in the first masks the second.
-
----
-
-## Verified signature (do not guess)
-
-```typescript
-scoreItems(items: Item[], goal: BuildGoal, currentBuild: Item[]): ScoredItem[]
-// 3 args, not 4. currentBuild is used for exclusion + category-investment context.
-```
-
-Items already in `currentBuild` (by `item.id`) are filtered OUT of results.
+**Fixtures:** `lib/scoring/antiSynergy.ts` is covered by `src/scripts/mini.ts`;
+`lib/engine/` by a SEPARATE harness, `lib/engine/__fixtures__/mini.ts`, which also
+diffs the recorded baseline baskets (`lib/engine/__fixtures__/frozen/`). `npm run
+mini` chains both — read the whole output, since a failure in the first masks the
+second.
 
 ---
 
 ## Deterministic tie-breaking recipe
 
-Ranking MUST be stable — equal scores can never reorder between runs. Mirror the
-existing `scoreItems` sort exactly:
+Ranking MUST be stable — equal scores can never reorder between runs. Use a
+total order (the basket's `outranks` follows the same idea):
 
 ```typescript
 scored.sort((a, b) => {
@@ -99,8 +90,9 @@ is the canonical one). A sort that can leave two items in undefined order is a b
 
 ## Additive-bonus pattern (never mutate base weights)
 
-Bonuses layer ON TOP of tag weights; they never rewrite them. Example from the
-real category-investment bonus:
+Bonuses layer ON TOP of base values; they never rewrite them. The pattern, as
+the retired `scoreItems` applied the category-investment bonus (the basket's
+`categoryBonusTerm` is its own term for the same reason):
 
 ```typescript
 // souls in this category approaching the 4,800 threshold → 1.3x multiplier
@@ -119,31 +111,14 @@ Relevant constants (CLAUDE.md, verified): `SIGNIFICANT_THRESHOLD = 4800`,
 
 ---
 
-## In-file dev fixture assertion
-
-`scoreItems.ts` runs a self-check at module load in non-production:
-
-```typescript
-if (process.env.NODE_ENV !== "production") {
-  // assert: top burst item wins for "burst" goal; excluded items don't reappear;
-  // threshold bonus actually raises score. console.error on failure.
-}
-```
-
-When you change scoring behavior, update these inline assertions too — they are
-the fastest smoke test and run on every dev boot. They complement, not replace,
-the mini.ts fixtures.
-
----
-
 ## Adding a goal / tag / stage — the moving parts
 
-- **New `BuildGoal`:** add to `GOAL_WEIGHTS_MAP` in `lib/scoring/goalWeights.ts`.
-  Every goal must define a weight for every `ItemTag` — the "all goals have
-  weights defined" fixture enforces completeness.
-- **New `ItemTag`:** update `ALL_TAGS` in `scoreItems.ts`, the `labels` map in
-  `buildReason`, tag derivation in `lib/itemNormalizer.ts`, and every goal's
-  weights. Miss one and items silently score 0 for it.
+- **New basket term:** implement `MarginalTermFn` in `basketSelect.ts`, add it to
+  `DEFAULT_BASKET_TERMS`, return a plain-English `reason` (and a `plain` line if it
+  can headline), and add an engine fixture. Then `npm run baseline` and describe
+  the diff in the PR body.
+- **New `ItemTag`:** tags come from `lib/itemNormalizer.ts` (`deriveTags`) and only
+  feed the unwired staged pipeline now; they are slot-derived and not shown in the UI.
 - **New engine stage:** implement `ScoringStage` (`stageId` + `score`), keep it
   pure, and return populated `reasons` so the breakdown stays explainable.
 

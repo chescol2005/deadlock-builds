@@ -243,7 +243,7 @@ export function BuildSummaryPanel({
           >
             Soul Cost Split
           </span>
-          <InfoTooltip content="How your souls are divided across Gun (weapon damage), Vitality (survivability), and Spirit (ability power). A lopsided bar usually means a lopsided build — check it matches your goal." />
+          <InfoTooltip content="How your souls are divided across Gun (weapon damage), Vitality (survivability), and Spirit (ability power). A lopsided bar usually means a lopsided build — check it matches how your hero deals damage and how much it needs to survive." />
         </div>
 
         {hasItems && split.total > 0 ? (

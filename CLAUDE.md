@@ -93,9 +93,9 @@ changes have to meet written expectations, not just compile.
   scoring change then shows up as a deliberate, reviewed diff, not silent drift.
   Assert invariants by default; snapshot exact baskets only where intended.
   **Built (R1, 2026-10-25):** `lib/engine/__fixtures__/frozen/` holds a pinned
-  snapshot of the live inputs (`npm run capture-inputs`) and 77 recorded baseline
+  snapshot of the live inputs (`npm run capture-inputs`) and 72 recorded baseline
   baskets (`baselines.json`: the 8 reference heroes x boon 5/10/16/22/29, the
-  starter build, `scoreItems` top 5 per goal). Engine harness section 25 fails on
+  starter build). Engine harness section 25 fails on
   any change; review it with `npm run baseline`, accept it with
   `npm run baseline -- --update`, and describe the diff in the PR body. Live
   ratchets (M3, O2) carry a 0.01 noise band; M1's mean distance must stay <= 0.12.
@@ -110,9 +110,6 @@ Verified by mini.ts. Do not guess — use these exactly.
 // Items
 item.id; // string identifier (NOT item.classname)
 item.category; // "gun" | "spirit" | "vitality" (NOT "weapon")
-
-// Scoring
-scoreItems(items, goal, currentBuild); // 3 args, not 4
 
 // Build utils
 resolveAddItem(currentBuild, newItem); // 2 args
@@ -256,7 +253,7 @@ When scaffolding new panels or components, follow these conventions:
   `AbilityLevelingPanel.tsx` for the retrofitted pattern to copy
 - New player UX: the `simplified?: boolean` prop convention is **implemented**
   on `CategoryManager`, `AbilityLevelingPanel`, `BuildSummaryPanel`, and
-  `SuggestedItemsPanel` (Milestone C), driven by a single `viewMode` state in
+  `HeroBasketSuggestion` and `StarterBuildPanel`, driven by a single `viewMode` state in
   `BuildClient.tsx` (default `"simplified"`). New panels should follow the
   same convention: accept `simplified?: boolean`, default `false`, and hide
   veteran-only detail (raw coefficients, soul-investment math, sell/optional
@@ -314,8 +311,6 @@ lib/heroStats.ts              — HeroBaseStats, calculateStatsAtBoon()
 lib/heroStore.ts              — getHeroStats() with cache
 lib/abilityCoefficients.ts    — HeroAbility, calculateAbilityDamage()
 lib/statLabels.ts             — STAT_PROPERTY_LABELS (stat key → plain label)
-lib/scoring/scoreItems.ts     — scoreItems() pure function
-lib/scoring/goalWeights.ts    — GOAL_WEIGHTS_MAP
 lib/scoring/antiSynergy.ts    — detectAntiSynergies()
 lib/categoryBonuses.ts        — CATEGORY_BONUS_TIERS
 lib/farming/campData.ts       — camp soul values, phase cards, minimap markers
@@ -455,12 +450,11 @@ app/build/components/
   BuildSummaryPanel.tsx       — right panel stats
   AbilityLevelingPanel.tsx    — ability cards + upgrades
   SoulTimeline.tsx            — soul economy timeline
-  SuggestedItemsPanel.tsx     — AI-adjacent suggestions (independent per-item
-                                ranking via scoreItems())
   HeroBasketSuggestion.tsx     — hero-need basket (Milestone E): a SET of items
                                 chosen together. Presentational only — receives a
                                 BasketResult via props, computes nothing. Sits
-                                alongside SuggestedItemsPanel, does not replace it.
+                                The one suggestion surface since the goal-based
+                                SuggestedItemsPanel / scoreItems was retired (R3).
                                 Prices picks at BasketPick.effectiveCost and names
                                 the owned component an upgrade trades in
   StarterBuildPanel.tsx        — "Start from a suggested build" (Work 2d): early /
@@ -590,7 +584,6 @@ assignmentMap: Map<string, {
 categories: BuildCategory[]
 abilityLevels: AbilityLevels
 manualBoonLevel: number           // 0-35
-selectedGoal: BuildGoal
 
 // Derived (useMemo — never useState):
 activeCount           // active items count (cap at 12)
@@ -619,8 +612,6 @@ app/build/[heroId]/page.tsx  (server, one Promise.all — no waterfall)
         ▼
 app/build/BuildClient.tsx  (client — owns ALL build state, derives via useMemo)
   ├─ itemStatTotals / totalSpiritPower / boonSouls ← buildItems + boon slider
-  ├─ SuggestedItemsPanel  → scoreItems(allItems, goal, build)
-  │                         lib/scoring: independent per-item rank vs a goal
   └─ heroBasket useMemo   → lib/engine/heroBasket.ts runHeroBasket():
                             deriveHeroNeedVector + proc/hit factors →
                             toItemCandidates(unowned items) →
@@ -634,9 +625,10 @@ app/build/BuildClient.tsx  (client — owns ALL build state, derives via useMemo
                             StarterBuildPanel (presentational only)
 ```
 
-The two suggestion paths are independent and must stay so: neither reads the
-other's output. Engine inputs come from the hero and the already-owned build;
-the basket's soul budget is `boonSouls − cost of owned items`.
+There is one suggestion path: the hero basket (and the starter build, which
+chains it). The goal-based `scoreItems` path was retired in the item scoring
+review (R3, 2026-10-25). Engine inputs come from the hero and the already-owned
+build; the basket's soul budget is `boonSouls − cost of owned items`.
 
 ---
 
@@ -655,7 +647,7 @@ the basket's soul budget is `boonSouls − cost of owned items`.
 | B         | ✅ Closed | State/component health: derived `assignmentMap`, `lib/buildUtils.ts`, `CategoryManager` split into 8 files                                          |
 | C         | ✅ Closed | New player UX: shared Tooltip/AudienceTabs, simplified/advanced toggle, difficulty/archetype tags, Fixture 9                                        |
 | D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                                          |
-| E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` (additive to `SuggestedItemsPanel`) — see engine-design-notes.md                |
+| E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` — see engine-design-notes.md                                                    |
 | F         | 🚧 Active | Measured item-pair term (`pairTerm`, Oracle+ 90-day table) live in the basket; synergy audit report (private artifact) — see engine-design-notes.md |
 | G         | ⏸ Queued  | Need-vector enrichment (stretch) — full scope in engine-design-notes.md                                                                             |
 | M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                                        |
@@ -685,7 +677,7 @@ are the recommendation numbers in `docs/competitive-analysis.md`):
    drag and tap targets, dark-only theme)
 
 Then, **before marking F ✅ Closed**, do the item scoring review. Cover both
-suggestion paths: `lib/scoring/` (`scoreItems`, goal weights, anti-synergy) and
+suggestion paths: `lib/scoring/` (anti-synergy; `scoreItems` retired in R3) and
 `lib/engine/` (basket terms incl. `pairTerm`, need vector, item adapter). Check
 live baskets with `npm run probe` across heroes and boon levels. Also run the
 `scoring-auditor` and `data-verifier` agents, and refresh the pair table + synergy
