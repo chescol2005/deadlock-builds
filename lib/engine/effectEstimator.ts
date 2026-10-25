@@ -72,7 +72,7 @@ import type { ScoreCategory } from "./types";
  * item whose value we KNOW and one whose value we GUESSED, it should prefer
  * the known quantity at equal nominal magnitude.
  */
-const EFFECT_CONFIDENCE = 0.5;
+export const EFFECT_CONFIDENCE = 0.5;
 
 /**
  * Weight for raw heal/absorb amounts (hundreds-scale), matching
@@ -474,7 +474,7 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
     add(
       "sustain",
       lifestrike * HEAL_WEIGHT,
-      `${lifestrike} health per melee hit`,
+      `${lifestrike} health on a melee hit, once per cooldown`,
       "healPerMeleeHit",
       lifestrike,
     );

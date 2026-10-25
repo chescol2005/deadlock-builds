@@ -25,7 +25,13 @@
 import type { ItemStats } from "../items";
 import type { ScoreCategory } from "./types";
 import type { EffectEstimate } from "./effectEstimator";
-import { castsPerTrade, TRADE_GAP_SECONDS, TRADE_SECONDS } from "./heroDamage";
+import {
+  castsPerTrade,
+  MELEE_HITS_PER_TRADE,
+  MELEE_LANDS,
+  TRADE_GAP_SECONDS,
+  TRADE_SECONDS,
+} from "./heroDamage";
 
 export interface HeroFightModel {
   maxHealth: number;
@@ -193,10 +199,6 @@ export function fightValues(
 const SLOW_TO_STUN = 0.25;
 /** Share of an enemy's effective HP in a trade that comes from their healing. */
 const ENEMY_HEAL_SHARE = 0.2;
-/** Melee hits landed in a trade. */
-const MELEE_HITS_PER_TRADE = 3;
-/** Share of melee attempts that land. */
-const MELEE_LANDS = 0.5;
 /** Typical soul income per minute (5,900 souls at ~9.5 min, 16,700 at ~20). */
 const REFERENCE_SOULS_PER_MINUTE = 800;
 /** Damaging abilities a hero has (an ability reset doubles one of them). */

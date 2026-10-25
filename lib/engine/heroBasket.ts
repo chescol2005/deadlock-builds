@@ -304,9 +304,12 @@ export function deriveHeroDamageModel(input: {
         baseDamage: a.baseDamage != null ? a.baseDamage * perCast : null,
         spiritScaling: a.spiritScaling != null ? a.spiritScaling * perCast : null,
         cooldown: a.cooldown,
+        ...(a.damageSeconds != null ? { seconds: a.damageSeconds } : {}),
+        ...(a.charges != null ? { charged: true } : {}),
       };
     }),
     spiritPower: input.spiritPower,
+    ...(atBoon.lightMeleeDamage > 0 ? { meleeDamage: atBoon.lightMeleeDamage } : {}),
     ...(survivalKnown ? { survival: { maxHealth, moveSpeed } } : {}),
   };
 }

@@ -64,7 +64,7 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
  */
 // Rebased on the post-patch tables (item scoring review §2.1, 2026-10-25): 0.096.
 // Was 0.095 on the 09-24 tables, 0.38 before the value-scale stack.
-const MID_OVERLAP_BASELINE = 0.096;
+const MID_OVERLAP_BASELINE = 0.076; // review C2/C3 (2026-10-25); 0.096 after the refit
 
 /**
  * Noise band for the live ratchets (M3, O2): a refit of the measured tables alone
@@ -85,7 +85,7 @@ const T1_TOLERANCE = 0.15;
  * real 10–20 min top 10. May only be raised (docs/starter-build-use-cases.md §4.3).
  */
 // Rebased on the post-patch tables (§2.1): 36/53 = 0.679. Was 0.69 (37/53, 2026-10-24).
-const MID_REAL_TOP_BASELINE = 0.679;
+const MID_REAL_TOP_BASELINE = 0.731; // 38/52 after review C2/C3 (2026-10-25); 0.679 after the refit
 
 const sum = (xs: ReadonlyArray<number>) => xs.reduce((a, b) => a + b, 0);
 

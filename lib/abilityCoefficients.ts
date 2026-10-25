@@ -38,6 +38,8 @@ export type HeroAbility = {
    * duration the API doesn't give (then a cast counts as one second, as before).
    */
   damageSeconds?: number;
+  /** Base charges (AbilityCharges >= 1): charged-ability items apply to it. */
+  charges?: number;
 };
 
 // Damage keys that are a rate: one cast deals the value per second.
@@ -214,6 +216,9 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
     upgrades,
     ...(damageKey ? { damageKey } : {}),
     ...(damageSeconds != null ? { damageSeconds } : {}),
+    ...((safeNum(props["AbilityCharges"]?.value) ?? 0) >= 1
+      ? { charges: safeNum(props["AbilityCharges"]?.value) ?? 1 }
+      : {}),
   };
 }
 

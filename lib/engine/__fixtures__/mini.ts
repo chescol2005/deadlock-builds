@@ -98,6 +98,7 @@ import {
   TRADE_SECONDS,
 } from "../heroDamage";
 import type { HeroDamageModel } from "../heroDamage";
+import { HERO_RELATIVE_SPIRIT_KEYS } from "../heroDamage";
 import { estimateFightValue, fightValues } from "../heroFight";
 import { normalizeItem } from "../../itemNormalizer";
 import { deriveHeroDamageModel } from "../heroBasket";
@@ -4414,6 +4415,145 @@ console.log("\n26. Ability damage per cast (item scoring review C1, frozen live 
     siphonInModel !== undefined && siphonInModel.spiritScaling === 0.6 * 4,
     "C1: the hero damage model prices Siphon Life per cast (22 DPS x 4 s, scaling 0.6 x 4)",
     JSON.stringify(model?.abilities),
+  );
+}
+
+console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const gun = { perShot: 10, shotsPerSecond: 5, clip: 20, reload: 2, overhead: 0 };
+  const caster: HeroDamageModel = {
+    gun,
+    accuracy: 0.5,
+    abilities: [
+      { baseDamage: 200, spiritScaling: 1, cooldown: 20 },
+      { baseDamage: 60, spiritScaling: 0.5, cooldown: 12, charged: true },
+    ],
+    spiritPower: 0,
+    meleeDamage: 50,
+  };
+  const total = (m: HeroDamageModel) =>
+    sustainedGunDps(m.gun, {}) * m.accuracy + abilityDps(m.abilities, m.spiritPower);
+
+  // Mystic Reverb: 50% of the strongest ability's hit (>= MinimumDamage), once
+  // per item cooldown, capped by that ability's own casts. Not +50% to all.
+  const reverb = { TechDamagePercent: 50, MinimumDamage: 100, AbilityCooldown: 6.25 };
+  const procs = Math.min(castsPerTrade(20), castsPerTrade(6.25));
+  const expected = ((Math.max(100, 200 * 0.5) * procs) / TRADE_SECONDS / total(caster)) * 100;
+  const permanent = ((abilityDps(caster.abilities, 0) * 0.5) / total(caster)) * 100;
+  const reverbValue = damageValues(reverb, caster).spiritDamage;
+  assert(
+    near(reverbValue, expected) && reverbValue < permanent,
+    "C2: Mystic Reverb is a proc on the strongest ability, once per cooldown (below the old permanent +50%)",
+    `got ${reverbValue.toFixed(2)}, proc ${expected.toFixed(2)}, permanent ${permanent.toFixed(2)}`,
+  );
+
+  // MaxHealthDamage is unconfirmed (in no tooltip): worth nothing, and the
+  // adapter's heuristic skips it in hero mode.
+  assert(
+    damageValues({ MaxHealthDamage: 10 }, caster).spiritDamage === 0 &&
+      HERO_RELATIVE_SPIRIT_KEYS.has("MaxHealthDamage"),
+    "C2: MaxHealthDamage is inert in hero mode",
+  );
+
+  // Charged-ability spirit applies only to abilities with charges.
+  const charged = damageValues({ BonusSpiritForChargedAbilities: 14 }, caster).spiritDamage;
+  const expectedCharged =
+    ((abilityDps([caster.abilities[1]], 14) - abilityDps([caster.abilities[1]], 0)) /
+      total(caster)) *
+    100;
+  const noCharges: HeroDamageModel = {
+    ...caster,
+    abilities: caster.abilities.map((a) => ({ ...a, charged: false })),
+  };
+  assert(
+    near(charged, expectedCharged) &&
+      damageValues({ BonusSpiritForChargedAbilities: 14 }, noCharges).spiritDamage === 0,
+    "C2: charged-ability spirit counts only charged abilities; 0 for a kit without charges",
+    `got ${charged}, expected ${expectedCharged}`,
+  );
+
+  // Escalating Exposure: an amp on ability damage, half the stacks reached.
+  const amp = damageValues({ MagicIncreasePerStack: 4.5, MaxStacks: 12 }, caster).spiritDamage;
+  const hits = castsPerTrade(20) + castsPerTrade(12);
+  const expectedAmp =
+    ((abilityDps(caster.abilities, 0) * 4.5 * (Math.min(12, hits) / 2)) / 100 / total(caster)) *
+    100;
+  assert(
+    near(amp, expectedAmp) && amp > 0,
+    "C2: Escalating Exposure amps ability damage by half the stacks a trade reaches",
+    `got ${amp}, expected ${expectedAmp}`,
+  );
+
+  // Melee: % of light melee on the hits landed; on an active (Colossus 7 / 37 s)
+  // it counts at that uptime.
+  const meleeInnate = damageValues({ BonusMeleeDamagePercent: 30 }, caster).gunDamage;
+  const meleeActive = damageValues(
+    { BonusMeleeDamagePercent: 30, AbilityCooldown: 37, AbilityDuration: 7 },
+    caster,
+  ).gunDamage;
+  const withRate = damageValues(
+    { BonusMeleeDamagePercent: 30, AbilityCooldown: 37, AbilityDuration: 7 },
+    caster,
+    new Set(["BonusMeleeDamagePercent"]),
+  ).gunDamage;
+  assert(
+    meleeInnate > 0 && near(meleeActive, (meleeInnate * 7) / 37) && near(withRate, meleeInnate),
+    "C2: melee damage % is priced on landed melee hits; an active's bonus at its uptime unless innate",
+    `innate ${meleeInnate}, active ${meleeActive}`,
+  );
+
+  // On the frozen real kits: Haze and Abrams have no charged ability, Seven does.
+  const frozenKits = loadFrozen().kits;
+  const chargedValue = (hero: string) => {
+    const kit = frozenKits.find((k) => k.name === hero);
+    const model = kit
+      ? deriveHeroDamageModel({
+          baseStats: kit.heroBaseStats,
+          abilities: kit.heroAbilities,
+          boonLevel: 16,
+          spiritPower: 20,
+          accuracy: 0.5,
+        })
+      : undefined;
+    return model ? damageValues({ BonusSpiritForChargedAbilities: 14 }, model).spiritDamage : -1;
+  };
+  assert(
+    chargedValue("Haze") === 0 && chargedValue("Abrams") === 0 && chargedValue("Seven") > 0,
+    "C2: Rapid Recharge's charged-ability spirit is worth 0 to Haze and Abrams, > 0 to Seven",
+    `Haze ${chargedValue("Haze")}, Abrams ${chargedValue("Abrams")}, Seven ${chargedValue("Seven")}`,
+  );
+
+  // C3: with no damage model, a timed fire-rate bonus that isn't innate is
+  // conditional (Kinetic Dash), and a cooldown headshot bonus is a flat proc.
+  const mkItem = (id: string, category: Item["category"], cost: number): Item => ({
+    id,
+    numericId: 9900,
+    name: id,
+    category,
+    tier: 2,
+    cost,
+    tags: [],
+    stats: {},
+    statScaling: {},
+  });
+  const fireRate = (innate: string[] | undefined) =>
+    toItemCandidate({
+      ...mkItem("fx_dash", "gun", 1600),
+      stats: { BonusFireRate: 25, AbilityDuration: 7 },
+      ...(innate ? { innateStats: innate } : {}),
+    }).categoryValues.gunDamage;
+  const headshot = toItemCandidate({
+    ...mkItem("fx_headshot", "gun", 800),
+    stats: { HeadShotBonusDamage: 45, AbilityCooldown: 9 },
+  }).categoryValues.gunDamage;
+  assert(
+    near(fireRate(undefined), 25 * 0.4) &&
+      fireRate(["BonusFireRate"]) > fireRate(undefined) &&
+      headshot > 0 &&
+      headshot < 45,
+    "C3: no damage model: a timed, non-innate fire rate is conditional; a cooldown headshot is a flat proc",
+    `fire rate ${fireRate(undefined)} / innate ${fireRate(["BonusFireRate"])}, headshot ${headshot}`,
   );
 }
 
