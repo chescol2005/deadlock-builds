@@ -18,6 +18,8 @@ import { heroPhaseItems } from "@/lib/engine/phaseItems";
 import type { CategoryShares } from "@/lib/engine/categorySplit";
 import { buildStarterBuild } from "@/lib/engine/starterBuild";
 import type { StarterBuild, StarterBuildInputs } from "@/lib/engine/starterBuild";
+import { deriveHeroDamageModel } from "@/lib/engine/heroBasket";
+import { heroDps } from "@/lib/engine/heroDamage";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
 import { applyStarterBuild, isAppliedBuild, itemsRemovedByApply } from "@/lib/starterBuildApply";
 import { headlineReason, headlineTerm } from "@/lib/basketReasons";
@@ -643,6 +645,37 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     m1Distances.length === REFERENCE_HEROES.length * 3 && meanL1 <= MEAN_L1_MAX,
     `M1 mean distance to real play ${meanL1.toFixed(3)} <= ${MEAN_L1_MAX} (${m1Distances.length} keys)`,
   );
+
+  // C1 lean (docs/item-scoring-review.md §2.2): on live kits, a DPS ability is
+  // priced per cast (rate x seconds), so Seven's and Abrams' ability DPS is at
+  // least what it was when one cast counted as one second.
+  for (const name of ["Seven", "Abrams"] as const) {
+    const kit = kits.get(name);
+    if (!kit) continue;
+    const modelFor = (abilities: LiveHeroKit["heroAbilities"]) =>
+      deriveHeroDamageModel({
+        baseStats: kit.heroBaseStats,
+        abilities,
+        boonLevel: 16,
+        spiritPower: 30,
+        accuracy: 0.5,
+      });
+    const now = modelFor(kit.heroAbilities);
+    const perSecondOnly = modelFor(
+      kit.heroAbilities.map((a) => ({ ...a, damageSeconds: undefined })),
+    );
+    const rateAbilities = kit.heroAbilities.filter((a) => (a.damageSeconds ?? 0) > 1);
+    assert(
+      now !== undefined &&
+        perSecondOnly !== undefined &&
+        rateAbilities.length > 0 &&
+        heroDps(now).ability >= heroDps(perSecondOnly).ability,
+      `C1 lean: ${name}'s DPS abilities are priced per cast (${rateAbilities.map((a) => `${a.name} x${a.damageSeconds}s`).join(", ")})`,
+      now && perSecondOnly
+        ? `ability DPS ${heroDps(now).ability.toFixed(1)} vs ${heroDps(perSecondOnly).ability.toFixed(1)} per second only`
+        : "no damage model",
+    );
+  }
 
   // M2 — early diversity: >= 4 distinct early phases across the reference
   // heroes, and no single item in every one of them.

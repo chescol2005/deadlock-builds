@@ -288,8 +288,11 @@ export function damageValues(
     for (const a of model.abilities) {
       const cd = num(a.cooldown ?? undefined);
       const perCast = num(a.baseDamage ?? undefined) + num(a.spiritScaling ?? undefined) * spAfter;
-      if (!(cd > 0) || !(perCast > best)) continue;
-      best = perCast;
+      // "The first instance" of a damage-over-time ability is one second of it,
+      // not the whole cast (Lightning Ball: 75, not 75 x 5).
+      const firstHit = a.seconds != null && a.seconds > 0 ? perCast / a.seconds : perCast;
+      if (!(cd > 0) || !(firstHit > best)) continue;
+      best = firstHit;
       bestCasts = castsPerTrade(cd);
     }
     if (best > 0) {
@@ -304,6 +307,8 @@ export function damageValues(
   // Over a trade the target carries about half the stacks it reaches.
   const perStack = s("MagicIncreasePerStack");
   if (perStack > 0) {
+    // MaxStacks is on the only item with this key (Escalating Exposure 12); a
+    // missing cap counts as a single stack rather than an invented one.
     const reached = Math.min(
       Math.max(1, s("MaxStacks")),
       spiritHitsPerTrade(model.abilities, AMP_STACK_INTERVAL),

@@ -11,6 +11,8 @@ export type AbilityUpgradeTier = {
     delta: string;
     /** True when the bonus adds to the property's scaling, not its base value. */
     scale?: boolean;
+    /** For a scale bonus: the stat it scales with (ETechPower, EBaseWeaponDamageIncrease). */
+    scaleStat?: string;
   }>;
 };
 
@@ -106,6 +108,9 @@ function buildUpgradeTier(
       stat: pu.name,
       delta: String(pu.bonus),
       ...(pu.upgrade_type === "EAddToScale" ? { scale: true } : {}),
+      ...(pu.upgrade_type === "EAddToScale" && pu.scale_stat_filter
+        ? { scaleStat: pu.scale_stat_filter }
+        : {}),
     })) ?? [];
 
   const description =
@@ -139,20 +144,32 @@ function isSpiritScaled(p: {
 export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureSlot): HeroAbility {
   const props = raw.properties ?? {};
 
-  // The ability's own damage: a damage-class property with a value, not a
-  // modifier, preferring the spirit-scaled one when an ability has both (Deadman
-  // Danny's Jettison Fuel: ScorchDamage spirit, DPS weapon). Item scoring review
-  // C1 (docs/item-scoring-review.md §1.3): "the first damage-class property"
-  // picked modifiers and zero placeholders.
-  const damageEntries = Object.entries(props).filter(
+  // The ability's own damage (item scoring review C1, docs/item-scoring-review.md
+  // §1.3; "the first damage-class property" picked modifiers and zero
+  // placeholders). Among damage-class properties that aren't modifiers:
+  //   1. a positive one keyed exactly "Damage" (Baba Threadsap: Damage 50, not
+  //      the scaled 8 per bullet that follows it);
+  //   2. else a positive spirit-scaled one (Deadman Danny Jettison Fuel:
+  //      ScorchDamage, not the weapon-scaled DPS), else the first positive one;
+  //   3. else a zero-base one that an upgrade raises (Haze Fixation ProcDamage:
+  //      0 until T1 adds 40 + 0.8 spirit), so its upgrades still apply.
+  // Checked roster-wide on 2026-10-25: 139 of 176 abilities unchanged, every
+  // change reviewed (PR R2a).
+  const upgraded = new Set(
+    (raw.upgrades ?? []).flatMap((u) => (u.property_upgrades ?? []).map((pu) => pu.name)),
+  );
+  const damageClass = Object.entries(props).filter(
     ([key, p]) =>
       typeof p.css_class === "string" &&
       (p.css_class.includes("tech_damage") || p.css_class.includes("bullet_damage")) &&
-      !NOT_ABILITY_DAMAGE.test(key) &&
-      safeNum(p.value) != null &&
-      (safeNum(p.value) ?? 0) > 0,
+      !NOT_ABILITY_DAMAGE.test(key),
   );
-  const damageEntry = damageEntries.find(([, p]) => isSpiritScaled(p)) ?? damageEntries[0];
+  const positive = damageClass.filter(([, p]) => (safeNum(p.value) ?? 0) > 0);
+  const damageEntry =
+    positive.find(([key]) => key === "Damage") ??
+    positive.find(([, p]) => isSpiritScaled(p)) ??
+    positive[0] ??
+    damageClass.find(([key, p]) => safeNum(p.value) == null && upgraded.has(key));
   const damageKey = damageEntry?.[0];
   const damageProp = damageEntry?.[1];
   const damageSeconds =
@@ -166,8 +183,7 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
   const scaleType = scaleFn?.specific_stat_scale_type;
   const scaleVal = scaleFn?.stat_scale ?? null;
 
-  const isSpiritScale =
-    scaleFn?.class_name === "scale_function_tech_damage" || scaleType === "ETechPower";
+  const isSpiritScale = damageProp ? isSpiritScaled(damageProp) : false;
   const isWeaponScale = scaleType !== undefined && !isSpiritScale;
 
   const spiritScaling = isSpiritScale && scaleVal != null ? scaleVal : null;
@@ -266,9 +282,10 @@ export function calculateAbilityDamage(
   spiritPower: number,
   weaponDamage: number,
 ): number | null {
-  if (ability.baseDamage == null) return null;
+  // A zero-base key that only upgrades raise (Haze Fixation) still projects.
+  if (ability.baseDamage == null && ability.damageKey == null) return null;
 
-  let damage = ability.baseDamage;
+  let damage = ability.baseDamage ?? 0;
 
   if (ability.spiritScaling != null) {
     damage += spiritPower * ability.spiritScaling;
@@ -286,10 +303,14 @@ export function calculateAbilityDamage(
     for (const change of upgrade.statChanges) {
       // Bonuses to the ability's own damage property (DPS, DamagePerChain...,
       // not only "Damage"). A scale bonus adds to the spirit coefficient.
-      if (change.stat !== (ability.damageKey ?? "Damage")) continue;
+      if (change.stat !== ability.damageKey) continue;
       const delta = parseFloat(change.delta);
       if (!Number.isFinite(delta)) continue;
-      damage += change.scale ? spiritPower * delta : delta;
+      if (!change.scale) damage += delta;
+      else if (!change.scaleStat || change.scaleStat === "ETechPower")
+        damage += spiritPower * delta;
+      else if (change.scaleStat === "EBaseWeaponDamageIncrease") damage += weaponDamage * delta;
+      // Any other scale stat is unknown: added nothing rather than guessed.
     }
   }
 

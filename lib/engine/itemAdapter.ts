@@ -18,6 +18,7 @@
 //   verified is expected and safe.
 
 import {
+  abilityDps,
   castsPerTrade,
   TRADE_SECONDS,
   damageValues,
@@ -109,7 +110,8 @@ const STAT_KEY_TO_SCORE: Readonly<Record<string, StatMapping>> = {
   BonusSpiritForChargedAbilities: { category: "spiritDamage", weight: WEIGHT_CONDITIONAL },
   // % of the target's max health as damage — strong, but only against
   // high-health targets, so discounted rather than taken at face value.
-  MaxHealthDamage: { category: "spiritDamage", weight: WEIGHT_CONDITIONAL },
+  // MaxHealthDamage (Mystic Reverb): unmapped on purpose, so inert everywhere.
+  // It is in no tooltip and not on the wiki (item scoring review C2).
   MagicIncreasePerStack: { category: "spiritDamage", weight: WEIGHT_CONDITIONAL }, // Escalating Exposure ramps per stack
 
   // ── gunDamage ──
@@ -398,6 +400,14 @@ function deriveHitShare(stats: ItemStats, flag: "perHit" | "requiresHit"): numbe
     if (!Number.isFinite(rawValue)) continue;
     const mapping = STAT_KEY_TO_SCORE[key];
     if (!mapping) continue;
+    // A cooldown headshot bonus is a once-per-cooldown shot (C3): wasted on a
+    // miss, like the other cooldown-gated bullet procs.
+    if (key === "HeadShotBonusDamage" && (stats.AbilityCooldown ?? 0) > 0) {
+      const mag = Math.abs(rawValue * FLAT_PROC_CONFIDENCE * HEADSHOT_IN_TRADE);
+      total += mag;
+      if (flag === "requiresHit") perHit += mag;
+      continue;
+    }
     total += Math.abs(rawValue * mapping.weight);
   }
 
@@ -487,6 +497,10 @@ function deriveCategoryValues(
           moveSpeed: heroDamage.survival.moveSpeed,
           gunDps: dps.gun,
           abilityDps: dps.ability,
+          chargedAbilityDps: abilityDps(
+            heroDamage.abilities.filter((a) => a.charged),
+            heroDamage.spiritPower,
+          ),
         }
       : null;
     for (const estimate of estimateEffectValues(stats)) {
@@ -542,6 +556,7 @@ function deriveCategoryValues(
     values[estimate.category] += estimate.value;
   }
 
+  const timedItem = (stats.AbilityCooldown ?? 0) > 0 || (stats.AbilityDuration ?? 0) > 0;
   for (const [key, rawValue] of Object.entries(stats)) {
     // Defensive: lib/itemNormalizer.ts's parseStats should already guarantee
     // finite numbers, but this adapter does not assume upstream invariants.
@@ -556,7 +571,6 @@ function deriveCategoryValues(
     // other once-per-cooldown bullet procs (Mystic Shot): damage x effect
     // confidence x headshots landed. A fire-rate bonus on a timed effect that
     // isn't innate (Kinetic Dash: 7 s after a dash) is conditional, not permanent.
-    const timedItem = (stats.AbilityCooldown ?? 0) > 0 || (stats.AbilityDuration ?? 0) > 0;
     if (key === "HeadShotBonusDamage" && (stats.AbilityCooldown ?? 0) > 0) {
       values[mapping.category] += rawValue * FLAT_PROC_CONFIDENCE * HEADSHOT_IN_TRADE;
       continue;

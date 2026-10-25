@@ -4374,9 +4374,54 @@ console.log("\n26. Ability damage per cast (item scoring review C1, frozen live 
     JSON.stringify({ lightning: lightning?.damageSeconds, siphon: siphon?.damageSeconds }),
   );
   assert(
-    fixation?.baseDamage === null && fixation.damageKey === undefined,
-    "C1: a weapon modifier (Haze Fixation DamageBonusFixedPerStack) is not read as ability damage",
+    fixation?.baseDamage === null && fixation.damageKey === "ProcDamage",
+    "C1: a weapon modifier (Haze Fixation DamageBonusFixedPerStack) is not ability damage; its zero-base ProcDamage, raised by upgrades, is",
+    `${fixation?.damageKey} ${fixation?.baseDamage}`,
   );
+  if (fixation) {
+    const fixationLvl0 = calculateAbilityDamage(fixation, 0, 100, 0);
+    const fixationLvl1 = calculateAbilityDamage(fixation, 1, 100, 0);
+    assert(
+      fixationLvl0 === 0 && fixationLvl1 === 40 + 0.8 * 100,
+      "C1: Fixation deals nothing until T1 adds ProcDamage 40 + 0.8 spirit (ProcDamage upgrades apply)",
+      `level 0 ${fixationLvl0}, level 1 ${fixationLvl1}`,
+    );
+  }
+  if (surge) {
+    const surgeLvl0 = calculateAbilityDamage(surge, 0, 100, 0);
+    const surgeLvl2 = calculateAbilityDamage(surge, 2, 100, 0);
+    assert(
+      surgeLvl0 === 10 + 0.14 * 100 && surgeLvl2 === 10 + 0.14 * 100 + 8 + 0.23 * 100,
+      "C1: Power Surge per chain pinned: 10 + 0.14 spirit; T2 adds 8 + 0.23 spirit",
+      `level 0 ${surgeLvl0}, level 2 ${surgeLvl2}`,
+    );
+  }
+  // A scale bonus applies to the stat its filter names (weapon here), and an
+  // unknown filter adds nothing.
+  {
+    const weaponScaled: HeroAbility = {
+      ...(siphon as HeroAbility),
+      baseDamage: 10,
+      spiritScaling: null,
+      damageKey: "Damage",
+      upgrades: [
+        {
+          pointCost: 1,
+          description: "",
+          statChanges: [
+            { stat: "Damage", delta: "0.5", scale: true, scaleStat: "EBaseWeaponDamageIncrease" },
+            { stat: "Damage", delta: "9", scale: true, scaleStat: "EUnknownStat" },
+          ],
+        },
+        { pointCost: 2, description: "", statChanges: [] },
+        { pointCost: 5, description: "", statChanges: [] },
+      ],
+    };
+    assert(
+      calculateAbilityDamage(weaponScaled, 1, 100, 40) === 10 + 0.5 * 40,
+      "C1: a scale upgrade uses the stat its filter names (weapon damage); an unknown filter adds nothing",
+    );
+  }
   assert(
     jettison?.damageKey === "ScorchDamage" && jettison.spiritScaling !== null,
     "C1: with a spirit-scaled and a weapon-scaled damage property, the spirit one is the ability's",
@@ -4446,6 +4491,38 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
     near(reverbValue, expected) && reverbValue < permanent,
     "C2: Mystic Reverb is a proc on the strongest ability, once per cooldown (below the old permanent +50%)",
     `got ${reverbValue.toFixed(2)}, proc ${expected.toFixed(2)}, permanent ${permanent.toFixed(2)}`,
+  );
+
+  // A damage-over-time ability's "first hit" is one second of it.
+  const dotKit: HeroDamageModel = {
+    ...caster,
+    abilities: [{ baseDamage: 75 * 5, spiritScaling: 0, cooldown: 26, seconds: 5 }],
+  };
+  const dotReverb = damageValues(reverb, dotKit).spiritDamage;
+  const dotExpected =
+    ((Math.max(100, 75 * 0.5) * Math.min(castsPerTrade(26), castsPerTrade(6.25))) /
+      TRADE_SECONDS /
+      total(dotKit)) *
+    100;
+  assert(
+    near(dotReverb, dotExpected),
+    "C2: on a DPS ability Mystic Reverb's first hit is one second (75), not the whole cast (375)",
+    `got ${dotReverb}, expected ${dotExpected}`,
+  );
+
+  // Extra charges only help abilities with charges.
+  const fightNoCharged = fightValues(
+    { BonusAbilityCharges: 1 },
+    { maxHealth: 1000, moveSpeed: 7, gunDps: 50, abilityDps: 50, chargedAbilityDps: 0 },
+  );
+  const fightCharged = fightValues(
+    { BonusAbilityCharges: 1 },
+    { maxHealth: 1000, moveSpeed: 7, gunDps: 50, abilityDps: 50, chargedAbilityDps: 25 },
+  );
+  assert(
+    (fightNoCharged.utility ?? 0) === 0 && (fightCharged.utility ?? 0) > 0,
+    "C2: extra charges are worth nothing to a kit without charged abilities",
+    `${JSON.stringify(fightNoCharged)} / ${JSON.stringify(fightCharged)}`,
   );
 
   // MaxHealthDamage is unconfirmed (in no tooltip): worth nothing, and the
@@ -4518,6 +4595,43 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
       : undefined;
     return model ? damageValues({ BonusSpiritForChargedAbilities: 14 }, model).spiritDamage : -1;
   };
+  // C2 acceptance (amended 2026-10-25, docs/item-scoring-review.md §2.2 note):
+  // Reverb is the pinned proc above (MinimumDamage 100 included) and is picked
+  // in no baseline basket. Its value against Surge of Power for Haze is logged:
+  // the 100-damage floor makes it larger than Haze's one 30 s ability suggests.
+  {
+    const frozenItems = loadFrozen().allItems;
+    const haze = frozenKits.find((k) => k.name === "Haze");
+    const hazeModel = haze
+      ? deriveHeroDamageModel({
+          baseStats: haze.heroBaseStats,
+          abilities: haze.heroAbilities,
+          boonLevel: 22,
+          spiritPower: 40,
+          accuracy: 0.5,
+        })
+      : undefined;
+    const itemStats = (name: string) => frozenItems.find((i) => i.name === name)?.stats;
+    const reverbStats = itemStats("Mystic Reverb");
+    const surgeStats = itemStats("Surge of Power");
+    const reverbSpirit =
+      hazeModel && reverbStats ? damageValues(reverbStats, hazeModel).spiritDamage : NaN;
+    const surgeSpirit =
+      hazeModel && surgeStats ? damageValues(surgeStats, hazeModel).spiritDamage : NaN;
+    const reverbId = frozenItems.find((i) => i.name === "Mystic Reverb")?.id;
+    const inBaselines = Object.values(computeBaselines(loadFrozen()).cases).some((lines) =>
+      lines.some((line) => reverbId !== undefined && line.startsWith(`${reverbId} `)),
+    );
+    assert(
+      reverbId !== undefined && Number.isFinite(reverbSpirit) && !inBaselines,
+      "C2: Mystic Reverb (a once-per-cooldown proc) is picked in no baseline basket",
+      `Haze: Reverb ${reverbSpirit.toFixed(2)} vs Surge of Power ${surgeSpirit.toFixed(2)} spirit value`,
+    );
+    console.log(
+      `  ℹ Haze spirit value: Mystic Reverb ${reverbSpirit.toFixed(2)}, Surge of Power ${surgeSpirit.toFixed(2)} (the 100-damage floor; §2.2 note)`,
+    );
+  }
+
   assert(
     chargedValue("Haze") === 0 && chargedValue("Abrams") === 0 && chargedValue("Seven") > 0,
     "C2: Rapid Recharge's charged-ability spirit is worth 0 to Haze and Abrams, > 0 to Seven",
@@ -4550,8 +4664,7 @@ console.log("\n27. Item stat valuations (item scoring review C2 / C3)");
   assert(
     near(fireRate(undefined), 25 * 0.4) &&
       fireRate(["BonusFireRate"]) > fireRate(undefined) &&
-      headshot > 0 &&
-      headshot < 45,
+      near(headshot, 45 * 0.5 * 0.7),
     "C3: no damage model: a timed, non-innate fire rate is conditional; a cooldown headshot is a flat proc",
     `fire rate ${fireRate(undefined)} / innate ${fireRate(["BonusFireRate"])}, headshot ${headshot}`,
   );

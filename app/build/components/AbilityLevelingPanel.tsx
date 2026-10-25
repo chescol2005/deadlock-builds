@@ -106,7 +106,7 @@ function AbilityCard({
 
   // Projected damage at each level
   const projectedDamages =
-    ability && ability.baseDamage != null
+    ability && (ability.baseDamage != null || ability.damageKey != null)
       ? ([0, 1, 2, 3] as AbilityLevel[]).map((lvl) =>
           calculateAbilityDamage(ability, lvl, spiritPower, weaponDamage),
         )

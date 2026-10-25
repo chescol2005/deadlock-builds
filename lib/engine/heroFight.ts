@@ -39,6 +39,11 @@ export interface HeroFightModel {
   /** Landed gun DPS and ability DPS (heroDamage.heroDps). */
   gunDps: number;
   abilityDps: number;
+  /**
+   * Ability DPS from abilities with charges: the only ones extra charges help
+   * (Extra Charge, Rapid Recharge). Omitted = all ability DPS, as before.
+   */
+  chargedAbilityDps?: number;
 }
 
 /** Seconds of a trade: converts per-second healing into effective HP. */
@@ -180,7 +185,11 @@ export function fightValues(
   const cdr = clampPct(s("CooldownReduction"));
   const utility =
     abilityShare * (cdr / (1 - cdr)) * 100 +
-    abilityShare * CHARGE_UPTIME * 100 * s("BonusAbilityCharges") * cond("BonusAbilityCharges") +
+    ((m.chargedAbilityDps ?? m.abilityDps) / dps) *
+      CHARGE_UPTIME *
+      100 *
+      s("BonusAbilityCharges") *
+      cond("BonusAbilityCharges") +
     abilityShare * CONDITIONAL * s("BonusAbilityDurationPercent") +
     abilityShare * REACH_RATE * Math.max(s("TechRangeMultiplier"), s("TechRadiusMultiplier"));
   if (utility) out.utility = utility;
