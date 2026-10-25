@@ -139,7 +139,7 @@ const GOLD_PER_MINUTE_DIVISOR = 5;
 
 /**
  * Discount for percentage soul bonuses that fire only on a specific, rare
- * trigger (Cultist Sacrifice's `BonusSoulsPct: 180` applies to one sacrificed
+ * trigger (Cultist Sacrifice's `BonusSoulsPct: 170` applies to one sacrificed
  * target, not to income generally). Taken at face value it would dwarf every
  * other economy contribution in the catalogue.
  */

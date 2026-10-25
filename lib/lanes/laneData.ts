@@ -2,7 +2,9 @@ import type { PhaseCard } from "@/app/guide/components/PhaseTimeline";
 import { MINIMAP_URL } from "@/lib/farming/campData";
 
 // All values verified against deadlock.wiki (Guardian, Walker, Patron, Trooper,
-// Mechanics, Strategy) 2026-07-21. Where the wiki is silent or conflicting we
+// Mechanics, Strategy) 2026-07-21; Guardian and Walker soul rewards updated
+// 2026-10-25 (09-16-2026 patch: Guardian bounty +10%, Walker +5%; deadlock.wiki
+// Lane_Guardian 1,375 and Walker 3,675). Where the wiki is silent or conflicting we
 // leave the field null rather than guess — see note per entry.
 export interface LaneStructureDef {
   id: string;
@@ -17,14 +19,14 @@ export const LANE_STRUCTURES: LaneStructureDef[] = [
     id: "guardian",
     name: "Guardian",
     hp: 5500,
-    soulReward: 1250,
+    soulReward: 1375,
     note: "Outermost structure per lane. Invulnerable unless an enemy trooper or hero is within 24m — no rush to solo one down.",
   },
   {
     id: "walker",
     name: "Walker",
     hp: 6000,
-    soulReward: 3500,
+    soulReward: 3675,
     note: "HP scales up as allied Walkers fall (6,000 → 9,000 → 12,000, healing on each loss), so the first one is always the easiest. Destroying it grants your whole team a bonus item slot. Invulnerable unless an enemy is within 22m, plus 65% backdoor damage reduction before the lane has pushed to it.",
   },
   {

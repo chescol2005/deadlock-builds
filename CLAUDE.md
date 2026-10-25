@@ -305,8 +305,8 @@ lib/boonSystem.ts             — BOON_THRESHOLDS, getBoonThreshold(),
                                 getAbilityPointsAtSouls()
 lib/heroStats.ts              — HeroBaseStats, calculateStatsAtBoon()
 lib/heroStore.ts              — getHeroStats() with cache
-lib/abilityCoefficients.ts    — HeroAbility, calculateAbilityDamage(),
-                                PROPERTY_LABELS
+lib/abilityCoefficients.ts    — HeroAbility, calculateAbilityDamage()
+lib/statLabels.ts             — STAT_PROPERTY_LABELS (stat key → plain label)
 lib/scoring/scoreItems.ts     — scoreItems() pure function
 lib/scoring/goalWeights.ts    — GOAL_WEIGHTS_MAP
 lib/scoring/antiSynergy.ts    — detectAntiSynergies()
@@ -653,7 +653,8 @@ the basket's soul budget is `boonSouls − cost of owned items`.
 
 ### ⚠️ Reminder: item scoring review gates closing Milestone F
 
-Milestone F stays 🚧 Active until a thorough item scoring review is done.
+Milestone F stays 🚧 Active until a thorough item scoring review is done. Criteria and
+findings: `docs/item-scoring-review.md` (APPROVED 2026-10-25; PRs R1–R4).
 That review comes **after** these three pieces of work, in this order (numbers
 are the recommendation numbers in `docs/competitive-analysis.md`):
 
