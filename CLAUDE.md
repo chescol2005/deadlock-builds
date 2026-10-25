@@ -390,7 +390,16 @@ lib/engine/                   — engine scoring surface, parallel to lib/scorin
                                 STARTER_PHASE_BOON_LEVELS (early/mid/late =
                                 5,900/16,700/30,000 souls), buyOrder cheapest
                                 first, each phase owning
-                                the earlier picks (Work 2; v0, no UI yet)
+                                the earlier picks (Work 2; live in /build via
+                                StarterBuildPanel since 2d)
+lib/starterBuildApply.ts      — applyStarterBuild(): StarterBuild → planner items +
+                                phase/active flags (owned kept, trade-ins leave,
+                                early active up to 12, upgrades keep their
+                                component's slot); isAppliedBuild(),
+                                itemsRemovedByApply() for the UC3 confirm
+lib/basketReasons.ts          — headlineTerm()/headlineReason(): which reason a
+                                pick headlines in the simplified view (positive,
+                                never population data; MarginalTerm.plain first)
 lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cached,
                                 fail-open match-analytics (win rate, matches) from
                                 /v1/analytics/*; ItemAnalytics.itemId joins to
@@ -432,6 +441,12 @@ app/build/components/
                                 alongside SuggestedItemsPanel, does not replace it.
                                 Prices picks at BasketPick.effectiveCost and names
                                 the owned component an upgrade trades in
+  StarterBuildPanel.tsx        — "Start from a suggested build" (Work 2d): early /
+                                mid / late columns in buy order, a plain-English
+                                reason per item, apply + inline trade-in confirm.
+                                Presentational; BuildClient computes the build
+  basketDisplay.tsx            — CATEGORY_STYLES, fmt(), TermBreakdown shared by
+                                the two basket panels
 app/guide/components/          — cross-guide shared UI (Milestone D4):
   Minimap.tsx                  — generic marker-overlay minimap; callers supply
                                 markers + renderMarker/renderTooltip/legend
@@ -583,8 +598,11 @@ app/build/BuildClient.tsx  (client — owns ALL build state, derives via useMemo
                             makeBasketContext(+ pairLift slice) →
                             constructBasket()
                             → HeroBasketSuggestion (presentational only)
-                            (starterBuild.ts chains the same function at
-                            fixed checkpoints; not wired into the UI yet)
+  └─ starter build memos  → lib/engine/starterBuild.ts buildStarterBuild()
+                            (the same function chained at fixed checkpoints,
+                            independent of the boon slider) →
+                            lib/starterBuildApply.ts on apply →
+                            StarterBuildPanel (presentational only)
 ```
 
 The two suggestion paths are independent and must stay so: neither reads the
@@ -620,7 +638,7 @@ That review comes **after** these three pieces of work, in this order (numbers
 are the recommendation numbers in `docs/competitive-analysis.md`):
 
 1. ✅ Global nav + real homepage (rec. 1): links the orphaned `/guide/*` pages (#85)
-2. "Start from a suggested build" (rec. 6): seed `/build/[heroId]` from
+2. ✅ "Start from a suggested build" (rec. 6): seed `/build/[heroId]` from
    `constructBasket()` at early / mid / late soul checkpoints. Use cases are
    approved in `docs/starter-build-use-cases.md`. Order: 2b pipeline + fixtures
    → 2c engine (owned coverage, components) ✅ → **need-vector fix pulled forward
@@ -629,7 +647,8 @@ are the recommendation numbers in `docs/competitive-analysis.md`):
    profile: M1 phase fidelity 6 → 11 of 24, with four keys accepted as regressions)
    → **value-scale stack** ✅ (one value scale, shop budgets + laning tempo, phase
    items: M1 24/24, M2 passes, mid overlap 0.373 → 0.093; use-case doc §5.7) →
-   **2d UI next**. Left for the scoring review: phase stat profile still in the old
+   **2d UI** ✅ (StarterBuildPanel, plain-English reasons). Left for the scoring
+   review: phase stat profile still in the old
    units, a few stat keys on heuristic weights, real 3,200 rushes (T1 known gaps).
 3. Per-page metadata / OG images (rec. 2) + mobile pass on `/build` (rec. 3)
 

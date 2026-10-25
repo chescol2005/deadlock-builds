@@ -63,7 +63,7 @@ import type {
   MarginalTermFn,
   ScoreCategory,
 } from "./types";
-import { SCORE_CATEGORIES } from "./types";
+import { SCORE_CATEGORIES, SCORE_CATEGORY_PLAIN } from "./types";
 
 // ─── Tunable constants ───────────────────────────────────────────────────────
 
@@ -657,6 +657,13 @@ export function coversNeed(
   return gain > RELEVANCE_MIN_GAIN_FRACTION * coverageScalePerSlot(ctx);
 }
 
+/** "Adds the gun damage and health this hero still needs." (largest gains first) */
+function plainCoverage(cats: ReadonlyArray<ScoreCategory>): string {
+  const names = cats.slice(0, 2).map((c) => SCORE_CATEGORY_PLAIN[c]);
+  if (names.length === 0) return "Fills a gap in what this hero needs.";
+  return `Adds the ${names.join(" and ")} this hero still needs.`;
+}
+
 export const coverageTerm: MarginalTermFn = {
   termId: "coverage",
 
@@ -679,6 +686,7 @@ export const coverageTerm: MarginalTermFn = {
       termId: "coverage",
       value: gain,
       reason: `Covers ${gain.toFixed(1)} of remaining need (${named.join(", ")}${suffix})`,
+      plain: plainCoverage(perCategoryGain.map((entry) => entry.cat)),
     };
   },
 };
@@ -732,6 +740,7 @@ export const categoryBonusTerm: MarginalTermFn = {
 
     let fraction = 0;
     let detail = "";
+    let plain = "";
 
     if (crossed && tierAfter !== null) {
       // A single purchase can jump several tiers at once, so credit the highest
@@ -742,13 +751,16 @@ export const categoryBonusTerm: MarginalTermFn = {
       if (passedSignificant) {
         fraction = CROSS_SIGNIFICANT_TIER_FRACTION;
         detail = `crosses the ${formatSouls(SIGNIFICANT_THRESHOLD)} significant investment tier`;
+        plain = `Takes your ${candidate.category} spending past ${formatSouls(SIGNIFICANT_THRESHOLD)} souls, unlocking the shop's big ${candidate.category} bonus.`;
       } else {
         fraction = CROSS_TIER_FRACTION;
         detail = `crosses the ${formatSouls(tierAfter.soulsThreshold)} investment tier`;
+        plain = `Takes your ${candidate.category} spending past ${formatSouls(tierAfter.soulsThreshold)} souls, unlocking the next ${candidate.category} bonus.`;
       }
     } else if (isApproachingSignificantBonus(after) && !isApproachingSignificantBonus(before)) {
       fraction = APPROACH_SIGNIFICANT_FRACTION;
       detail = "moves into range of the significant investment tier";
+      plain = `Brings your ${candidate.category} spending close to the shop's big ${candidate.category} bonus.`;
     }
 
     if (fraction <= 0) return null;
@@ -759,6 +771,7 @@ export const categoryBonusTerm: MarginalTermFn = {
       termId: "categoryBonus",
       value,
       reason: `${candidate.category} souls ${formatSouls(before)} → ${formatSouls(after)} ${detail} (+${value.toFixed(2)})`,
+      plain,
     };
   },
 };
@@ -882,6 +895,10 @@ export const procPlatformTerm: MarginalTermFn = {
       reason:
         `${sign}${value.toFixed(2)}: ${pct}% of this item's value is per-hit, and this hero ` +
         `lands hits ${factor >= 1 ? "better" : "worse"} than roster average (x${factor.toFixed(2)})`,
+      plain:
+        factor >= 1
+          ? "This hero lands its shots well, so this item's on-hit effects pay off."
+          : "This hero lands fewer shots than most, so this item's on-hit effects are worth less.",
     };
   },
 };
@@ -935,6 +952,10 @@ export const hitReliabilityTerm: MarginalTermFn = {
         `${sign}${value.toFixed(2)}: ${pct}% of this item's value is a cooldown-gated shot ` +
         `that is wasted on a miss, and this hero connects ` +
         `${factor >= 1 ? "better" : "worse"} than roster average (x${factor.toFixed(2)})`,
+      plain:
+        factor >= 1
+          ? "This hero rarely misses, so this item's empowered shot is rarely wasted."
+          : "This hero misses more than most, so this item's empowered shot is often wasted.",
     };
   },
 };
@@ -1025,6 +1046,7 @@ export const synergyTerm: MarginalTermFn = {
       termId: "synergy",
       value,
       reason: `+${value.toFixed(2)}: pairs with ${names.join(", ")}, already in your build or this basket — ${rules[0].reason}`,
+      plain: `Works well with ${names.join(" and ")}, which this build already has or is buying.`,
     };
   },
 };
@@ -1088,6 +1110,10 @@ export const pairTerm: MarginalTermFn = {
         `${sign}${value.toFixed(2)}: players on this hero who also built ${hits.map((h) => h.name).join(", ")} ` +
         `won roughly ${points.toFixed(1)} points ${sum >= 0 ? "more" : "less"} often than the items predict ` +
         `separately (${lift.scope}; measured, not proof the items combine)`,
+      plain:
+        sum >= 0
+          ? `Players on this hero who pair it with ${hits.map((h) => h.name).join(" and ")} win more often.`
+          : `Players on this hero who pair it with ${hits.map((h) => h.name).join(" and ")} win less often.`,
     };
   },
 };
@@ -1151,7 +1177,7 @@ function splitGain(
  * souls between shops. The measurement is in shop-category souls, so it is
  * applied there. Relevance-gated like `categoryBonusTerm`: never a reason to
  * buy an item that covers nothing. This is population data, so it is never the
- * headline reason in the simplified view (HeroBasketSuggestion's bestTerm).
+ * headline reason in the simplified view (lib/basketReasons.ts headlineTerm).
  */
 export const categorySplitTerm: MarginalTermFn = {
   termId: "category-split",

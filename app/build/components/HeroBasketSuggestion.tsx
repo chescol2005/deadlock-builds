@@ -2,10 +2,12 @@
 
 import { useMemo } from "react";
 import { ShoppingBasket, CircleAlert, Package } from "lucide-react";
-import type { Item, ItemCategory } from "@/lib/items";
-import type { BasketResult, BasketPick, MarginalTerm, ScoreCategory } from "@/lib/engine/types";
+import type { Item } from "@/lib/items";
+import type { BasketResult, BasketPick, ScoreCategory } from "@/lib/engine/types";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import { Tooltip, InfoTooltip } from "@/app/components/Tooltip";
+import { headlineReason } from "@/lib/basketReasons";
+import { CATEGORY_STYLES, TermBreakdown, fmt } from "@/app/build/components/basketDisplay";
 
 export interface HeroBasketSuggestionProps {
   /** Pre-computed basket from `lib/engine/basketSelect.ts` — this panel never computes one. */
@@ -20,35 +22,6 @@ export interface HeroBasketSuggestionProps {
   /** Hides veteran-only detail (raw marginal values, per-term breakdowns, full coverage table). Defaults false. */
   simplified?: boolean;
 }
-
-// `border` (all-side color) and `accentLeft` (left-side-only color, for the
-// thick accent edge on cards) are kept as separate class strings — mixing an
-// all-side border-color utility with a border-l-{width} utility on the same
-// element re-creates the borderLeft/shorthand conflict this repo already hit
-// once (see git history on CategoryManager's border handling).
-const CATEGORY_STYLES: Record<
-  ItemCategory,
-  { border: string; accentLeft: string; text: string; softBg: string }
-> = {
-  gun: {
-    border: "border-orange-600",
-    accentLeft: "border-l-orange-600",
-    text: "text-orange-400",
-    softBg: "bg-orange-600/10",
-  },
-  vitality: {
-    border: "border-green-600",
-    accentLeft: "border-l-green-600",
-    text: "text-green-400",
-    softBg: "bg-green-600/10",
-  },
-  spirit: {
-    border: "border-violet-600",
-    accentLeft: "border-l-violet-600",
-    text: "text-purple-400",
-    softBg: "bg-violet-600/10",
-  },
-};
 
 const SCORE_CATEGORY_META: Record<ScoreCategory, { label: string; text: string; bar: string }> = {
   gunDamage: { label: "Gun Damage", text: "text-orange-400", bar: "bg-orange-600" },
@@ -108,26 +81,6 @@ function widthClassForPercent(pct: number): string {
   return WIDTH_CLASSES[idx];
 }
 
-function fmt(n: number): string {
-  return Math.round(n).toLocaleString("en-US");
-}
-
-// Terms that report what OTHER players do (population data). They stay visible
-// in the advanced breakdown, but the simplified view's single headline reason is
-// always about this hero and this build, never "because others buy it".
-const POPULATION_TERMS: ReadonlySet<string> = new Set([
-  "category-split",
-  "analytics",
-  "phase-item",
-]);
-
-function bestTerm(terms: ReadonlyArray<MarginalTerm>): MarginalTerm | null {
-  const own = terms.filter((t) => !POPULATION_TERMS.has(t.termId));
-  const pool = own.length > 0 ? own : terms;
-  if (pool.length === 0) return null;
-  return pool.reduce((best, t) => (t.value > best.value ? t : best), pool[0]);
-}
-
 function CoverageRow({
   category,
   coverage,
@@ -182,7 +135,7 @@ function PickCard({
   const fullCost = item?.cost ?? pick.item.cost;
   const isUpgrade = consumedNames.length > 0;
   const icon = item?.icon;
-  const top = bestTerm(pick.terms);
+  const headline = headlineReason(pick.terms);
 
   return (
     <div
@@ -257,25 +210,10 @@ function PickCard({
 
       {simplified ? (
         <div className="text-[11px] italic text-zinc-400">
-          {top ? top.reason : "No specific reason recorded for this pick."}
+          {headline ?? "No specific reason recorded for this pick."}
         </div>
       ) : pick.terms.length > 0 ? (
-        <ul className="flex flex-col gap-1 border-t border-zinc-800 pt-2">
-          {pick.terms.map((term) => (
-            <li
-              key={term.termId}
-              className="flex items-center justify-between gap-2 text-[11px] text-zinc-400"
-            >
-              <span className="italic">{term.reason}</span>
-              <span
-                className={`shrink-0 font-mono ${term.value >= 0 ? "text-emerald-400" : "text-red-400"}`}
-              >
-                {term.value >= 0 ? "+" : ""}
-                {term.value.toFixed(2)}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <TermBreakdown terms={pick.terms} />
       ) : (
         <div className="border-t border-zinc-800 pt-2 text-[11px] italic text-zinc-600">
           No specific reason recorded for this pick.

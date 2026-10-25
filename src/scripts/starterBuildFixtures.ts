@@ -19,6 +19,11 @@ import type { CategoryShares } from "@/lib/engine/categorySplit";
 import { buildStarterBuild } from "@/lib/engine/starterBuild";
 import type { StarterBuild, StarterBuildInputs } from "@/lib/engine/starterBuild";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
+import { applyStarterBuild, isAppliedBuild, itemsRemovedByApply } from "@/lib/starterBuildApply";
+import { headlineReason, headlineTerm } from "@/lib/basketReasons";
+import { SCORE_CATEGORIES } from "@/lib/engine/types";
+import { deserializeBuild, getItemAssignments, serializeBuild } from "@/lib/buildSerializer";
+import type { BuildState } from "@/lib/buildSerializer";
 import type { LiveBasketData, LiveHeroKit } from "./basketData";
 
 type Assert = (condition: boolean, label: string, detail?: string) => void;
@@ -295,6 +300,204 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
         consumedAny || coverageSum > pickSum + 1e-9,
         "H7 owned items count toward coverage (early coverage > its picks' own values)",
         `coverage ${coverageSum.toFixed(1)} vs picks ${pickSum.toFixed(1)}`,
+      );
+    }
+  }
+
+  // A1–A6 — applying the starter build to the planner (Work 2d, lib/starterBuildApply.ts;
+  // docs/starter-build-use-cases.md UC1–UC5).
+  for (const [name, build] of builds) {
+    const applied = applyStarterBuild(build, new Map());
+    const finalIds = new Set<string>();
+    for (const p of build.phases) {
+      for (const c of p.consumed) finalIds.delete(c.id);
+      for (const i of p.items) finalIds.add(i.id);
+    }
+    const ids = applied.items.map((i) => i.id);
+    const phaseOf = new Map(build.phases.flatMap((p) => p.items.map((i) => [i.id, p.phase])));
+    assert(
+      ids.length === finalIds.size &&
+        ids.every((id) => finalIds.has(id)) &&
+        ids.every((id) => applied.assignments.get(id)?.phase === phaseOf.get(id)) &&
+        applied.assignments.size === ids.length,
+      `A1 applied build = the final phased items, each in its phase (UC1): ${name}`,
+    );
+    const active = ids.filter((id) => applied.assignments.get(id)?.active);
+    const earlyHeld = ids.filter((id) => phaseOf.get(id) === "early");
+    assert(
+      active.length <= MAX_ACTIVE_ITEMS &&
+        earlyHeld.every((id) => applied.assignments.get(id)?.active) &&
+        applied.boonLevel === build.phases[build.phases.length - 1].boonLevel,
+      `A2 early items active, <= ${MAX_ACTIVE_ITEMS} active, slider at the late checkpoint: ${name}`,
+      `active ${active.length}, early ${earlyHeld.length}`,
+    );
+    const state: BuildState = {
+      heroId: "1",
+      itemIds: ids,
+      abilityLevels: {},
+      heroLevel: applied.boonLevel,
+      categories: [],
+      phases: ids.map((id) => applied.assignments.get(id)?.phase ?? null),
+      active: ids.map((id) => applied.assignments.get(id)?.active ?? false),
+      sell: ids.map(() => false),
+      optional: ids.map(() => false),
+    };
+    const back = getItemAssignments(deserializeBuild(serializeBuild(state)));
+    assert(
+      back.length === ids.length &&
+        back.every(
+          (a, k) =>
+            a.itemId === ids[k] &&
+            a.phase === applied.assignments.get(a.itemId)?.phase &&
+            a.active === applied.assignments.get(a.itemId)?.active,
+        ),
+      `A4 the share link reproduces the applied build (UC5): ${name}`,
+    );
+
+    // A3 — a build reopened from that link is recognised as the applied build
+    // (UC3); changing one flag or dropping one item is not. Rebuilt from the
+    // link, so isAppliedBuild never compares an object with itself.
+    const reopenedItems = back.flatMap((a) => itemById.get(a.itemId) ?? []);
+    const asAssignments = new Map(
+      back.map((a) => [
+        a.itemId,
+        { phase: a.phase, active: a.active, sellPriority: a.sellPriority, optional: a.optional },
+      ]),
+    );
+    const flipped = new Map(asAssignments);
+    const firstId = ids[0];
+    const first = firstId ? flipped.get(firstId) : undefined;
+    if (firstId && first) flipped.set(firstId, { ...first, sellPriority: !first.sellPriority });
+    assert(
+      ids.length > 0 &&
+        isAppliedBuild(reopenedItems, asAssignments, applied) &&
+        !isAppliedBuild(reopenedItems, flipped, applied) &&
+        !isAppliedBuild(reopenedItems.slice(1), asAssignments, applied) &&
+        itemsRemovedByApply([], applied).length === 0 &&
+        JSON.stringify([...applyStarterBuild(build, new Map()).assignments]) ===
+          JSON.stringify([...applied.assignments]),
+      `A3 deterministic; a reopened link is recognised as applied, an edited build is not (UC3): ${name}`,
+    );
+  }
+
+  // P1 — the simplified view's one-line reason is plain English (UC1): every
+  // pick's headline term carries a `plain` line, free of internal category keys.
+  for (const [name, build] of builds) {
+    const bad: string[] = [];
+    for (const p of build.phases) {
+      for (const pick of p.basket.picks) {
+        const top = headlineTerm(pick.terms);
+        const text = headlineReason(pick.terms) ?? "";
+        if (!top?.plain || SCORE_CATEGORIES.some((k) => /[A-Z]/.test(k) && text.includes(k))) {
+          bad.push(`${pick.item.name}: ${text}`);
+        }
+      }
+    }
+    assert(bad.length === 0, `P1 every headline reason is plain English: ${name}`, bad.join(" | "));
+  }
+
+  // A5 — owned items keep their place and flags; only components an upgrade
+  // trades in leave, and those are exactly what the player confirms (UC2, UC3).
+  {
+    const owned = coldFront && extraHealth ? [coldFront, extraHealth] : [];
+    const sb =
+      owned.length === 2 && sevenKit
+        ? buildStarterBuild(inputsFor(sevenKit, { ownedItems: owned }))
+        : null;
+    assert(sb !== null, "A5 setup: Seven's starter build with owned items is produced");
+    if (sb) {
+      const ownedFlags = new Map(
+        owned.map((i, k) => [
+          i.id,
+          { phase: null, active: true, sellPriority: k === 0, optional: false },
+        ]),
+      );
+      const applied = applyStarterBuild(sb, ownedFlags);
+      const consumed = new Set(sb.phases.flatMap((p) => p.consumed.map((i) => i.id)));
+      const keptOwned = owned.filter((i) => !consumed.has(i.id));
+      assert(
+        keptOwned.every(
+          (i) =>
+            applied.items.some((x) => x.id === i.id) &&
+            JSON.stringify(applied.assignments.get(i.id)) === JSON.stringify(ownedFlags.get(i.id)),
+        ) &&
+          itemsRemovedByApply(owned, applied)
+            .map((i) => i.id)
+            .sort()
+            .join() ===
+            [...consumed]
+              .filter((id) => ownedFlags.has(id))
+              .sort()
+              .join(),
+        "A5 owned items and their flags are kept; exactly the traded-in components leave",
+        `consumed ${[...consumed].join(", ") || "none"}`,
+      );
+    }
+  }
+
+  // A6 — an upgrade takes over the active slot of the component it trades in.
+  // A7 — on a full active build, the upgrade keeps the slot its traded-in
+  //      component held even when a cheaper early item is bought first.
+  {
+    const base = builds.values().next().value;
+    const proto = d.allItems[0];
+    assert(base !== undefined && proto !== undefined, "A6/A7 setup: a reference build exists");
+    if (base && proto) {
+      const fake = (id: string, componentItems: string[] = []): Item => ({
+        ...proto,
+        id,
+        componentItems,
+      });
+      const comp = fake("fx_component");
+      const upg = fake("fx_upgrade", ["fx_component"]);
+      const other = fake("fx_other");
+      const [early, mid] = base.phases;
+      const synthetic: StarterBuild = {
+        ownedItems: [],
+        phases: [
+          { ...early, items: [comp], buyOrder: [comp], consumed: [] },
+          { ...mid, items: [upg, other], buyOrder: [other, upg], consumed: [comp] },
+        ],
+      };
+      const applied = applyStarterBuild(synthetic, new Map());
+      assert(
+        applied.items.map((i) => i.id).join() === "fx_other,fx_upgrade" &&
+          applied.assignments.get("fx_upgrade")?.active === true &&
+          applied.assignments.get("fx_other")?.active === false &&
+          !applied.assignments.has("fx_component") &&
+          itemsRemovedByApply([comp], applied)
+            .map((i) => i.id)
+            .join() === "fx_component",
+        "A6 an upgrade inherits its traded-in component's active slot; other later items wait in the game plan",
+        JSON.stringify([...applied.assignments]),
+      );
+
+      // 12 active owned items, one of them traded in this early phase for an
+      // upgrade bought AFTER a cheap item: the upgrade takes the freed slot.
+      const ownedFull = Array.from({ length: MAX_ACTIVE_ITEMS - 1 }, (_, k) =>
+        fake(`fx_owned_${k}`),
+      );
+      ownedFull.push(comp);
+      const fullFlags = new Map(
+        ownedFull.map((i) => [
+          i.id,
+          { phase: null, active: true, sellPriority: false, optional: false },
+        ]),
+      );
+      const cheap = fake("fx_cheap");
+      const full: StarterBuild = {
+        ownedItems: ownedFull,
+        phases: [{ ...early, items: [upg, cheap], buyOrder: [cheap, upg], consumed: [comp] }],
+      };
+      const fullApplied = applyStarterBuild(full, fullFlags);
+      const activeIds = [...fullApplied.assignments].filter(([, a]) => a.active).map(([id]) => id);
+      assert(
+        activeIds.length === MAX_ACTIVE_ITEMS &&
+          fullApplied.assignments.get("fx_upgrade")?.active === true &&
+          fullApplied.assignments.get("fx_cheap")?.active === false &&
+          !fullApplied.assignments.has("fx_component"),
+        "A7 at the cap, an upgrade keeps its component's slot before cheaper early items claim one",
+        `active ${activeIds.length}: ${activeIds.join(", ")}`,
       );
     }
   }

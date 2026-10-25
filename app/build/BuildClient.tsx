@@ -52,6 +52,10 @@ import type { HeroPairLift } from "@/lib/engine/pairLift";
 import type { HeroCategorySplit } from "@/lib/engine/categorySplit";
 import type { HeroPhaseItems } from "@/lib/engine/phaseItems";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
+import { buildStarterBuild } from "@/lib/engine/starterBuild";
+import type { StarterBuildInputs } from "@/lib/engine/starterBuild";
+import { applyStarterBuild, isAppliedBuild, itemsRemovedByApply } from "@/lib/starterBuildApply";
+import { StarterBuildPanel } from "@/app/build/components/StarterBuildPanel";
 
 const VIEW_MODE_TABS = [
   { value: "simplified", label: "Simplified" },
@@ -167,6 +171,16 @@ export default function BuildClient({
       ]),
     );
   });
+
+  // What the build held when the suggested starter build was last applied: the
+  // owned items it was built around and their flags. While the build is still
+  // exactly that applied build, the panel shows it as applied (re-running gives
+  // the same build, UC3) instead of a new suggestion built on top of it.
+  const [starterBase, setStarterBase] = useState<{
+    itemIds: string[];
+    assignments: Map<string, AssignmentData>;
+    rankTier: number | null;
+  } | null>(null);
 
   const [activeError, setActiveError] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
@@ -456,6 +470,94 @@ export default function BuildClient({
     phaseItems,
   ]);
 
+  // "Start from a suggested build" (Work 2d): the same basket pipeline chained at
+  // the early / mid / late checkpoints (lib/engine/starterBuild.ts). It does not
+  // depend on the boon slider: each phase brings its own souls.
+  const starterInputs = useMemo<Omit<StarterBuildInputs, "ownedItems"> | null>(() => {
+    if (!heroBaseStats) return null;
+    return {
+      heroAbilities,
+      heroBaseStats,
+      heroRoster,
+      allItems,
+      itemAnalytics,
+      heroAccuracy,
+      rankTier: selectedRankTier,
+      pairLift: pairLift ?? undefined,
+      categorySplit: categorySplit ?? undefined,
+      phaseItems: phaseItems ?? undefined,
+    };
+  }, [
+    heroBaseStats,
+    heroAbilities,
+    heroRoster,
+    allItems,
+    itemAnalytics,
+    heroAccuracy,
+    selectedRankTier,
+    pairLift,
+    categorySplit,
+    phaseItems,
+  ]);
+
+  // The last applied build, recomputed from its base (pure, so identical) with
+  // the rank it was applied at: changing the rank afterwards must not turn the
+  // applied build back into a new suggestion (UC3). Three basket runs, so it
+  // only reruns when the base or the hero data changes, never on a build edit.
+  const appliedBaseBuild = useMemo(() => {
+    if (!starterBase || !starterInputs) return null;
+    const byId = new Map(allItems.map((i) => [i.id, i]));
+    const owned = starterBase.itemIds.flatMap((id) => byId.get(id) ?? []);
+    return buildStarterBuild({
+      ...starterInputs,
+      rankTier: starterBase.rankTier,
+      ownedItems: owned,
+    });
+  }, [starterBase, starterInputs, allItems]);
+
+  // Cheap: is the build still exactly what was applied?
+  const appliedStarter = useMemo(() => {
+    if (!starterBase || !appliedBaseBuild) return null;
+    const applied = applyStarterBuild(appliedBaseBuild, starterBase.assignments);
+    return isAppliedBuild(buildItems, cleanedAssignmentMap, applied)
+      ? { build: appliedBaseBuild, applied }
+      : null;
+  }, [starterBase, appliedBaseBuild, buildItems, cleanedAssignmentMap]);
+  const starterIsApplied = appliedStarter !== null;
+
+  // Otherwise a fresh suggestion built around everything in the build now (UC2).
+  // Keyed on the items, not their flags, so toggling a flag reruns no basket.
+  const suggestionBuild = useMemo(() => {
+    if (starterIsApplied || !starterInputs) return null;
+    return buildStarterBuild({ ...starterInputs, ownedItems: buildItems });
+  }, [starterIsApplied, starterInputs, buildItems]);
+
+  const starterSuggestion = useMemo(() => {
+    if (appliedStarter) return appliedStarter;
+    if (!suggestionBuild) return null;
+    return { build: suggestionBuild, applied: applyStarterBuild(suggestionBuild, cleanedAssignmentMap) };
+  }, [appliedStarter, suggestionBuild, cleanedAssignmentMap]);
+
+  const starterRemovedOnApply = useMemo(
+    () => (starterSuggestion ? itemsRemovedByApply(buildItems, starterSuggestion.applied) : []),
+    [starterSuggestion, buildItems],
+  );
+
+  function handleApplyStarterBuild() {
+    if (!starterSuggestion || appliedStarter) return;
+    const { applied } = starterSuggestion;
+    setStarterBase({
+      itemIds: buildItems.map((it) => it.id),
+      assignments: new Map(cleanedAssignmentMap),
+      rankTier: selectedRankTier,
+    });
+    setBuildItems(applied.items);
+    setAssignmentMap(applied.assignments);
+    // Move the slider to the last checkpoint so the planner's souls (and the
+    // live basket's budget) match the build just applied.
+    setManualBoonLevel(applied.boonLevel);
+  }
+
   const ultimateUnlocked = manualBoonLevel >= 7;
 
   return (
@@ -469,6 +571,7 @@ export default function BuildClient({
             const next = e.target.value;
             setHeroId(next);
             setBuildItems([]);
+            setStarterBase(null);
             setAbilityLevels({});
             setCategories([]);
             setAssignmentMap(new Map());
@@ -573,6 +676,7 @@ export default function BuildClient({
             <button
               onClick={() => {
                 setBuildItems([]);
+                setStarterBase(null);
                 setCategories([]);
                 setAssignmentMap(new Map());
               }}
@@ -790,9 +894,19 @@ export default function BuildClient({
                   fontSize: 13,
                 }}
               >
-                No items yet — browse the shop below and click an item to add it to your build.
+                No items yet — start from the suggested build below, or browse the shop and
+                click an item to add it to your build.
               </div>
             ) : null}
+            <div className="mb-3">
+              <StarterBuildPanel
+                starterBuild={starterSuggestion?.build ?? null}
+                removedOnApply={starterRemovedOnApply}
+                applied={appliedStarter !== null}
+                onApply={handleApplyStarterBuild}
+                simplified={simplified}
+              />
+            </div>
             <CategoryManager
               categories={cleanedCategories}
               buildItems={buildItems}
