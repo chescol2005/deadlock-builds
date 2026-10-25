@@ -235,3 +235,26 @@ Toxic Bullets uses. Enemy health grows over the game, so both items are under-pr
 (follow-up: scale with boon). `StealPerHit` / `StealPerKill` are flags; the kill steal was
 removed on 2026-03-06. Live gates unchanged; Siphon enters 4 of 72 baselines (Haze and
 Warden late).
+
+**G3: a hero's own self-healing (2026-10-25).** Shipped.
+
+- **G3-1 / G3-2: parsed.** `HeroAbility.selfHeals` from `KIT_SELF_HEAL_KEYS`, skipping the
+  ally-only abilities and kill-gated heals. `KIT_HEAL_SHARE` counts Card Trick's Heart heal
+  as one suit in four. Engine fixture 30 checks:
+  - the six frozen self-healers heal > 0 per trade;
+  - Seven heals exactly 0.
+- **G3-4: direction from data.** Across the 42 parseable profiled heroes (live kits), kit
+  heal rank-correlates positively with the measured sustain share. Spearman: early 0.395,
+  mid 0.381, late 0.306. So G3-3 shipped.
+- **G3-3: fallback only.** Kit heal raises the sustain need, from neutral up to +50% at 20%
+  of max HP per trade. Only heroes with no measured profile are affected, so there is no
+  live change.
+- **G3-5: heal amp priced.** Healing Booster and Healing Tempo get amp × the healing the
+  hero has (kit heal plus owned lifesteal), never item regen.
+  - Live: mean L1 0.114 → 0.111, O2 0.760 → 0.780, Abrams mid 0.14 → 0.06.
+  - M3 rose 0.080 → 0.088 (limit 0.086), because Abrams and Lady Geist now buy Healing
+    Booster mid, as their real players do (21% and 53%). **The user approved raising M3's
+    baseline 0.076 → 0.0781** (measured overlap 0.08802) (docs/starter-build-use-cases.md M3).
+  - Baselines: 6 of 72 changed, all Healing Booster for Abrams and Lady Geist. Abrams'
+    starter moves Booster from late to mid, and its late phase swaps Colossus for Phantom
+    Strike.

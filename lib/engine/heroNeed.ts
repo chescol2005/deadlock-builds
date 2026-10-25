@@ -627,20 +627,39 @@ function deriveHealthShare(heroHealth: number, rosterHealth: ReadonlyArray<numbe
   return Math.max(MIN_HEALTH_SHARE, Math.min(MAX_HEALTH_SHARE, share));
 }
 
-// ─── sustain / utility / economy — NOT derivable yet ───────────────────────
+// ─── sustain / utility / economy ────────────────────────────────────────────
 //
-// Real sustain/lifesteal signal requires parsing the free-text
-// `HeroAbility.upgrades[].statChanges[].stat` / `.delta` pairs (e.g. spotting
-// "Lifesteal"/"Regen" keys and summing their deltas) — deliberately out of
-// scope for this milestone (tracked as Milestone G in CLAUDE.md). `utility`
-// has no comparable derivable source at all on HeroBaseStats/HeroAbility.
-// `economy` likewise has nothing to derive from here (mirrors
-// itemAdapter.ts's stance: no invented economy signal).
+// sustain: derived since Milestone G3 from the hero's own self-healing
+// (`kitHealPercent`, kitHeal.ts over the parsed `HeroAbility.selfHeals`), see
+// kitSustainNeed below. The measured phase profile replaces it whenever one
+// exists, so it only decides the need for a hero with no measured data.
 //
-// Returning a stubbed NEUTRAL_BASELINE for these three is deliberate and
-// documented — NOT a fabricated derived number. Do not let a future edit
-// quietly make this look more sophisticated than it is without an actual
-// data source backing it.
+// `utility` has no comparable derivable source at all on HeroBaseStats/
+// HeroAbility. `economy` likewise has nothing to derive from here (mirrors
+// itemAdapter.ts's stance: no invented economy signal). Returning a stubbed
+// NEUTRAL_BASELINE for these two is deliberate and documented — NOT a
+// fabricated derived number. Do not let a future edit quietly make this look
+// more sophisticated than it is without an actual data source backing it.
+
+/**
+ * Kit heal (% of max HP per trade) at which the kit sustain need is fullest.
+ * The strongest self-healers in the 2026-10-25 roster survey heal 20-30%.
+ */
+const KIT_HEAL_REFERENCE_PCT = 20;
+/** Most the kit can raise the sustain need above the neutral baseline. */
+const KIT_SUSTAIN_SWING = 0.5;
+
+/**
+ * Sustain need from the hero's own healing (Milestone G3-3). Heroes that heal
+ * themselves more buy more sustain: kit heal rank-correlates with the measured
+ * sustain share across the 42 parseable profiled heroes (Spearman 0.40 early,
+ * 0.38 mid, 0.31 late; docs/milestone-g.md §4). Undefined = the neutral stub.
+ */
+function kitSustainNeed(kitHealPercent: number | undefined): number {
+  if (kitHealPercent === undefined || !Number.isFinite(kitHealPercent)) return NEUTRAL_BASELINE;
+  const share = Math.min(1, Math.max(0, kitHealPercent) / KIT_HEAL_REFERENCE_PCT);
+  return NEUTRAL_BASELINE * (1 + KIT_SUSTAIN_SWING * share);
+}
 
 export function deriveHeroNeedVector(input: {
   abilities: ReadonlyArray<HeroAbility>;
@@ -654,6 +673,13 @@ export function deriveHeroNeedVector(input: {
    * land more shots, so gun items are worth more to them.
    */
   gunAccuracyByHeroId?: ReadonlyMap<number, number>;
+  /**
+   * % of max HP the hero's own kit heals it per trade (kitHeal.ts, Milestone
+   * G3). Raises the sustain need; omitted = the neutral stub. The measured
+   * phase profile (applyStatProfile) replaces sustain whenever it exists, so
+   * this only matters for a hero with no measured profile.
+   */
+  kitHealPercent?: number;
 }): HeroNeedVector {
   const { abilities, baseStats, roster, gunAccuracyByHeroId } = input;
 
@@ -716,7 +742,7 @@ export function deriveHeroNeedVector(input: {
     resist,
     shield,
     mobility,
-    sustain: NEUTRAL_BASELINE, // stubbed — see "sustain / utility / economy" section above
+    sustain: kitSustainNeed(input.kitHealPercent),
     utility: NEUTRAL_BASELINE, // stubbed — see "sustain / utility / economy" section above
     economy: NEUTRAL_BASELINE, // stubbed — see "sustain / utility / economy" section above
   };

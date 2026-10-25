@@ -354,6 +354,9 @@ lib/engine/                   — engine scoring surface, parallel to lib/scorin
   heroDamage.ts               — one value scale, damage half: % of this hero's
                                 trade DPS through its own weapon and kit
                                 (sustainedGunDps, castsPerTrade, damageValues)
+  kitHeal.ts                  — a hero's own self-healing in HP per trade (Milestone G3),
+                                from HeroAbility.selfHeals; prices heal amp and the
+                                sustain need for heroes with no measured profile
   heroFight.ts                — one value scale, everything else: health, resist,
                                 healing, CC, mobility, economy in % of fight value
                                 (fightValues, estimateFightValue)

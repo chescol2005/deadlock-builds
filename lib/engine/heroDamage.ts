@@ -83,7 +83,15 @@ export interface HeroDamageModel {
    * owned build already restore between trades (heroFight.ownedGapHeal), so an
    * item's recovery is priced on top of it (Milestone G2a).
    */
-  survival?: { maxHealth: number; moveSpeed: number; ownedGapHeal?: number };
+  survival?: {
+    maxHealth: number;
+    moveSpeed: number;
+    ownedGapHeal?: number;
+    /** HP the hero's own kit heals it per trade (kitHeal.ts, Milestone G3). */
+    kitHealHp?: number;
+    /** HP the owned items' lifesteal heals per trade (heroFight.ownedTradeHealHp). */
+    ownedTradeHealHp?: number;
+  };
 }
 
 /**

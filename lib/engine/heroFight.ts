@@ -58,6 +58,13 @@ export interface HeroFightModel {
    * procs (Siphon Bullets). Omitted = the proc's cooldown is never the limit.
    */
   landedShotsPerSecond?: number;
+  /**
+   * HP per trade that heal amplification multiplies (Milestone G3-5): the
+   * hero's kit heals plus the owned items' lifesteal. Item regen is left out:
+   * deadlock.wiki Healing_Booster says amp "does not affect constant regen
+   * acquired from most items". Omitted = 0 (amp then prices at 0).
+   */
+  ampableHealHp?: number;
 }
 
 /** Seconds of a trade: converts per-second healing into effective HP. */
@@ -164,6 +171,20 @@ export function gapHealHp(
   );
 }
 
+/** HP the owned items' lifesteal heals in one trade (what heal amp multiplies). */
+export function ownedTradeHealHp(
+  owned: ReadonlyArray<{ stats: ItemStats; innateStats?: ReadonlyArray<string> }>,
+  m: HeroFightModel,
+): number {
+  let total = 0;
+  for (const item of owned) {
+    const innate = item.innateStats ? new Set(item.innateStats) : undefined;
+    const ls = lifestealShares(item.stats, innate);
+    total += (ls.bullet * m.gunDps + ls.spirit * m.abilityDps) * FIGHT_SECONDS;
+  }
+  return total;
+}
+
 /**
  * HP restored between trades by the hero's base regen and the owned items'
  * stats: the `ownedGapHeal` an item's recovery is priced on top of. Base regen
@@ -227,6 +248,8 @@ export const HERO_FIGHT_KEYS: ReadonlySet<string> = new Set([
   "BulletLifestealPercent",
   "AbilityLifestealPercentHero",
   "ImbueAbilityLifesteal",
+  "HealAmpCastPercent",
+  "HealAmpRegenPercent",
   "ActiveBonusLifesteal",
   "BonusSpiritLifesteal",
   "AbilityLifestealPercentHeroPassive",
@@ -301,6 +324,17 @@ export function fightValues(
   let sustain = ((healPerSecond * FIGHT_SECONDS) / hp) * 100;
   sustain += CONDITIONAL * CHANNEL_HEAL_RATE * s("HealPercentAmount");
   sustain += recoveryValue(gapHealHp(stats, m, innate), hp, m.ownedGapHeal);
+  // Heal amplification (Healing Booster, Healing Tempo): % more of the healing
+  // the hero already has in a trade. Cast and regen amp are one stat on both
+  // shop items, so the larger (after the timed-stat weight; Healing Tempo's
+  // cast amp is innate, its regen amp is not) is used once.
+  const amp =
+    Math.max(
+      s("HealAmpCastPercent") * cond("HealAmpCastPercent"),
+      s("HealAmpRegenPercent") * cond("HealAmpRegenPercent"),
+    ) / 100;
+  const ampable = m.ampableHealHp ?? 0;
+  if (amp > 0 && ampable > 0) sustain += ((amp * ampable) / hp) * 100;
   if (sustain) out.sustain = sustain;
 
   // mobility: exchange rate on % move speed, sprint and dash charges.
