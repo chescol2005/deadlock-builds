@@ -176,7 +176,7 @@ being fetched and silently discarded until Milestone C wired them into
 with `HeroDifficultyBadge`/`HeroArchetypeTags`:
 
 ```typescript
-hero.complexity; // number, 1-3 — Valve's official difficulty rating
+hero.complexity; // number, 1-4 (Sinclair is 4) — Valve's official difficulty rating
 hero.tags; // string[] — flavor/archetype tags, e.g. ["Arsonist", "Explosive"]
 hero.hero_type; // string, e.g. "marksman" — not yet surfaced in UI
 ```
@@ -691,7 +691,7 @@ day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
 
 - AI coach is **proactive** — surfaces warnings as items are added,
   not only when the user asks
-- Coach module lives in `src/lib/coach/` — zero imports from scoring
+- Coach module lives in `lib/coach/` — zero imports from scoring or the engine; full plan and decisions in `docs/milestone-m6.md` (approved 2026-10-25: templates first, on for everyone, role table checked against data)
 - Coach prompt design must be prototyped and validated in Claude.ai
   Artifacts before implementation begins
 - Per-ability DPS impact when items added
