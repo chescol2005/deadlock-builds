@@ -15,6 +15,8 @@ export type AntiSynergyRule = {
 //
 // Reviewed 2026-10-19 against deadlock.wiki and the live item API (data-verifier;
 // see "Synergy audit report" in engine-design-notes.md):
+// - Reasons are plain English (shown to new players and quoted by the coach,
+//   M6; reworded 2026-10-25 without "lifesteal" / "multiplicatively").
 // - Reasons state mechanics the wiki documents, or say plainly that they are
 //   advice rather than mechanics. No hardcoded soul costs or percentages: those
 //   go stale when Valve patches (a "12 400 souls" figure here was already wrong).
@@ -40,12 +42,12 @@ export const ANTI_SYNERGY_RULES: ReadonlyArray<AntiSynergyRule> = [
   {
     itemIds: ["upgrade_damage_recycler", "upgrade_surging_power"],
     reason:
-      "Leech and Vampiric Burst both grant bullet lifesteal. Lifesteal sources stack multiplicatively, so the second one adds a bit less healing than its tooltip suggests.",
+      "Leech and Vampiric Burst both heal you when your bullets hit. Together they heal a little less than their two tooltips add up to.",
   },
   {
     itemIds: ["upgrade_cold_front", "upgrade_containment"],
     reason:
-      "Cold Front and Slowing Hex both slow movement. Slows stack multiplicatively and movement speed has a floor, so the second slow adds less than its tooltip suggests.",
+      "Cold Front and Slowing Hex both slow enemies down. Together they slow less than their two tooltips add up to, and an enemy can only be slowed so far.",
   },
 ];
 
