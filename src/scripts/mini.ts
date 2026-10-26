@@ -37,6 +37,11 @@ import {
 import { GUIDES, NAV_SECTIONS, isActiveSection } from "@/lib/navigation";
 import { runStarterBuildFixtures } from "./starterBuildFixtures";
 import { fetchVisibleHeroes } from "@/lib/heroApi";
+import { EMPTY_MEMORY, getCoachMessage } from "@/lib/coach";
+import type { CoachContext, CoachFact, CoachTrigger, InsightId, PlayerMode } from "@/lib/coach";
+import { INSIGHT_PRIORITY, INSIGHT_RULES } from "@/lib/coach/triggerRules";
+import { renderInsight } from "@/lib/coach/templates";
+import { validateCoachResponse } from "@/lib/coach/responseValidator";
 import {
   HERO_ROLES,
   ROLE_LABELS,
@@ -1258,6 +1263,251 @@ async function run() {
       heroRolesOf(-1).length === 0 &&
       heroOnlineAtSouls(-1) === undefined,
     "carries come online after off-carries, off-carries after supports; an unknown hero gets no role",
+  );
+
+  // -----------------------------------------------
+  // Fixture 18: Coach core (docs/milestone-m6.md §5, C1 / C4–C7)
+  // -----------------------------------------------
+  console.log("\n18. Coach core (lib/coach/)");
+
+  // C1: the coach imports nothing from the engine, scoring or app state, in any
+  // import form; and the engine and scoring never import the coach.
+  const IMPORT_FORMS = /(?:from\s+|import\s*\(\s*|require\s*\(\s*|^\s*import\s+)["']([^"']+)["']/gm;
+  const importsOf = (path: string) =>
+    [...readFileSync(path, "utf-8").matchAll(IMPORT_FORMS)].map((m) => m[1]);
+  const coachFiles = readdirSync("lib/coach").filter((f) => /\.tsx?$/.test(f));
+  const badImports = coachFiles.flatMap((f) =>
+    importsOf(`lib/coach/${f}`)
+      .filter((p) => !p.startsWith("./") && p !== "../heroRoles")
+      .map((p) => `${f}: ${p}`),
+  );
+  const reverse = ["lib/engine", "lib/scoring"].flatMap((dir) =>
+    readdirSync(dir, { recursive: true })
+      .map(String)
+      .filter((f) => /\.tsx?$/.test(f))
+      .flatMap((f) =>
+        importsOf(`${dir}/${f}`)
+          .filter((p) => p.includes("coach"))
+          .map((p) => `${dir}/${f}: ${p}`),
+      ),
+  );
+  assert(
+    coachFiles.length >= 5 && badImports.length === 0 && reverse.length === 0,
+    "C1: lib/coach/ imports only its own files and lib/heroRoles; lib/engine and lib/scoring never import the coach",
+    [...badImports, ...reverse].join(", "),
+  );
+
+  const frozenRawItems = JSON.parse(
+    readFileSync("lib/engine/__fixtures__/frozen/items.json", "utf-8"),
+  ) as { class_name?: string; name?: string }[];
+  const frozenItemNames = frozenRawItems.map((i) => i.name ?? "").filter((n) => n.length > 3);
+  const itemName = (id: string) => frozenRawItems.find((i) => i.class_name === id)?.name ?? id;
+  const ruleFact = (i: number): CoachFact => ({
+    id: "anti_synergy",
+    itemNames: [
+      itemName(ANTI_SYNERGY_RULES[i].itemIds[0]),
+      itemName(ANTI_SYNERGY_RULES[i].itemIds[1]),
+    ],
+    reason: ANTI_SYNERGY_RULES[i].reason,
+  });
+  const sampleFacts: CoachFact[] = [
+    { id: "role_intro", heroName: "Abrams", role: "tank" },
+    { id: "empty_build", heroName: "Abrams" },
+    { id: "first_in_category", category: "spirit", itemName: "Extra Charge" },
+    { id: "green_before_spike", vitalitySouls: 4800 },
+    { id: "counter_stack", counterItems: ["Counterspell", "Dispel Magic"] },
+    ruleFact(0),
+    {
+      id: "next_buy_reason",
+      itemName: "Toxic Bullets",
+      // A real plain line: a capitalised full sentence (MarginalTerm.plain).
+      reason: "Adds damage that grows with the enemy's health.",
+    },
+    { id: "spike_reached", heroName: "Seven", role: "carry" },
+    { id: "support_greed", expensiveItems: ["Boundless Spirit", "Refresher"] },
+    { id: "no_sustain", itemCount: 8 },
+    { id: "gap_after_remove", itemName: "Extra Regen", category: "vitality" },
+    { id: "starter_explained", heroName: "Abrams" },
+  ];
+  const ALL_TRIGGERS: CoachTrigger[] = [
+    { type: "hero_selected" },
+    { type: "item_added", itemId: "x" },
+    { type: "item_removed", itemId: "x" },
+    { type: "starter_applied" },
+    { type: "build_reviewed" },
+  ];
+  const coachCtx = (
+    facts: CoachFact[],
+    trigger: CoachTrigger,
+    playerMode: PlayerMode,
+    roles: HeroRole[] = ["tank"],
+  ): CoachContext => ({
+    playerMode,
+    hero: { id: 6, name: "Abrams", complexity: 1, roles },
+    souls: 10000,
+    boonLevel: 16,
+    build: [],
+    facts,
+    trigger,
+  });
+  const say = (facts: CoachFact[], trigger: CoachTrigger, mode: PlayerMode, roles?: HeroRole[]) =>
+    getCoachMessage(coachCtx(facts, trigger, mode, roles), EMPTY_MEMORY, frozenItemNames).message;
+
+  // C4: every insight x trigger x audience: it speaks exactly where its rule says.
+  const c4Wrong: string[] = [];
+  for (const fact of sampleFacts) {
+    const rule = INSIGHT_RULES[fact.id];
+    for (const trigger of ALL_TRIGGERS) {
+      for (const mode of ["new", "veteran"] as PlayerMode[]) {
+        let expected = rule.triggers.includes(trigger.type) && rule.modes.includes(mode);
+        // The two documented exceptions (triggerRules.allowed).
+        if (fact.id === "next_buy_reason" && mode === "veteran") {
+          expected = trigger.type === "build_reviewed";
+        }
+        if (fact.id === "empty_build" && trigger.type === "hero_selected") expected = false;
+        if ((say([fact], trigger, mode)?.insight === fact.id) !== expected) {
+          c4Wrong.push(`${fact.id}/${trigger.type}/${mode}`);
+        }
+      }
+    }
+  }
+  assert(
+    c4Wrong.length === 0,
+    "C4: every insight speaks on exactly its triggers and audiences (12 insights x 5 triggers x 2 audiences)",
+    c4Wrong.join(", "),
+  );
+  const emptyFact = sampleFacts[1];
+  assert(
+    say([sampleFacts[0], emptyFact], { type: "hero_selected" }, "new")?.insight === "role_intro" &&
+      say([emptyFact], { type: "hero_selected" }, "new", [])?.insight === "empty_build",
+    "C4: on hero select the role intro speaks; a hero with no known role gets the starter-build nudge",
+  );
+  const everything = () =>
+    getCoachMessage(
+      coachCtx(sampleFacts, { type: "item_added", itemId: "x" }, "new"),
+      EMPTY_MEMORY,
+      frozenItemNames,
+    );
+  assert(
+    everything().message?.insight === "anti_synergy" &&
+      JSON.stringify(everything()) === JSON.stringify(everything()),
+    "C4: with every fact true (a messy 12-item build), exactly one message speaks, the most urgent; same input, same output",
+  );
+  const priorityIds = new Set(INSIGHT_PRIORITY);
+  assert(
+    Object.keys(INSIGHT_RULES).every((id) => priorityIds.has(id as InsightId)) &&
+      priorityIds.size === INSIGHT_PRIORITY.length &&
+      priorityIds.size === Object.keys(INSIGHT_RULES).length,
+    "C4: every insight has exactly one place in the priority order",
+  );
+  // One bad fact must not silence the coach: an invalid top candidate falls through.
+  const tooLong: CoachFact = {
+    id: "anti_synergy",
+    itemNames: ["Leech", "Vampiric Burst"],
+    reason: "word ".repeat(60).trim(),
+  };
+  assert(
+    say([tooLong, sampleFacts[9]], { type: "item_added", itemId: "x" }, "new")?.insight ===
+      "no_sustain",
+    "C4: a message that fails validation is skipped and the next insight speaks",
+  );
+
+  // C5: never repeat; a different subject of the same insight can still speak.
+  const c5Ctx = coachCtx([sampleFacts[5]], { type: "item_added", itemId: "x" }, "veteran");
+  const first = getCoachMessage(c5Ctx, EMPTY_MEMORY, frozenItemNames);
+  const again = getCoachMessage(c5Ctx, first.memory, frozenItemNames);
+  const repeatFree = sampleFacts.every((fact) => {
+    const rule = INSIGHT_RULES[fact.id];
+    // The last listed trigger (empty_build on hero_selected is the documented exception).
+    const type = rule.triggers[rule.triggers.length - 1];
+    const trigger = ALL_TRIGGERS.find((t) => t.type === type) ?? ALL_TRIGGERS[0];
+    const ctx = coachCtx([fact], trigger, rule.modes[0]);
+    const once = getCoachMessage(ctx, EMPTY_MEMORY, frozenItemNames);
+    return (
+      once.message !== null && getCoachMessage(ctx, once.memory, frozenItemNames).message === null
+    );
+  });
+  assert(
+    first.message !== null &&
+      again.message === null &&
+      repeatFree &&
+      getCoachMessage(
+        coachCtx([ruleFact(1)], { type: "item_added", itemId: "x" }, "veteran"),
+        first.memory,
+        frozenItemNames,
+      ).message !== null,
+    "C5: no insight ever repeats in a session; a second anti-synergy pair still speaks",
+  );
+
+  // C6: every template, in both audiences, passes the validator, and every
+  // warning says what to do instead.
+  const c6Fail = sampleFacts.flatMap((fact) =>
+    (["new", "veteran"] as PlayerMode[]).flatMap((mode) => {
+      const v = validateCoachResponse(renderInsight(fact, mode), fact, mode, frozenItemNames);
+      return v.ok ? [] : [`${fact.id}/${mode}: ${v.problems.join("; ")}`];
+    }),
+  );
+  assert(
+    c6Fail.length === 0,
+    "C6: every template passes the validator (word limit, fact-only numbers and items, no internal terms)",
+    c6Fail.join(" | "),
+  );
+  const FIX_WORDS = /\b(buy|add|keep|consider|swap|try|put|stay|make|use)\b/i;
+  const WARNINGS: InsightId[] = [
+    "green_before_spike",
+    "counter_stack",
+    "anti_synergy",
+    "support_greed",
+    "no_sustain",
+    "gap_after_remove",
+  ];
+  const noFix = sampleFacts
+    .filter((f) => WARNINGS.includes(f.id))
+    .flatMap((f) =>
+      (["new", "veteran"] as PlayerMode[])
+        .filter((m) => !FIX_WORDS.test(renderInsight(f, m)))
+        .map((m) => `${f.id}/${m}`),
+    );
+  assert(
+    noFix.length === 0,
+    "C6: every warning, in both audiences, says what to do instead",
+    noFix.join(", "),
+  );
+  const g = sampleFacts[3];
+  assert(
+    !validateCoachResponse("Buy 3 damage items.", g, "new", []).ok &&
+      !validateCoachResponse("Your coverage is low.", g, "new", []).ok &&
+      validateCoachResponse("Its resonance and maintenance matter.", g, "new", []).ok &&
+      validateCoachResponse("Spend 4,800, then buy damage.", g, "new", []).ok &&
+      !validateCoachResponse("Buy Toxic Bullets.", g, "new", ["Toxic Bullets"]).ok &&
+      !validateCoachResponse("word ".repeat(41).trim(), g, "veteran", []).ok &&
+      validateCoachResponse("", g, "veteran", []).ok,
+    "C6: the validator rejects invented numbers, internal words, unknown items and long text; allows ordinary words, a number before a comma, and silence",
+  );
+
+  // C7: the coach-prompting skill's scenarios, plus messy builds.
+  const added: CoachTrigger = { type: "item_added", itemId: "x" };
+  const spiritMsg = say([sampleFacts[2]], added, "new")?.text ?? "";
+  const vetAnti = say([sampleFacts[5]], added, "veteran")?.text ?? "";
+  const abramsIntro = say([sampleFacts[0]], { type: "hero_selected" }, "new")?.text ?? "";
+  const nextBuy = sampleFacts[6];
+  assert(
+    spiritMsg.includes("abilities") &&
+      vetAnti.length > 0 &&
+      vetAnti.split(/\s+/).length <= 40 &&
+      abramsIntro.startsWith("Abrams is a tank") &&
+      say([sampleFacts[9]], added, "new")?.insight === "no_sustain" &&
+      say([nextBuy], { type: "build_reviewed" }, "veteran")?.insight === "next_buy_reason" &&
+      (say([nextBuy], { type: "build_reviewed" }, "new")?.text ?? "").includes(
+        "Toxic Bullets. Adds",
+      ) &&
+      say([emptyFact], { type: "build_reviewed" }, "new")?.insight === "empty_build" &&
+      say([emptyFact], { type: "build_reviewed" }, "veteran") === null,
+    "C7: first spirit item explained; veteran anti-synergy is short; Abrams intro; no healing after 8 items flagged; 'what next?' answered in full sentences; empty build nudged (new players only)",
+  );
+  assert(
+    say([], added, "new") === null && say([], { type: "build_reviewed" }, "veteran") === null,
+    "C7: with nothing true to say (0 items, nothing wrong), the coach stays silent",
   );
 
   // -----------------------------------------------
