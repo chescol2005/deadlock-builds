@@ -27,7 +27,7 @@ import {
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import { heroCategorySplit } from "@/lib/engine/categorySplit";
-import { heroPhaseItems } from "@/lib/engine/phaseItems";
+import { enemyHealthRates, heroPhaseItems } from "@/lib/engine/phaseItems";
 import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import { findHero, loadHeroKit, loadLiveBasketData } from "./basketData";
 import type { ItemCandidate, MarginalTerm } from "@/lib/engine/types";
@@ -221,6 +221,8 @@ async function main(): Promise<void> {
     phaseItems: args.phaseItems
       ? (heroPhaseItems(data.phaseItemsTable, hero.id) ?? undefined)
       : undefined,
+    // Roster-wide, like page.tsx: independent of --no-phase-items.
+    enemyHealthRates: enemyHealthRates(data.phaseItemsTable),
   });
   if (!run) fail(`${hero.name} has no ability data or the item list is empty`);
   const { basket, ctx, candidates, needVector, procPlatformFactor, hitReliabilityFactor } = run;

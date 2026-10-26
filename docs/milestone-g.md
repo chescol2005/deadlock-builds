@@ -232,7 +232,7 @@ heals the buyer by the same amount (counted once), at one rate for both halves: 
 1.2 s, or fewer if the hero lands fewer shots; the heal is scaled by the gun share. The
 enemy's max HP is the 2,500 reference
 Toxic Bullets uses. Enemy health grows over the game, so both items are under-priced late
-(follow-up: scale with boon). `StealPerHit` / `StealPerKill` are flags; the kill steal was
+(follow-up: scale with boon; done 2026-10-25, `enemyHealth.ts`). `StealPerHit` / `StealPerKill` are flags; the kill steal was
 removed on 2026-03-06. Live gates unchanged; Siphon enters 4 of 72 baselines (Haze and
 Warden late).
 

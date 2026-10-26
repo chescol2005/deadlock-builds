@@ -94,7 +94,18 @@ import {
   REFERENCE_ENEMY_HEALTH,
   UNPRICED_HEALING_KEYS,
 } from "../effectEstimator";
-import { heroPhaseItems, PHASE_ITEM_MIN_RATE, phaseItemBasis } from "../phaseItems";
+import {
+  enemyHealthRates,
+  heroPhaseItems,
+  PHASE_ITEM_MIN_RATE,
+  phaseItemBasis,
+} from "../phaseItems";
+import {
+  enemyHealthAt,
+  measureEnemyHealthRates,
+  rosterBaseHealth,
+  vitalityHealthBonus,
+} from "../enemyHealth";
 import type { PhaseItemsTable } from "../phaseItems";
 import { buyOrder } from "../starterBuild";
 import {
@@ -5276,6 +5287,178 @@ console.log("\n30. A hero's own self-healing (Milestone G3, docs/milestone-g.md 
   assert(
     (ownedOnly?.survival?.kitHealHp ?? 0) > 0 && ownedOnly?.survival?.ownedTradeHealHp === 0,
     "G3-5: with nothing owned, the model has the kit heal and zero owned trade healing",
+  );
+}
+
+console.log("\n31. Enemy health over the game (follow-up to Milestone G2c)");
+{
+  const near = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) < eps;
+  const frozen = loadFrozen();
+  const rates = enemyHealthRates(frozen.tables.phaseItems);
+  const at = (boonLevel: number, souls = BOON_THRESHOLDS[boonLevel]?.souls ?? 0) =>
+    enemyHealthAt({ souls, boonLevel, roster: frozen.roster, rates });
+
+  // Grows with the game, and never below the roster's base health.
+  const curve = [5, 10, 16, 22, 29, 35].map((b) => ({
+    b,
+    hp: at(b) ?? 0,
+    base: rosterBaseHealth(frozen.roster, b),
+  }));
+  assert(
+    rates !== undefined &&
+      curve.every((c, i) => c.hp >= c.base && (i === 0 || c.hp > curve[i - 1].hp)),
+    "enemy health: rises with boon level and is never below base health",
+    curve.map((c) => `${c.b}:${c.hp}`).join(" "),
+  );
+
+  // Calibration (user sandbox screenshots, 2026-10-25): max builds at boon 35,
+  // ~45k souls, sit at 3,356 (Graves) to 4,629 (Abrams). Mid stays near the old
+  // fixed reference, which was set for mid-game.
+  const full = at(35, 45000) ?? 0;
+  const mid = at(22) ?? 0;
+  assert(
+    full >= 3300 && full <= 4600 && Math.abs(mid / REFERENCE_ENEMY_HEALTH - 1) <= 0.15,
+    "enemy health: a 45k-soul build at boon 35 lands in 3,300-4,600; mid within 15% of 2,500",
+    `full ${full}, mid ${mid}`,
+  );
+
+  // Missing data is not zero: no rates or no roster keeps the reference.
+  assert(
+    enemyHealthAt({ souls: 20000, boonLevel: 22, roster: frozen.roster }) === undefined &&
+      enemyHealthAt({ souls: 20000, boonLevel: 22, roster: [], rates }) === undefined,
+    "enemy health: undefined without rates or roster (callers keep REFERENCE_ENEMY_HEALTH)",
+  );
+
+  // The vitality investment bonus follows CATEGORY_BONUS_TIERS.
+  assert(
+    vitalityHealthBonus(0) === 0 &&
+      vitalityHealthBonus(799) === 0 &&
+      vitalityHealthBonus(800) === 8 &&
+      vitalityHealthBonus(4800) === 34 &&
+      vitalityHealthBonus(100000) === 56,
+    "enemy health: vitality bonus steps with the investment tiers (0 / 8 / 34 / 56%)",
+  );
+
+  // Measurement on a made-up table: health per soul is rate-weighted; a
+  // conditional BonusHealth (Unstable Concoction) and % base health are kept apart;
+  // an upgrade counts only what it adds over its component (big: 500 HP, 3,200
+  // souls, built from hp: +300 HP for 2,400 souls).
+  const mk = (
+    id: string,
+    cost: number,
+    stats: Record<string, number>,
+    componentItems?: string[],
+  ): Item => ({ id, name: id, cost, stats, componentItems }) as unknown as Item;
+  const items = [
+    mk("hp", 800, { BonusHealth: 200 }),
+    mk("big", 3200, { BonusHealth: 500 }, ["hp"]),
+    mk("upgrade_unstable_concoction", 800, { BonusHealth: 3000 }),
+    mk("colossus", 6400, { BonusBaseHealth: 25 }),
+  ];
+  const phaseTable = {
+    ...frozen.tables.phaseItems,
+    heroes: {
+      "1": {
+        matches: 1,
+        early: { hp: 1, upgrade_unstable_concoction: 1 },
+        mid: { hp: 0.5, big: 0.5 },
+        late: { colossus: 1 },
+      },
+    },
+  };
+  const splitTable = {
+    ...frozen.tables.categorySplit,
+    heroes: {
+      "1": {
+        gun: 0.4,
+        spirit: 0.3,
+        vitality: 0.3,
+        matches: 1,
+        early: { gun: 0.5, spirit: 0.3, vitality: 0.2 },
+        mid: { gun: 0.4, spirit: 0.4, vitality: 0.2 },
+      },
+    },
+  };
+  const m = measureEnemyHealthRates(phaseTable, splitTable, items);
+  assert(
+    m !== null &&
+      near(m.flatHealthPerSoul.early, 200 / 1600) &&
+      near(m.flatHealthPerSoul.mid, (100 + 150) / (400 + 1200)) &&
+      near(m.flatHealthPerSoul.late, 0) &&
+      near(m.basePercentPerSoul.late, 25 / 6400, 1e-8) &&
+      near(m.vitalityShare.early, 0.2) &&
+      near(m.vitalityShare.late, 0.3),
+    "enemy health: rates are buy-rate weighted per soul; upgrades count over their components; a conditional BonusHealth is not health",
+    JSON.stringify(m),
+  );
+
+  // The table's rates are read whole; malformed or out-of-range ones are dropped.
+  const withRates = (enemyHealth: unknown) =>
+    enemyHealthRates({ ...frozen.tables.phaseItems, enemyHealth } as unknown as PhaseItemsTable);
+  assert(
+    rates !== undefined &&
+      withRates({ ...rates, vitalityShare: { early: 0.2 } }) === undefined &&
+      withRates({ ...rates, vitalityShare: { early: 0.2, mid: 0.3, late: 1.5 } }) === undefined &&
+      withRates({ ...rates, flatHealthPerSoul: { early: -1, mid: 0, late: 0 } }) === undefined &&
+      withRates({ ...rates, basePercentPerSoul: { early: 0, mid: 0, late: -0.001 } }) !== undefined,
+    "enemy health: rates are read from the table; malformed or out-of-range ones are dropped",
+  );
+
+  // Both % max-health items scale with the enemy's health.
+  const fmAt = (enemyHealth?: number) => ({
+    maxHealth: 1000,
+    moveSpeed: 7,
+    gunDps: 30,
+    abilityDps: 10,
+    ...(enemyHealth !== undefined ? { enemyHealth } : {}),
+  });
+  const siphonStats = { HealthStealPctHero: 2.5, ProcCooldown: 1.2 };
+  const siphonHeal = (enemyHealth?: number) =>
+    estimateEffectValues(siphonStats)
+      .filter((e) => e.category === "sustain")
+      .reduce((sum, e) => sum + (estimateFightValue(e, siphonStats, fmAt(enemyHealth)) ?? 0), 0);
+  assert(
+    near(siphonHeal(5000), 2 * siphonHeal(2500)) && near(siphonHeal(), siphonHeal(2500)),
+    "enemy health: Siphon Bullets' heal scales with enemy health (omitted = 2,500)",
+  );
+
+  // Pipeline: at boon 29, Toxic Bullets and Siphon Bullets are worth more with
+  // the measured enemy health than at the fixed 2,500; at boon 10, less. The
+  // rates are their own input: a hero without a phase-items slice still gets them.
+  const seven = frozen.kits.find((k) => k.name === "Seven");
+  const valueOf = (itemId: string, boonLevel: number, measured: boolean) => {
+    if (!seven) return 0;
+    const run = runHeroBasket({
+      heroAbilities: seven.heroAbilities,
+      heroBaseStats: seven.heroBaseStats,
+      heroRoster: frozen.roster,
+      allItems: frozen.allItems,
+      heroAccuracy: frozen.heroAccuracy,
+      rankTier: null,
+      ownedItems: [],
+      souls: BOON_THRESHOLDS[boonLevel]?.souls ?? 0,
+      boonLevel,
+      spiritPower: 20,
+      ...(measured && rates ? { enemyHealthRates: rates } : {}),
+    });
+    const c = run?.candidates.find((x) => x.itemId === itemId);
+    return c ? c.categoryValues.gunDamage + c.categoryValues.sustain : 0;
+  };
+  const toxicLate = valueOf("upgrade_toxic_bullets", 29, true);
+  const toxicLateFixed = valueOf("upgrade_toxic_bullets", 29, false);
+  const toxicEarly = valueOf("upgrade_toxic_bullets", 10, true);
+  const toxicEarlyFixed = valueOf("upgrade_toxic_bullets", 10, false);
+  assert(
+    toxicLateFixed > 0 && toxicLate > toxicLateFixed && toxicEarly < toxicEarlyFixed,
+    "enemy health: through runHeroBasket, Toxic Bullets is worth more late and less early than at 2,500",
+    `late ${toxicLate.toFixed(3)} vs ${toxicLateFixed.toFixed(3)}, early ${toxicEarly.toFixed(3)} vs ${toxicEarlyFixed.toFixed(3)}`,
+  );
+  const siphonLate = valueOf("upgrade_siphon_bullets", 29, true);
+  const siphonLateFixed = valueOf("upgrade_siphon_bullets", 29, false);
+  assert(
+    siphonLateFixed > 0 && siphonLate > siphonLateFixed,
+    "enemy health: through runHeroBasket, Siphon Bullets (damage and heal) is worth more late",
+    `late ${siphonLate.toFixed(3)} vs ${siphonLateFixed.toFixed(3)}`,
   );
 }
 

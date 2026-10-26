@@ -354,6 +354,10 @@ lib/engine/                   — engine scoring surface, parallel to lib/scorin
   heroDamage.ts               — one value scale, damage half: % of this hero's
                                 trade DPS through its own weapon and kit
                                 (sustainedGunDps, castsPerTrade, damageValues)
+  enemyHealth.ts              — a typical enemy's max health at these souls / boon level
+                                (2026-10-25): roster base x (1 + vitality bonus) + item
+                                health, rates measured into heroPhaseItems.json; prices
+                                Toxic / Siphon Bullets (REFERENCE_ENEMY_HEALTH = fallback)
   kitHeal.ts                  — a hero's own self-healing in HP per trade (Milestone G3),
                                 from HeroAbility.selfHeals; prices heal amp and the
                                 sustain need for heroes with no measured profile
@@ -564,7 +568,9 @@ checklist enforced by convention, not by a bot:
   new tables change; commit the updated baselines with the refit. Since G4 the stat
   profile is fitted in each hero's fight-value units (`method.profileUnits`). The fitter
   refuses to run without shot accuracy, and lists heroes it had to fit in item units
-  (`method.itemUnitHeroes`).
+  (`method.itemUnitHeroes`). The same run writes the enemy health rates
+  (`heroPhaseItems.json` top-level `enemyHealth`); check they stay close, and that engine
+  section 31's calibration (3,300–4,600 at a 45k-soul build) still passes.
 - When `data-verifier` confirms a value changed, cite the source
   (deadlock.wiki page + date, or the exact API endpoint) directly in the
   code comment next to the changed constant — see `lib/boonSystem.ts`'s
@@ -671,9 +677,6 @@ day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
   build it early) out of one phase.
 - **Real ability tiers.** Use BuildClient's actual ability tiers for upgrade-granted
   charges (R2c) and kit self-heal (G3), instead of the per-phase prior.
-- **Enemy health over the game.** `REFERENCE_ENEMY_HEALTH` (2,500) prices Toxic Bullets
-  and Siphon Bullets. Enemy health grows over the game, so both are under-priced late
-  (user, G2c): scale it with the boon level.
 - **Unmeasured healing constants.** `RECOVERY_WEIGHT`, `GAP_FARM_SHARE` and
   `SITUATIONAL_HEAL_SHARE` are reasoned, not fitted (G2a / G2b).
 - **Unpriced healing.** Parry and kill heals have no measured rate

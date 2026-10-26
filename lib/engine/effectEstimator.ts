@@ -86,9 +86,10 @@ const DEFAULT_REGENERATION_SECONDS = 7;
 
 /**
  * Typical enemy max health, for effects that deal or steal % of the TARGET's
- * max health (Toxic Bullets, Siphon Bullets). Roughly the roster's max health
- * mid-game. Enemy health grows over the game, so this under-prices both items
- * late (follow-up: scale it with the boon level).
+ * max health (Toxic Bullets, Siphon Bullets), when nothing better is known: the
+ * hero-agnostic value, and the fallback when the measured enemy-health rates or
+ * the roster are missing. Hero-aware valuation uses enemyHealth.ts, which grows
+ * with the game (about 1,300 early, 2,500 mid, 3,500 at a full build).
  */
 export const REFERENCE_ENEMY_HEALTH = 2500;
 
@@ -279,7 +280,7 @@ export type EffectUnit =
   | "healPerMeleeHit"
   | "healPerProc" // HP per proc of a cooldown-gated heal (next bullet, ability cast, veil)
   | "healPercentPerHeadshot" // % max HP on a cooldown-gated headshot
-  | "healPerGunProc" // HP per cooldown-gated gun proc (ProcCooldown, Siphon Bullets)
+  | "healPerGunProc" // % of the TARGET's max HP healed per cooldown-gated gun proc (Siphon Bullets)
   | "health" // flat max HP
   | "ccSeconds" // hard CC (stun / silence) seconds per application
   | "slowPercentSeconds" // movement slow % x seconds
@@ -475,13 +476,15 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
       unit: "maxHealthPercentPerProc",
       quantity: steal * EFFECT_CONFIDENCE,
     });
+    // Hero-agnostic value at the reference enemy; the hero-aware conversion
+    // (heroFight, "healPerGunProc") uses the enemy's health at this point.
     const healPerSteal = (steal / 100) * REFERENCE_ENEMY_HEALTH;
     add(
       "sustain",
       (healPerSteal / every) * HEAL_WEIGHT,
-      `${healPerSteal} max health gained and healed per steal`,
+      `${steal}% of the target's max health gained and healed per steal`,
       "healPerGunProc",
-      healPerSteal,
+      steal,
     );
   }
 

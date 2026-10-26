@@ -70,6 +70,12 @@ export interface DamagingAbility {
 
 export interface HeroDamageModel {
   gun: GunProfile;
+  /**
+   * A typical enemy's max health at this point in the game (enemyHealth.ts), for
+   * effects priced in % of the TARGET's max health (Toxic Bullets, Siphon
+   * Bullets). Omitted = REFERENCE_ENEMY_HEALTH.
+   */
+  enemyHealth?: number;
   /** Share of shots that land (rank-aware); 1 = every shot. */
   accuracy: number;
   abilities: ReadonlyArray<DamagingAbility>;

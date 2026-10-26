@@ -50,6 +50,7 @@ import type { RankTierRaw } from "@/lib/api/analyticsApi";
 import type { HeroPairLift } from "@/lib/engine/pairLift";
 import type { HeroCategorySplit } from "@/lib/engine/categorySplit";
 import type { HeroPhaseItems } from "@/lib/engine/phaseItems";
+import type { EnemyHealthRates } from "@/lib/engine/enemyHealth";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { buildStarterBuild } from "@/lib/engine/starterBuild";
 import type { StarterBuildInputs } from "@/lib/engine/starterBuild";
@@ -83,6 +84,7 @@ export default function BuildClient({
   pairLift = null,
   categorySplit = null,
   phaseItems = null,
+  enemyHealthRates = null,
 }: {
   heroes: DeadlockHeroListItem[];
   selectedHeroId: string | null;
@@ -111,6 +113,8 @@ export default function BuildClient({
   categorySplit?: HeroCategorySplit | null;
   /** What high-rank players on this hero buy per phase (server-sliced); null = inert. */
   phaseItems?: HeroPhaseItems | null;
+  /** Roster-wide enemy health rates (heroPhaseItems.json); null = fixed reference health. */
+  enemyHealthRates?: EnemyHealthRates | null;
 }) {
   const router = useRouter();
   const [heroId, setHeroId] = useState<string>(selectedHeroId ?? "");
@@ -454,6 +458,7 @@ export default function BuildClient({
         pairLift: pairLift ?? undefined,
         categorySplit: categorySplit ?? undefined,
         phaseItems: phaseItems ?? undefined,
+        enemyHealthRates: enemyHealthRates ?? undefined,
       })?.basket ?? null
     );
   }, [
@@ -471,6 +476,7 @@ export default function BuildClient({
     pairLift,
     categorySplit,
     phaseItems,
+    enemyHealthRates,
   ]);
 
   // "Start from a suggested build" (Work 2d): the same basket pipeline chained at
@@ -489,6 +495,7 @@ export default function BuildClient({
       pairLift: pairLift ?? undefined,
       categorySplit: categorySplit ?? undefined,
       phaseItems: phaseItems ?? undefined,
+      enemyHealthRates: enemyHealthRates ?? undefined,
     };
   }, [
     heroBaseStats,
@@ -501,6 +508,7 @@ export default function BuildClient({
     pairLift,
     categorySplit,
     phaseItems,
+    enemyHealthRates,
   ]);
 
   // The last applied build, recomputed from its base (pure, so identical) with

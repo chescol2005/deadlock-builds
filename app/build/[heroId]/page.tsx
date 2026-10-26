@@ -15,7 +15,7 @@ import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 import { heroCategorySplit } from "@/lib/engine/categorySplit";
 import type { CategorySplitTable } from "@/lib/engine/categorySplit";
 import categorySplitTableJson from "@/lib/engine/data/heroCategorySplit.json";
-import { heroPhaseItems } from "@/lib/engine/phaseItems";
+import { enemyHealthRates, heroPhaseItems } from "@/lib/engine/phaseItems";
 import type { PhaseItemsTable } from "@/lib/engine/phaseItems";
 import phaseItemsTableJson from "@/lib/engine/data/heroPhaseItems.json";
 import { buildPageMetadata, buildPreview, decodeBuildParam } from "@/lib/seo";
@@ -110,6 +110,8 @@ export default async function BuildHeroPage({
   // What high-rank players on this hero buy per phase (same fitter), sliced the
   // same way. null when the hero was not fitted (phaseItemTerm inert).
   const phaseItems = heroPhaseItems(phaseItemsTableJson as unknown as PhaseItemsTable, heroIdNum);
+  // Roster-wide (an enemy is any hero), so read from the table, not the slice.
+  const enemyRates = enemyHealthRates(phaseItemsTableJson as unknown as PhaseItemsTable) ?? null;
 
   // Malformed or missing param: empty state. Same decoder as generateMetadata,
   // so the share preview and the opened build always agree.
@@ -131,6 +133,7 @@ export default async function BuildHeroPage({
       pairLift={pairLift}
       categorySplit={categorySplit}
       phaseItems={phaseItems}
+      enemyHealthRates={enemyRates}
     />
   );
 }

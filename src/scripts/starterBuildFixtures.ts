@@ -14,7 +14,7 @@ import type { Item } from "@/lib/items";
 import { MAX_ACTIVE_ITEMS } from "@/lib/buildUtils";
 import { componentClosure, heroPairLift } from "@/lib/engine/pairLift";
 import { heroCategorySplit, heroPhaseSplits } from "@/lib/engine/categorySplit";
-import { heroPhaseItems } from "@/lib/engine/phaseItems";
+import { enemyHealthRates, heroPhaseItems } from "@/lib/engine/phaseItems";
 import type { CategoryShares } from "@/lib/engine/categorySplit";
 import { buildStarterBuild } from "@/lib/engine/starterBuild";
 import type { StarterBuild, StarterBuildInputs } from "@/lib/engine/starterBuild";
@@ -147,6 +147,7 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     pairLift: heroPairLift(d.pairLiftTable, kit.hero.id) ?? undefined,
     categorySplit: heroCategorySplit(d.categorySplitTable, kit.hero.id) ?? undefined,
     phaseItems: heroPhaseItems(d.phaseItemsTable, kit.hero.id) ?? undefined,
+    enemyHealthRates: enemyHealthRates(d.phaseItemsTable),
     ...over,
   });
 
