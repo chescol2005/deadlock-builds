@@ -96,8 +96,8 @@ Doorman, and Viper is Vyper.
 | Tank      | Abrams, Baba, Billy, Shiv, Silver (Yamato also)                                          | some        | —                                          | go in first and soak damage; rotate to big fights, don't split push                      |
 | Hybrid    | Drifter, Graves, Ivy, McGinnis, Viscous                                                  | team's need | —                                          | play the role your team is missing, and build for it                                     |
 
-- **Deadman Danny is unassigned.** He was not out when the video was made, so his role is
-  inferred from data (below) or left as unknown, never guessed.
+- **Deadman Danny** was not out when the video was made. His role was set from the data and
+  the user's decision (below).
 - **A hero can hold two roles**, for example Yamato (off-carry + tank) or Haze (initiator +
   carry). The other video's positions 1–6 are kept as a secondary label where they disagree.
 
@@ -106,6 +106,48 @@ net worth at 20 min and at the end of the game, from `/v1/analytics` at Oracle+.
 should rank highest and supports lowest. A hero whose measured share contradicts its listed
 role is flagged for the user to decide, not silently changed. The table carries the
 measurement next to the source.
+
+### M6.0b result (2026-10-25)
+
+`lib/heroRoles.ts` holds the table. `npm run role-check` reruns the check: Oracle+, last 30
+days, 44 heroes.
+
+**Signals:**
+
+- **Mid-game net worth.** `player-performance-curve` in 35–45-minute matches, at 50% of the
+  match (its snapshots run from 50% to 60%, about 21–22 minutes). The curve's `game_time` is a
+  percentage of the match, not seconds.
+- **Jungle share.** Neutral damage ÷ (neutral + creep damage).
+- **Damage taken and damage dealt** per match.
+
+End-of-game net worth barely separates roles: every hero is 0.86–1.11× the roster mean.
+Mid-game net worth does. One exact cross-check from the `deadlock` database (each hero's
+share of its own team's net worth at 20:00, over 3 days of Oracle+ matches) ranked heroes the
+same way.
+
+| Check       | Result                                                                                                     |
+| ----------- | ---------------------------------------------------------------------------------------------------------- |
+| Carries     | all 9 in the top 15 for mid-game net worth (Wraith #1, 1.15× the roster mean); jungle share 34–49%         |
+| Supports    | 8 of 9 at #30 or lower (Nurse Harrow last, 0.86×); jungle share 21–31%                                     |
+| Tanks       | Abrams, Billy, Shiv, Silver, Baba all in the top 13 for damage taken                                       |
+| Off-carries | spread from #5 (Pocket) to #37 (Violet). They fight instead of farming, so low net worth alone is expected |
+
+**User decisions (2026-10-25) on the flagged heroes:**
+
+- **Mo & Krill: Tank + Support** (was Support). They take the most damage of all 44 heroes
+  and sit at average net worth; every other support is #30 or lower.
+- **Lash, Vindicta, Violet: stay Off-carry.** The flag rule now marks an off-carry only when it
+  is also in the bottom third for damage dealt. Vindicta is #3 for damage dealt.
+- **Deadman Danny: Off-carry.** He isn't in the videos. Mid-game net worth #41, but #6 for
+  damage dealt.
+
+After these decisions, **0 of 44 heroes are flagged.**
+
+**How the check works.** Every signal uses the same matches (35–45 min). The flag rule
+(`roleFlag`, `lib/heroRoles.ts`, with fixtures) checks only a hero's primary role. Secondary
+roles are expert or user calls, and initiator and hybrid have no measurable signature. Jungle
+share is printed for context but is not a rule. A newly released hero is a Fixture 17
+warning, not a CI failure, until it is added.
 
 ## 5. What the coach says (insights)
 

@@ -286,7 +286,8 @@ Fixture 13, mirroring `app/build/[heroId]/page.tsx`),
 `pairProbe.ts` (measured item-pair interaction for one hero, Milestone F),
 `fitPairTable.ts` (writes the committed pair-lift table), `fitCategorySplit.ts`
 (writes the committed per-hero gun/spirit/vitality split), their shared loader
-`pairData.ts`, `synergyReport.ts` (+ `synergyReport.client.js`; writes the
+`pairData.ts`, `heroRoleCheck.ts` (`npm run role-check`: checks `lib/heroRoles.ts` against
+measured net worth, jungle share and damage, M6.0b), `synergyReport.ts` (+ `synergyReport.client.js`; writes the
 gitignored `reports/synergy-audit.html`, published as a private artifact), and
 `syncBoonData.ts`.
 
@@ -311,6 +312,10 @@ lib/heroStats.ts              — HeroBaseStats, calculateStatsAtBoon()
 lib/heroStore.ts              — getHeroStats() with cache
 lib/abilityCoefficients.ts    — HeroAbility, calculateAbilityDamage()
 lib/statLabels.ts             — STAT_PROPERTY_LABELS (stat key → plain label)
+lib/heroRoles.ts              — HERO_ROLES: each hero's team role (carry / off-carry /
+                                support / initiator / tank / hybrid), from high-level
+                                players' videos checked against match data (M6.0b,
+                                docs/milestone-m6.md §4). For the coach; NOT a scoring input
 lib/scoring/antiSynergy.ts    — detectAntiSynergies()
 lib/categoryBonuses.ts        — CATEGORY_BONUS_TIERS
 lib/farming/campData.ts       — camp soul values, phase cards, minimap markers
@@ -571,6 +576,10 @@ checklist enforced by convention, not by a bot:
   (`method.itemUnitHeroes`). The same run writes the enemy health rates
   (`heroPhaseItems.json` top-level `enemyHealth`); check they stay close, and that engine
   section 31's calibration (3,300–4,600 at a 45k-soul build) still passes.
+- **On the same monthly cadence, run `npm run role-check`.** It reports heroes whose measured
+  mid-game net worth or damage contradicts their primary role in `lib/heroRoles.ts` (jungle
+  share is printed for context). A flag is for the user to decide; never change a role
+  silently. Add any newly released hero to the table (Fixture 17 warns until you do).
 - When `data-verifier` confirms a value changed, cite the source
   (deadlock.wiki page + date, or the exact API endpoint) directly in the
   code comment next to the changed constant — see `lib/boonSystem.ts`'s
