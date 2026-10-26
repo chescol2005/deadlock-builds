@@ -3,7 +3,7 @@ name: coach-prompting
 description: >
   Design, validate, and iterate on AI coach prompts for Deadlock Foundry's
   M6 coach layer. Use this skill whenever working on the AI coach module
-  (src/lib/coach/), designing system prompts for the coach, deciding what
+  (lib/coach/), designing system prompts for the coach, deciding what
   coaching triggers should fire, writing coach response templates, or
   prototyping coach behavior in Claude.ai Artifacts before implementation.
   Also use when evaluating whether a coach message is too verbose, too
@@ -18,8 +18,8 @@ description: >
 The AI coach in Deadlock Foundry is **completely isolated from scoring**.
 
 ```
-src/lib/coach/          ← coach lives here only
-src/lib/scoring/        ← coach NEVER imports from here
+lib/coach/          ← coach lives here only
+lib/scoring/, lib/engine/  ← coach NEVER imports from here
 ```
 
 Coach responses are **narrative strings only**. The coach:
@@ -181,14 +181,14 @@ Step 1 — Build a coach sandbox Artifact:
 - [ ] User asks "what should I buy next?" — is the response useful?
 - [ ] Empty build — does coach stay silent or give useful starter tip?
       Step 3 — Only after all 6 scenarios pass, hand the finalized system
-      prompt to Claude Code for implementation in `src/lib/coach/`.
+      prompt to Claude Code for implementation in `lib/coach/`.
 
 ---
 
 ## Coach Module File Structure
 
 ```
-src/lib/coach/
+lib/coach/
   index.ts              — public API: getCoachMessage(context)
   coachTypes.ts         — CoachContext, CoachTrigger, CoachItem types
   systemPrompt.ts       — buildSystemPrompt(context) function
