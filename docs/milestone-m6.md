@@ -1,6 +1,6 @@
 # Milestone M6: the build coach
 
-**Status:** APPROVED 2026-10-25 (user sign-off of the whole doc, M6.0). Decisions in §7.
+**Status:** APPROVED 2026-10-25 (user sign-off of the whole doc, M6.0). Decisions in §7. **Done 2026-10-25** (PRs #117–#122); results in §10.
 
 **References:**
 
@@ -251,3 +251,45 @@ Each PR runs the full flow: mini output in the body, CI, merge, branch delete.
 - jungle: https://www.youtube.com/watch?v=cEnAlNpIxlQ
 - crates: https://www.youtube.com/watch?v=BxD0LxueKKA
 - picking a main: https://www.youtube.com/watch?v=VZFfsuDT0sw
+
+## 10. Results (2026-10-25)
+
+| PR   | Step  | What                                                                                                                     |
+| ---- | ----- | ------------------------------------------------------------------------------------------------------------------------ |
+| #117 | M6.0  | This plan, signed off                                                                                                    |
+| #118 | M6.0b | `lib/heroRoles.ts` + `npm run role-check`; user decisions on Mo & Krill, the off-carries, Deadman Danny; 0 of 44 flagged |
+| #119 | M6.2  | `lib/coach/`: 12 insights, approved wording, validator, session memory                                                   |
+| #120 | —     | Plain-English anti-synergy reasons (scoring PR, text only)                                                               |
+| #121 | M6.3  | `lib/coachContext.ts`: facts from real builds, upgrade-aware                                                             |
+| #122 | M6.5  | `CoachPanel` in `/build`, wired to BuildClient's actions                                                                 |
+
+**Acceptance criteria:**
+
+- **C1:** the coach imports only its own files and `lib/heroRoles`, and the engine and
+  scoring never import it (Fixture 18; ESLint also forbids it).
+- **C2 / C3:** all 44 heroes have a role; the measured check flags none after the user's
+  calls (Fixture 17, `npm run role-check`).
+- **C4–C7:** every insight × trigger × audience; no repeats; every template validated and every
+  warning carries a fix; the skill's scenarios (Fixtures 18 and 19).
+- **C8:** mute hides every tip, persists per visitor and survives a reload; mute / unmute and
+  Clear dismiss the current tip (Fixture 20, and checked in a production build).
+- **C9:** the panel passes Fixtures 9 and 16 and sits first on every width, with no horizontal
+  scroll at 375 px (checked in a production build).
+
+**How the coach behaves in `/build`:**
+
+- **When it answers.** An action (pick a hero, add or remove an item, apply the starter build,
+  "Review my build") records an event. The first render after it computes the answer on the
+  new build and basket and freezes it, so moving the boon slider or switching view never
+  changes a tip.
+- **Checked in a production build** (frozen Seven): the intro, "first spirit item" on an add,
+  "A good next buy is Healbane…" on review, and Clear dismissing the tip.
+
+**Placement differs from §6:** the coach sits at the top of the centre column, not above
+the basket. Below `xl` the basket column comes last, and the coach should come first.
+
+**Still open after M6:**
+
+- a model for free-form questions (prompt sandbox, server route, cost cap);
+- an enemy-team input for lane and counter advice;
+- the M7 templates and the M8 skill-path planner.
