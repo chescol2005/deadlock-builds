@@ -694,6 +694,8 @@ async function run() {
     "app/build/components/HeroBasketSuggestion.tsx",
     // Work 2d.
     "app/build/components/StarterBuildPanel.tsx",
+    // M6.5.
+    "app/build/components/CoachPanel.tsx",
   ];
 
   for (const relPath of SIMPLIFIED_PANELS) {
@@ -710,6 +712,7 @@ async function run() {
     "app/build/components/BuildSummaryPanel.tsx",
     "app/build/BuildClient.tsx",
     "app/build/components/StarterBuildPanel.tsx",
+    "app/build/components/CoachPanel.tsx",
     // Site nav + homepage.
     "app/components/SiteNav.tsx",
     "app/page.tsx",
@@ -1798,6 +1801,65 @@ async function run() {
       JSON.stringify(coachSays(pairBuild)) === JSON.stringify(coachSays([...pairBuild].reverse())),
     "context: frozen Seven end to end gives a valid coach message; shuffled catalogue or build order gives the same message",
     e2eMsg?.text,
+  );
+
+  // -----------------------------------------------
+  // Fixture 20: The coach in /build (docs/milestone-m6.md §6, C8 / C9)
+  // -----------------------------------------------
+  console.log("\n20. The coach in /build (M6.5)");
+  const bc = readFileSync("app/build/BuildClient.tsx", "utf-8");
+  const panelSrc = readFileSync("app/build/components/CoachPanel.tsx", "utf-8");
+  const queued = [...bc.matchAll(/queueCoach\(\{ type: "(\w+)"/g)].map((m) => m[1]);
+  // Each action handler queues its trigger BEFORE it changes the build.
+  const queuedBeforeUpdate = [
+    "function handleToggleItem",
+    "function handleAddSuggestedItem",
+    "function handleRemoveItem",
+    "function handleApplyStarterBuild",
+  ].every((fn) => {
+    const body = bc.slice(bc.indexOf(fn), bc.indexOf("\n  }\n", bc.indexOf(fn)));
+    const q = body.indexOf("queueCoach(");
+    const set = body.indexOf("setBuildItems(");
+    return q >= 0 && set >= 0 && q < set;
+  });
+  assert(
+    ["starter_applied", "build_reviewed", "hero_selected", "item_removed"].every((t) =>
+      queued.includes(t),
+    ) &&
+      bc.includes('removing ? "item_removed" : "item_added"') &&
+      queuedBeforeUpdate &&
+      !/\buseEffect\s*\(/.test(bc) &&
+      !/import[^;]*\buseEffect\b[^;]*from "react"/.test(bc),
+    "BuildClient: the coach is triggered from action handlers (add, remove, starter, review, hero), each before it changes the build; no effect",
+    queued.join(", "),
+  );
+  assert(
+    bc.includes("getCoachMessage(context, coachEvent.memory, knownItemNames)") &&
+      /build: buildItems,\s*basket: heroBasket,/.test(bc) &&
+      bc.includes("setCoachEvent({ ...coachEvent, answer: pendingAnswer })") &&
+      bc.includes("coachEvent.answer ||") &&
+      bc.includes("memory: prev?.answer?.memory ?? prev?.memory ?? EMPTY_MEMORY"),
+    "BuildClient: each answer is computed once on the post-action build and basket, frozen (slider or view changes never change a tip), and its memory carried to the next action",
+  );
+  const clearBody = bc.slice(
+    bc.indexOf("A tip about items that are gone"),
+    bc.indexOf("setBuildItems([]);", bc.indexOf("A tip about items that are gone")),
+  );
+  assert(
+    bc.includes("useSyncExternalStore(subscribeCoachMute, readCoachMute, () => false)") &&
+      bc.includes("coachMuted || coachEvent?.dismissed ? null") &&
+      bc.includes("if (coachMuted) return;") &&
+      /catch \{\s*return false;/.test(bc) &&
+      /onToggleMute=\{\(\) => \{[\s\S]{0,200}dismissCoachTip\(\);/.test(bc) &&
+      clearBody.includes("dismissCoachTip();"),
+    "C8: muting hides every tip and queues none; mute / unmute and Clear dismiss the current tip; the mute is read only on the client and fails open",
+  );
+  assert(
+    panelSrc.includes('<div role="status" aria-live="polite">') &&
+      panelSrc.includes("aria-pressed={muted}") &&
+      (panelSrc.match(/pointer-coarse:min-h-10/g) ?? []).length >= 3 &&
+      !/from "@\/lib\/(coach|engine|scoring)/.test(panelSrc),
+    "C9: CoachPanel is presentational, keeps one live region for tips, and has touch-sized buttons",
   );
 
   // -----------------------------------------------

@@ -271,7 +271,7 @@ Before marking a component complete, verify:
 **Note:** `mini.ts` Fixture 9 mechanically enforces two of these four —
 that a panel declares `simplified?: boolean` and that it imports the shared
 Tooltip component rather than reintroducing raw `title=`. It cannot judge
-copy quality or AI-coach hooks (M6 doesn't exist yet) — those two remain
+copy quality or AI-coach hooks (the coach exists since M6: lib/coach/, CoachPanel) — those two remain
 manual review, not a fixture guarantee.
 
 ---
@@ -432,7 +432,16 @@ lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cac
                                 /items display pages and the basket's analyticsTerm.
                                 Also getHeroAccuracy()/resolveAccuracyAtRank() (shot
                                 accuracy per hero per rank tier) and getRankTiers()
-lib/coach/                    — AI coach module (M6) — not yet created, keep isolated
+lib/coach/                    — the build coach (M6, docs/milestone-m6.md): pure, imports
+                                nothing from lib/engine / lib/scoring / app (Fixture 18).
+                                coachTypes (facts), triggerRules (12 insights x trigger x
+                                audience, priority), sessionMemory (never repeat), templates
+                                (approved wording, new player / veteran), responseValidator
+                                (word limits, fact-only numbers and items, no internal
+                                terms). Templates only; no model yet
+lib/coachContext.ts           — buildCoachContext(): the ONE bridge from a build to the coach
+                                (M6.3): facts from the build, basket plain reasons, anti-
+                                synergies, roles; upgrade-aware (Fixture 19)
 app/components/                — cross-route shared UI (Milestone C):
   Tooltip.tsx                 — Tooltip, InfoTooltip — sanctioned title= replacement
   AudienceTabs.tsx             — reusable two(+)-audience tab switcher
@@ -469,6 +478,10 @@ app/build/components/
                                 SuggestedItemsPanel / scoreItems was retired (R3).
                                 Prices picks at BasketPick.effectiveCost and names
                                 the owned component an upgrade trades in
+  CoachPanel.tsx               — the coach in /build (M6.5): latest tip, dismiss, mute (per
+                                visitor, useSyncExternalStore over localStorage), "Review my
+                                build". Presentational; BuildClient queues a coach event from
+                                each action handler and freezes the answer (Fixture 20)
   StarterBuildPanel.tsx        — "Start from a suggested build" (Work 2d): early /
                                 mid / late columns in buy order, a plain-English
                                 reason per item, apply + inline trade-in confirm.
@@ -671,7 +684,9 @@ build; the basket's soul budget is `boonSouls − cost of owned items`.
 | E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` — see engine-design-notes.md                                                                                    |
 | F         | ✅ Closed | Measured item-pair term (`pairTerm`) + synergy audit; starter build; item scoring review (`docs/item-scoring-review.md`, R1–R4: baselines, value-scale fixes, `scoreItems` retired) |
 | G         | ✅ Closed | Kit and sustain enrichment: healing between trades, unpriced healing keys + Siphon Bullets, kit self-heal + heal amp, profile refit in fight-value units (`docs/milestone-g.md`)    |
-| M6        | ⏸ Queued  | AI coach layer + skill path planner (`lib/coach/`) — see M6 Design Decisions                                                                                                        |
+| M6        | ✅ Closed | Build coach: hero role table (checked against data), coach core with approved template wording, context builder, CoachPanel in `/build` (`docs/milestone-m6.md`)                    |
+| M7        | ⏸ Queued  | Beginner / Aggressive / Safe starter templates with coach annotations (engine work, moved out of M6)                                                                                |
+| M8        | ⏸ Queued  | Skill-path planner from match data, on the existing grid (moved out of M6)                                                                                                          |
 
 ### After Milestones F and G: open follow-ups
 
@@ -696,7 +711,13 @@ day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
 
 ---
 
-## M6 Design Decisions (locked before coding)
+## M6 Design Decisions (locked before coding; M6 closed 2026-10-25)
+
+Built as planned in `docs/milestone-m6.md`, with three user decisions: templates first (no
+model, so no Claude.ai prompt sandbox yet; a model comes later for free-form questions), on
+for everyone with a mute, and the role table checked against match data. Per-ability damage
+impact, the skill-path planner (M8) and the Beginner / Aggressive / Safe templates (M7) were
+moved out of M6.
 
 - AI coach is **proactive** — surfaces warnings as items are added,
   not only when the user asks

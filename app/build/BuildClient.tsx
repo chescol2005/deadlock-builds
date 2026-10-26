@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { DeadlockHeroListItem, ShopItem, ShopCategory, SignatureSlot, AbilityLevel, AbilityLevels } from "@/lib/deadlock";
@@ -56,6 +56,10 @@ import { buildStarterBuild } from "@/lib/engine/starterBuild";
 import type { StarterBuildInputs } from "@/lib/engine/starterBuild";
 import { applyStarterBuild, isAppliedBuild, itemsRemovedByApply } from "@/lib/starterBuildApply";
 import { StarterBuildPanel } from "@/app/build/components/StarterBuildPanel";
+import { CoachPanel } from "@/app/build/components/CoachPanel";
+import { buildCoachContext } from "@/lib/coachContext";
+import { EMPTY_MEMORY, getCoachMessage } from "@/lib/coach";
+import type { CoachMemory, CoachMessage, CoachTrigger } from "@/lib/coach";
 
 const VIEW_MODE_TABS = [
   { value: "simplified", label: "Simplified" },
@@ -176,6 +180,24 @@ export default function BuildClient({
     rankTier: number | null;
   } | null>(null);
 
+  // Build coach (M6.5, docs/milestone-m6.md §6). An ACTION records an event (the
+  // trigger plus the memory so far). The first render after it computes the
+  // answer on the build / basket as they are after the action and FREEZES it in
+  // the event (`answer`): moving the boon slider or switching view never changes
+  // a tip, and memory advances exactly once per action. Nothing diffs state to
+  // decide when to speak. On for everyone; anyone can mute (kept per visitor).
+  const [coachEvent, setCoachEvent] = useState<{
+    trigger: CoachTrigger;
+    memory: CoachMemory;
+    dismissed: boolean;
+    answer?: { message: CoachMessage | null; memory: CoachMemory };
+  } | null>(() =>
+    selectedHeroId
+      ? { trigger: { type: "hero_selected" }, memory: EMPTY_MEMORY, dismissed: false }
+      : null,
+  );
+  const coachMuted = useSyncExternalStore(subscribeCoachMute, readCoachMute, () => false);
+
   const [activeError, setActiveError] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -258,6 +280,8 @@ export default function BuildClient({
   function handleToggleItem(shopItem: ShopItem) {
     const item = allItems.find((i) => i.id === shopItem.id);
     if (!item) return;
+    const removing = buildItems.some((it) => it.id === item.id);
+    queueCoach({ type: removing ? "item_removed" : "item_added", itemId: item.id });
     setBuildItems((prev) =>
       prev.some((it) => it.id === item.id)
         ? prev.filter((it) => it.id !== item.id)
@@ -281,12 +305,16 @@ export default function BuildClient({
   }, [buildItems, allItems]);
 
   function handleAddSuggestedItem(item: Item) {
+    if (!buildItems.some((it) => it.id === item.id)) {
+      queueCoach({ type: "item_added", itemId: item.id });
+    }
     setBuildItems((prev) =>
       prev.some((it) => it.id === item.id) ? prev : resolveAddItem(prev, item),
     );
   }
 
   function handleRemoveItem(itemId: string) {
+    queueCoach({ type: "item_removed", itemId });
     setBuildItems((prev) => prev.filter((it) => it.id !== itemId));
     setAssignmentMap((prev) => {
       const next = new Map(prev);
@@ -562,11 +590,72 @@ export default function BuildClient({
       assignments: new Map(cleanedAssignmentMap),
       rankTier: selectedRankTier,
     });
+    queueCoach({ type: "starter_applied" });
     setBuildItems(applied.items);
     setAssignmentMap(applied.assignments);
     // Move the slider to the last checkpoint so the planner's souls (and the
     // live basket's budget) match the build just applied.
     setManualBoonLevel(applied.boonLevel);
+  }
+
+  // The coach's answer to the last action, on the build and basket as they are
+  // now; computed only until it is frozen into the event (below). Pure
+  // (lib/coachContext + lib/coach): same state, same answer.
+  const pendingAnswer = useMemo(() => {
+    if (!coachEvent || coachEvent.answer || coachEvent.dismissed || coachMuted || !selectedHero) {
+      return null;
+    }
+    const { context, knownItemNames } = buildCoachContext({
+      playerMode: simplified ? "new" : "veteran",
+      hero: {
+        id: Number(selectedHero.id),
+        name: selectedHero.name,
+        complexity: selectedHero.complexity ?? 0,
+      },
+      souls: boonSouls,
+      boonLevel: manualBoonLevel,
+      build: buildItems,
+      basket: heroBasket,
+      hasStarterBuild: starterSuggestion !== null,
+      trigger: coachEvent.trigger,
+      allItems,
+    });
+    return getCoachMessage(context, coachEvent.memory, knownItemNames);
+  }, [
+    coachEvent,
+    coachMuted,
+    selectedHero,
+    simplified,
+    boonSouls,
+    manualBoonLevel,
+    buildItems,
+    heroBasket,
+    starterSuggestion,
+    allItems,
+  ]);
+  // Freeze it: React's "adjust state while rendering" pattern (no effect). Runs
+  // once per action; the re-render then reads the frozen answer.
+  if (coachEvent && pendingAnswer && !coachEvent.answer) {
+    setCoachEvent({ ...coachEvent, answer: pendingAnswer });
+  }
+  const coachMessage =
+    coachMuted || coachEvent?.dismissed ? null : (coachEvent?.answer?.message ?? null);
+
+  /** Called by an action handler: the coach answers it once the build updates. */
+  function queueCoach(trigger: CoachTrigger) {
+    if (coachMuted) return;
+    setCoachEvent((prev) => ({
+      trigger,
+      // What has been said so far: the last frozen answer's memory, else the
+      // event's own (a dismissed or muted event never records a tip it didn't show).
+      memory: prev?.answer?.memory ?? prev?.memory ?? EMPTY_MEMORY,
+      dismissed: false,
+    }));
+  }
+
+  /** Hide the current tip (dismiss, mute / unmute, Clear). */
+  function dismissCoachTip() {
+    setCoachEvent((prev) => (prev ? { ...prev, dismissed: true } : prev));
   }
 
   const ultimateUnlocked = manualBoonLevel >= 7;
@@ -581,6 +670,7 @@ export default function BuildClient({
           onChange={(e) => {
             const next = e.target.value;
             setHeroId(next);
+            if (next) queueCoach({ type: "hero_selected" });
             setBuildItems([]);
             setStarterBase(null);
             setAbilityLevels({});
@@ -652,6 +742,8 @@ export default function BuildClient({
             </span>
             <button
               onClick={() => {
+                // A tip about items that are gone must not linger.
+                dismissCoachTip();
                 setBuildItems([]);
                 setStarterBase(null);
                 setCategories([]);
@@ -856,6 +948,21 @@ export default function BuildClient({
 
           {/* Center panel */}
           <div className="order-1 min-w-0 md:col-span-2 xl:order-none xl:col-span-1 xl:ml-3 xl:border-l xl:border-white/[0.08] xl:pl-3">
+            {/* First on every width: the coach (M6.5). */}
+            <div className="mb-3">
+              <CoachPanel
+                message={coachMessage}
+                muted={coachMuted}
+                onDismiss={dismissCoachTip}
+                onToggleMute={() => {
+                  // Muting or unmuting hides the current tip: never resurface an old one.
+                  dismissCoachTip();
+                  writeCoachMute(!coachMuted);
+                }}
+                onReview={() => queueCoach({ type: "build_reviewed" })}
+                simplified={simplified}
+              />
+            </div>
             {buildItems.length === 0 ? (
               <div
                 style={{
@@ -970,4 +1077,37 @@ export default function BuildClient({
       )}
     </main>
   );
+}
+
+// Coach mute, per visitor (localStorage, read only on the client: the server
+// snapshot is "not muted", so hydration never reads storage). Fails open: if
+// storage is blocked the coach just stays on.
+const COACH_MUTE_KEY = "deadlock-foundry.coach.muted";
+const COACH_MUTE_EVENT = "deadlock-foundry:coach-mute";
+
+function readCoachMute(): boolean {
+  try {
+    return window.localStorage.getItem(COACH_MUTE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCoachMute(muted: boolean): void {
+  try {
+    if (muted) window.localStorage.setItem(COACH_MUTE_KEY, "1");
+    else window.localStorage.removeItem(COACH_MUTE_KEY);
+  } catch {
+    // Storage blocked: mute lasts for this page only (the event still fires).
+  }
+  window.dispatchEvent(new Event(COACH_MUTE_EVENT));
+}
+
+function subscribeCoachMute(onChange: () => void): () => void {
+  window.addEventListener(COACH_MUTE_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(COACH_MUTE_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
 }
