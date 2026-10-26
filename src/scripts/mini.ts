@@ -13,6 +13,7 @@ import {
   CAMPS,
   CAMP_MARKERS,
   GAME_MINUTE_COLUMNS,
+  MINIMAP_URL,
   soulsAt,
   soulsPerMinEfficiency,
 } from "@/lib/farming/campData";
@@ -726,6 +727,32 @@ async function run() {
   assert(
     CAMP_MARKERS.every((m) => campIds.has(m.campId)),
     "Every CAMP_MARKERS.campId references a real CAMPS entry",
+  );
+
+  // Map / jungle rework (verified 2026-10-25, wiki + /v1/assets/map): markers
+  // come from the API's neutral_camps on the current minimap image.
+  const markerCount = (id: string) => CAMP_MARKERS.filter((m) => m.campId === id).length;
+  assert(
+    markerCount("small_denizen") === 4 &&
+      markerCount("medium_denizen") === 25 &&
+      markerCount("large_denizen") === 11 &&
+      markerCount("sinners_sacrifice") === 11,
+    "CAMP_MARKERS match the current map: 4 small, 25 medium, 11 hard, 11 Sinner's Sacrifice",
+  );
+  assert(
+    CAMP_MARKERS.every((m) => m.left >= 0 && m.left <= 100 && m.top >= 0 && m.top <= 100) &&
+      MINIMAP_URL.endsWith("/minimap_midtown_mid.png"),
+    "Camp markers sit inside the current minimap image (minimap_midtown_mid.png)",
+  );
+  const crate = CAMPS.find((c) => c.id === "crate");
+  const tough = CAMPS.find((c) => c.id === "tough_crate");
+  assert(
+    !!crate &&
+      !!tough &&
+      soulsAt(tough, 20) === 2 * (soulsAt(crate, 20) ?? 0) &&
+      tough.dropChance === 1 &&
+      CAMPS.find((c) => c.id === "medium_denizen")?.firstSpawnMin === 5,
+    "Tough Crates drop double a crate's souls every time; medium camps spawn at 5:00",
   );
 
   // -----------------------------------------------
