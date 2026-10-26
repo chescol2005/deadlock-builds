@@ -36,6 +36,16 @@ import {
 } from "@/lib/buildUtils";
 import { GUIDES, NAV_SECTIONS, isActiveSection } from "@/lib/navigation";
 import { runStarterBuildFixtures } from "./starterBuildFixtures";
+import { fetchVisibleHeroes } from "@/lib/heroApi";
+import {
+  HERO_ROLES,
+  ROLE_LABELS,
+  ROLE_ONLINE_AT_SOULS,
+  heroOnlineAtSouls,
+  heroRolesOf,
+  roleFlag,
+} from "@/lib/heroRoles";
+import type { HeroRole } from "@/lib/heroRoles";
 import {
   DEFAULT_OG_IMAGE,
   FALLBACK_SITE_URL,
@@ -1176,6 +1186,78 @@ async function run() {
   assert(
     globalsCss.includes("color-scheme: dark") && !globalsCss.includes("prefers-color-scheme"),
     "site is dark-only (panels are designed dark; no light-mode switch)",
+  );
+
+  // -----------------------------------------------
+  // Fixture 17: Hero roles (docs/milestone-m6.md §4, C2)
+  // -----------------------------------------------
+  console.log("\n17. Hero roles (lib/heroRoles.ts)");
+  const liveHeroes = await fetchVisibleHeroes();
+  const roleNames = new Set<HeroRole>(Object.keys(ROLE_LABELS) as HeroRole[]);
+  const missingRoles = liveHeroes.filter((h) => !HERO_ROLES[h.id]);
+  // A hero Valve just released (or a transient detail-fetch miss) is a
+  // warning, not a CI failure on unrelated PRs: lookups fail open to "unknown".
+  // More than two missing means the table is broken.
+  if (missingRoles.length > 0) {
+    console.warn(
+      `  ⚠️  heroes without a role entry (add them, then npm run role-check): ` +
+        missingRoles.map((h) => `${h.name} (${h.id})`).join(", "),
+    );
+  }
+  assert(
+    liveHeroes.length > 0 && missingRoles.length <= 2,
+    `the live heroes (${liveHeroes.length}) have role entries (at most 2 new ones pending)`,
+    missingRoles.map((h) => `${h.name} (${h.id})`).join(", "),
+  );
+  // roleFlag: what contradicts a PRIMARY role (44 heroes: half = 22, third ≈ 14.7).
+  const ranks = (netWorth: number | undefined, taken: number, dealt: number) => ({
+    ...(netWorth !== undefined ? { netWorth } : {}),
+    damageTaken: taken,
+    damageDealt: dealt,
+  });
+  assert(
+    roleFlag(["carry"], ranks(23, 1, 1), 44) !== null &&
+      roleFlag(["carry"], ranks(22, 1, 1), 44) === null &&
+      roleFlag(["support"], ranks(22, 1, 1), 44) !== null &&
+      roleFlag(["support"], ranks(23, 1, 1), 44) === null &&
+      roleFlag(["tank"], ranks(1, 23, 1), 44) !== null &&
+      roleFlag(["tank", "support"], ranks(1, 1, 1), 44) === null,
+    "roleFlag: carries flag in the bottom half for net worth, supports in the top half, tanks low on damage taken; only the primary role is checked",
+  );
+  assert(
+    roleFlag(["offCarry"], ranks(40, 1, 3), 44) === null &&
+      roleFlag(["offCarry"], ranks(40, 1, 40), 44) !== null &&
+      roleFlag(["carry"], ranks(undefined, 1, 1), 44) === null &&
+      roleFlag(["initiator"], ranks(44, 44, 44), 44) === null &&
+      roleFlag([], ranks(1, 1, 1), 44) === "no role listed",
+    "roleFlag: off-carries flag only when low on net worth AND damage dealt; no net-worth data never flags; initiators have no rule",
+  );
+  const roleEntries = Object.values(HERO_ROLES);
+  assert(
+    roleEntries.every(
+      (e) =>
+        (e.roles.length > 0 || (e.unknownReason ?? "").length > 0) &&
+        e.roles.every((r) => roleNames.has(r)) &&
+        new Set(e.roles).size === e.roles.length,
+    ),
+    "every role entry has valid, distinct roles, or an unknown with a reason",
+  );
+  const nameMismatch = liveHeroes.filter(
+    (h) => HERO_ROLES[h.id] && HERO_ROLES[h.id].name !== h.name,
+  );
+  assert(
+    nameMismatch.length === 0,
+    "role entries are keyed by the right hero id (names match the API)",
+    nameMismatch.map((h) => `${h.id}: ${HERO_ROLES[h.id].name} vs ${h.name}`).join(", "),
+  );
+  const carryAt = ROLE_ONLINE_AT_SOULS.carry ?? 0;
+  const offCarryAt = ROLE_ONLINE_AT_SOULS.offCarry ?? 0;
+  assert(
+    carryAt > offCarryAt &&
+      offCarryAt > (ROLE_ONLINE_AT_SOULS.support ?? -1) &&
+      heroRolesOf(-1).length === 0 &&
+      heroOnlineAtSouls(-1) === undefined,
+    "carries come online after off-carries, off-carries after supports; an unknown hero gets no role",
   );
 
   // -----------------------------------------------
