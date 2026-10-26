@@ -465,6 +465,7 @@ function estimateDps(
   if (!e.unit) return null;
   const accuracy = Math.max(0, Math.min(1, model.accuracy));
   const landedShots = landedShotsPerSecond(model);
+  const enemyHealth = model.enemyHealth ?? REFERENCE_ENEMY_HEALTH;
   const cooldown =
     Number.isFinite(stats.AbilityCooldown) && stats.AbilityCooldown > 0 ? stats.AbilityCooldown : 0;
   switch (e.unit) {
@@ -473,9 +474,9 @@ function estimateDps(
     case "weaponPercent":
       return (e.value / 100) * dps.gun;
     case "maxHealthPercentPerSecond":
-      return ((e.perSecond ?? 0) / 100) * REFERENCE_ENEMY_HEALTH * accuracy;
+      return ((e.perSecond ?? 0) / 100) * enemyHealth * accuracy;
     case "maxHealthPercentPerProc":
-      return ((e.quantity ?? 0) / 100) * REFERENCE_ENEMY_HEALTH * gunProcRate(stats, model);
+      return ((e.quantity ?? 0) / 100) * enemyHealth * gunProcRate(stats, model);
     case "damage":
       if (e.perHit) return e.value * landedShots;
       // Same trade model as hero abilities (heroDamage.castsPerTrade).
@@ -517,6 +518,7 @@ function deriveCategoryValues(
           landedShotsPerSecond: landedShotsPerSecond(heroDamage),
           ampableHealHp:
             (heroDamage.survival.kitHealHp ?? 0) + (heroDamage.survival.ownedTradeHealHp ?? 0),
+          ...(heroDamage.enemyHealth !== undefined ? { enemyHealth: heroDamage.enemyHealth } : {}),
           ...(heroDamage.survival.ownedGapHeal !== undefined
             ? { ownedGapHeal: heroDamage.survival.ownedGapHeal }
             : {}),

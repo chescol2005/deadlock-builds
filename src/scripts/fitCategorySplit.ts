@@ -31,7 +31,7 @@ import path from "node:path";
 import { fetchVisibleHeroesEnriched } from "@/lib/heroApi";
 import { getItems } from "@/lib/itemStore";
 import type { CategorySplitTable } from "@/lib/engine/categorySplit";
-import { PHASE_ITEM_MIN_RATE } from "@/lib/engine/phaseItems";
+import { enemyHealthRates, PHASE_ITEM_MIN_RATE } from "@/lib/engine/phaseItems";
 import type { PhaseItemsTable } from "@/lib/engine/phaseItems";
 import { toItemCandidate } from "@/lib/engine/itemAdapter";
 import type { ItemValuationContext } from "@/lib/engine/itemAdapter";
@@ -45,6 +45,8 @@ import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import type { ScoreCategory } from "@/lib/engine/types";
 import type { Item } from "@/lib/items";
 import { getJson } from "./pairData";
+import { enemyHealthAt, measureEnemyHealthRates } from "@/lib/engine/enemyHealth";
+import { BOON_THRESHOLDS } from "@/lib/boonSystem";
 
 interface Args {
   days: number;
@@ -160,6 +162,15 @@ async function main(): Promise<void> {
     );
   }
   const itemUnitHeroes: number[] = [];
+  // Enemy health for % max-health effects: the COMMITTED table's rates (this
+  // run's are fitted from the same purchases, after every hero is valued).
+  const itemsFile = path.join(process.cwd(), "lib/engine/data/heroPhaseItems.json");
+  // So a refit's profile lags its own rates by one refit (accepted: the rates
+  // move slowly, and the first table with rates was fitted at the reference).
+  const committedEnemyRates = existsSync(itemsFile)
+    ? enemyHealthRates(JSON.parse(readFileSync(itemsFile, "utf8")) as PhaseItemsTable)
+    : undefined;
+  const roster = heroes.flatMap((h) => (h.baseStats ? [h.baseStats] : []));
 
   const table: CategorySplitTable = {
     version: 1,
@@ -226,6 +237,12 @@ async function main(): Promise<void> {
           spiritPower,
           accuracy: resolveHeroAccuracy(hero.id, accuracyAtRank),
           phase,
+          enemyHealth: enemyHealthAt({
+            souls: BOON_THRESHOLDS[boonLevel]?.souls ?? 0,
+            boonLevel,
+            roster,
+            rates: committedEnemyRates,
+          }),
         }),
         kit.heroBaseStats.healthRegen,
         [],
@@ -372,6 +389,11 @@ async function main(): Promise<void> {
     writeFileSync(out, text);
     console.log(`\nwrote ${Object.keys(table.heroes).length} heroes to ${out}`);
   }
+
+  // Roster-wide enemy health rates (enemyHealth.ts), from this run's purchases.
+  const enemyRates = measureEnemyHealthRates(phaseItems, table, items);
+  if (enemyRates) phaseItems.enemyHealth = enemyRates;
+  else console.warn("  WARN no enemy health rates: % max-health effects use the reference");
 
   // Same layout and the same drop guard for the phase-item table.
   const itemLines = Object.entries(phaseItems.heroes)

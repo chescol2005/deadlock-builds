@@ -1611,9 +1611,9 @@ hero:
 cooldown-gated proc is `requiresHit`, not `perHit`. A missing `ProcCooldown` falls back to
 1.2 s, not zero.
 
-**Enemy max HP.** Both items use `REFERENCE_ENEMY_HEALTH` (2,500, now in
-`effectEstimator.ts`). Enemy health grows over the game, so both under-price late.
-**Follow-up:** scale it with the boon level.
+**Enemy max HP.** Both items first used `REFERENCE_ENEMY_HEALTH` (2,500). Since
+2026-10-25 they use a typical enemy's health at this point in the game ("Enemy health over
+the game" below); 2,500 is only the fallback.
 
 **Not priced:**
 
@@ -1732,6 +1732,67 @@ above), so the mix is now spent directly:
 Live, with the value scale (2026-10-24): M1 23/24 (the four accepted regressions all
 come back), mean L1 to real play 0.146 (`main` 0.336). Which items fill each shop is the
 next section's job.
+
+## Enemy health over the game (enemyHealth.ts, 2026-10-25)
+
+Toxic Bullets and Siphon Bullets deal or steal % of the TARGET's max health. A fixed 2,500
+under-priced them late (user, G2c). The user's sandbox screenshots set the scale: full
+builds at boon 35 (~45k souls) have 3,356 (Graves) to 4,629 (Abrams) health.
+
+**Base health alone is far too low.** The roster median at boon 35 is 2,210. Most late
+health comes from the shop, and mostly from the **vitality investment bonus**
+(`CATEGORY_BONUS_TIERS.healthBonus`, up to +56% of base health). Abrams: 2,515 × 1.56 +
+~700 flat items ≈ 4,629.
+
+**Formula.** `enemyHealthAt({ souls, boonLevel, roster, rates })` =
+roster median base health at the boon level × (1 + vitality bonus % + item % base health)
+\+ flat item health. Each shop term is a per-phase rate per soul, accumulated over the souls
+spent in each phase (`EARLY_PHASE_MAX_SOULS`, `MID_PHASE_MAX_SOULS`).
+
+**Measured rates** (`measureEnemyHealthRates`, roster-wide, every hero weighted equally):
+
+- flat health per soul: `BonusHealth` of what Oracle+ players buy per phase
+  (`heroPhaseItems.json` buy rates);
+- % base health per soul: `BonusBaseHealth` (Colossus +25) and `MaxHealthLossPercent`
+  (Glass Cannon −13, stored negative);
+- vitality share per phase: mean of `heroCategorySplit.json` early / mid splits, and the
+  final split for late.
+
+**Rules learned:**
+
+- An upgrade counts only what it adds over its direct components (health and price). It
+  consumes them, and their own buys are counted where they happened.
+- Cultist Sacrifice's and Unstable Concoction's `BonusHealth` are `ConditionallyApplied`
+  (summon / per-effect) and are not the owner's health.
+- The rates are roster-wide: an enemy is any hero. They travel as their own
+  `runHeroBasket` input (`enemyHealthRates`, read with `enemyHealthRates(table)`), never
+  inside the per-hero slice. In the first version a hero missing from the table, or
+  `--no-phase-items`, silently fell back to 2,500.
+- `healPerGunProc`'s quantity is now % of the target's max HP, converted in heroFight.
+
+**Where the numbers live.** The fitter writes the rates into `heroPhaseItems.json`
+(top-level `enemyHealth`). It values each phase's purchases with the COMMITTED rates, so a
+refit's profile lags its own rates by one refit. The profile in the current
+`heroCategorySplit.json` was fitted at the fixed 2,500; the next monthly refit picks the
+rates up.
+
+**Accepted simplifications:**
+
+- items sold later still count;
+- the late vitality share is the final inventory's (it includes earlier buys), applied to
+  late souls;
+- one typical enemy, not a per-matchup one.
+
+**Curve** (frozen roster, 2026-10-25):
+
+| Boon / souls             | 10 / 5.9k | 16 / 10.7k | 22 / 16.7k | 29 / 30k | 35 / 45k |
+| ------------------------ | --------- | ---------- | ---------- | -------- | -------- |
+| Enemy health (was 2,500) | 1,341     | 1,748      | 2,449      | 3,005    | 3,537    |
+
+**Result.** Live gates unchanged (M1 mean 0.102, M3 0.077, O2 0.816). Nine of 72 baselines
+changed. Toxic Bullets enters three boon-29 baskets (Abrams, Haze owning early, Lady Geist)
+and leaves Infernus at boon 16. Engine section 31 holds the calibration: 3,300–4,600 at a 45k-soul
+build, and mid within 15% of 2,500.
 
 ## What players on this hero buy (phaseItems.ts, phaseItemTerm)
 

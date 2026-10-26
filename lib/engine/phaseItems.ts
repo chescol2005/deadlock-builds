@@ -18,6 +18,7 @@
 // and sliced per hero on the server. Pure: nothing here fetches.
 
 import type { GamePhase } from "./categorySplit";
+import type { EnemyHealthRates } from "./enemyHealth";
 
 /** Items under this buy rate are left out of the table (noise). */
 export const PHASE_ITEM_MIN_RATE = 0.02;
@@ -41,6 +42,11 @@ export interface PhaseItemsTable {
     string,
     { matches: number; early: ItemBuyRates; mid: ItemBuyRates; late: ItemBuyRates }
   >;
+  /**
+   * Roster-wide rates for a typical enemy's health from the shop (enemyHealth.ts),
+   * fitted in the same run. Absent on tables fitted before 2026-10-25.
+   */
+  enemyHealth?: EnemyHealthRates;
 }
 
 /** One hero's slice, as the basket reads it. */
@@ -76,6 +82,30 @@ export function heroPhaseItems(table: PhaseItemsTable, heroId: number): HeroPhas
     late: validRates(row.late),
     scope: `${table.method.minRankName}+ players (last ${table.method.days} days)`,
   };
+}
+
+/**
+ * The table's roster-wide enemy health rates (enemyHealth.ts), read on the
+ * server like the slice but NOT part of it: an enemy is any hero, so a hero
+ * missing from the table (or phaseItemTerm switched off) still gets them.
+ * Undefined when absent or malformed (fail open: the fixed reference health).
+ */
+export function enemyHealthRates(table: PhaseItemsTable): EnemyHealthRates | undefined {
+  const rates: unknown = table?.enemyHealth;
+  if (!rates || typeof rates !== "object") return undefined;
+  const r = rates as Record<string, Record<string, unknown> | undefined>;
+  const valid = (key: keyof EnemyHealthRates, ok: (v: number) => boolean) =>
+    (["early", "mid", "late"] as const).every((p) => {
+      const v = r[key]?.[p];
+      return typeof v === "number" && Number.isFinite(v) && ok(v);
+    });
+  // Flat health and shares are never negative and shares are at most 1; the %
+  // base health can be (Glass Cannon removes 13%).
+  return valid("flatHealthPerSoul", (v) => v >= 0) &&
+    valid("basePercentPerSoul", () => true) &&
+    valid("vitalityShare", (v) => v >= 0 && v <= 1)
+    ? (rates as EnemyHealthRates)
+    : undefined;
 }
 
 /** How the reason names the phase's buy window. */

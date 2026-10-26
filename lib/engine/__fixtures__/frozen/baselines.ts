@@ -16,7 +16,7 @@ import type { Item } from "../../../items";
 import { headlineTerm } from "../../../basketReasons";
 import { heroPairLift } from "../../pairLift";
 import { heroCategorySplit } from "../../categorySplit";
-import { heroPhaseItems } from "../../phaseItems";
+import { enemyHealthRates, heroPhaseItems } from "../../phaseItems";
 import { runHeroBasket } from "../../heroBasket";
 import type { HeroBasketInputs } from "../../heroBasket";
 import { buildStarterBuild } from "../../starterBuild";
@@ -50,6 +50,7 @@ function baseInputs(data: FrozenData, kit: FrozenKit): BaseInputs {
     pairLift: heroPairLift(data.tables.pairLift, kit.id) ?? undefined,
     categorySplit: heroCategorySplit(data.tables.categorySplit, kit.id) ?? undefined,
     phaseItems: heroPhaseItems(data.tables.phaseItems, kit.id) ?? undefined,
+    enemyHealthRates: enemyHealthRates(data.tables.phaseItems),
   };
 }
 

@@ -25,7 +25,7 @@
 import type { ItemStats } from "../items";
 import type { ScoreCategory } from "./types";
 import type { EffectEstimate } from "./effectEstimator";
-import { DEFAULT_PROC_COOLDOWN_S } from "./effectEstimator";
+import { DEFAULT_PROC_COOLDOWN_S, REFERENCE_ENEMY_HEALTH } from "./effectEstimator";
 import {
   castsPerTrade,
   HEADSHOT_IN_TRADE,
@@ -65,6 +65,11 @@ export interface HeroFightModel {
    * acquired from most items". Omitted = 0 (amp then prices at 0).
    */
   ampableHealHp?: number;
+  /**
+   * A typical enemy's max health now (enemyHealth.ts), for heals priced in % of
+   * the target's max health (Siphon Bullets). Omitted = REFERENCE_ENEMY_HEALTH.
+   */
+  enemyHealth?: number;
 }
 
 /** Seconds of a trade: converts per-second healing into effective HP. */
@@ -442,7 +447,8 @@ export function estimateFightValue(
       const cd = num(stats.ProcCooldown);
       const every = cd > 0 ? cd : DEFAULT_PROC_COOLDOWN_S;
       const rate = Math.min(1 / every, m.landedShotsPerSecond ?? 1 / every);
-      return ((q * rate * FIGHT_SECONDS) / hp) * 100 * (m.gunDps / dps);
+      const healPerSteal = (q / 100) * (m.enemyHealth ?? REFERENCE_ENEMY_HEALTH);
+      return ((healPerSteal * rate * FIGHT_SECONDS) / hp) * 100 * (m.gunDps / dps);
     }
     case "healPercentPerHeadshot":
       // A headshot needs the gun: scaled by this hero's gun share of damage.

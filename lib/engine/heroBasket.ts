@@ -41,6 +41,8 @@ import {
 } from "./categorySplit";
 import type { GamePhase, HeroCategorySplit } from "./categorySplit";
 import { phaseItemBasis } from "./phaseItems";
+import { enemyHealthAt } from "./enemyHealth";
+import type { EnemyHealthRates } from "./enemyHealth";
 import type { HeroPhaseItems } from "./phaseItems";
 import type { BasketContext, BasketResult, HeroNeedVector, ItemCandidate } from "./types";
 
@@ -77,6 +79,13 @@ export interface HeroBasketInputs {
    * (too few matches, or the table failed to load) => phaseItemTerm inert.
    */
   phaseItems?: HeroPhaseItems;
+  /**
+   * Roster-wide rates for a typical enemy's health (heroPhaseItems.json's
+   * `enemyHealth`, read with enemyHealthRates()). Prices % max-health effects
+   * (Toxic / Siphon Bullets) at this point in the game; omitted = the fixed
+   * REFERENCE_ENEMY_HEALTH.
+   */
+  enemyHealthRates?: EnemyHealthRates;
   /**
    * Ablation switch for before/after checks (basketProbe): apply the split to
    * the need vector only, to the basket term only, or both (default).
@@ -148,6 +157,13 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     accuracy: resolveHeroAccuracy(heroId, gunAccuracyByHeroId),
     // The phase this basket shops in, so charges are priced in the same phase.
     phase,
+    // A typical enemy's health at these souls, for % max-health effects.
+    enemyHealth: enemyHealthAt({
+      souls: input.souls,
+      boonLevel: input.boonLevel,
+      roster: heroRoster,
+      rates: input.enemyHealthRates,
+    }),
   });
   const survival = damageModel?.survival;
   const profileApplies = mode !== "term-only" && hasStatProfile(view?.profile);
@@ -323,8 +339,13 @@ export function heroValuationModel(input: {
   spiritPower: number;
   accuracy: number;
   phase: GamePhase;
+  /** A typical enemy's max health (enemyHealth.ts); undefined = the fixed reference. */
+  enemyHealth?: number;
 }): HeroDamageModel | undefined {
-  return withKitHeal(deriveHeroDamageModel(input), input.abilities, input.phase);
+  const model = withKitHeal(deriveHeroDamageModel(input), input.abilities, input.phase);
+  return model && input.enemyHealth !== undefined
+    ? { ...model, enemyHealth: input.enemyHealth }
+    : model;
 }
 
 /**
