@@ -8,7 +8,12 @@ import type { AbilityUpgradeTier } from "@/lib/abilityCoefficients";
 import { calculateStatTotals } from "@/lib/buildCalculations";
 import { serializeBuild, deserializeBuild } from "@/lib/buildSerializer";
 import type { BuildState } from "@/lib/buildSerializer";
-import { getBoonThreshold, getAbilityPointsAtSouls, getAbilityUnlockOrder } from "@/lib/boonSystem";
+import {
+  BOON_THRESHOLDS,
+  getBoonThreshold,
+  getAbilityPointsAtSouls,
+  getAbilityUnlockOrder,
+} from "@/lib/boonSystem";
 import {
   CAMPS,
   CAMP_MARKERS,
@@ -37,6 +42,14 @@ import {
 import { GUIDES, NAV_SECTIONS, isActiveSection } from "@/lib/navigation";
 import { runStarterBuildFixtures } from "./starterBuildFixtures";
 import { fetchVisibleHeroes } from "@/lib/heroApi";
+import { BIG_ITEM_COST, buildCoachContext, VITALITY_ENOUGH_SOULS } from "@/lib/coachContext";
+import { MID_PHASE_MAX_SOULS } from "@/lib/engine/categorySplit";
+import { loadFrozen } from "@/lib/engine/__fixtures__/frozen/frozenInputs";
+import { toItemCandidate } from "@/lib/engine/itemAdapter";
+import { runHeroBasket } from "@/lib/engine/heroBasket";
+import type { BasketResult } from "@/lib/engine/types";
+import { headlineTerm } from "@/lib/basketReasons";
+import type { Item } from "@/lib/items";
 import { EMPTY_MEMORY, getCoachMessage } from "@/lib/coach";
 import type { CoachContext, CoachFact, CoachTrigger, InsightId, PlayerMode } from "@/lib/coach";
 import { INSIGHT_PRIORITY, INSIGHT_RULES } from "@/lib/coach/triggerRules";
@@ -1508,6 +1521,283 @@ async function run() {
   assert(
     say([], added, "new") === null && say([], { type: "build_reviewed" }, "veteran") === null,
     "C7: with nothing true to say (0 items, nothing wrong), the coach stays silent",
+  );
+
+  // -----------------------------------------------
+  // Fixture 19: Coach context (docs/milestone-m6.md §5, M6.3)
+  // -----------------------------------------------
+  console.log("\n19. Coach context (lib/coachContext.ts)");
+  const fz = loadFrozen();
+  const byIdFz = new Map(fz.allItems.map((i) => [i.id, i]));
+  const item = (id: string): Item => {
+    const found = byIdFz.get(id);
+    if (!found) throw new Error(`frozen catalogue has no ${id}`);
+    return found;
+  };
+  const values = (i: Item) => toItemCandidate(i).categoryValues;
+  const soulsOf = (items: Item[], category?: string) =>
+    items.filter((i) => !category || i.category === category).reduce((t, i) => t + i.cost, 0);
+  const sortedItems = [...fz.allItems].sort((a, b) => a.id.localeCompare(b.id));
+  const SEVEN = { id: 2, name: "Seven", complexity: 1 };
+  const ABRAMS = { id: 6, name: "Abrams", complexity: 1 };
+  const PAIGE = { id: 67, name: "Paige", complexity: 1 };
+  const factsOf = (
+    hero: { id: number; name: string; complexity: number },
+    build: Item[],
+    trigger: CoachTrigger,
+    opts: { souls?: number; basket?: BasketResult | null; hasStarterBuild?: boolean } = {},
+  ) =>
+    buildCoachContext({
+      playerMode: "new",
+      hero,
+      souls: opts.souls ?? 10000,
+      boonLevel: 16,
+      build,
+      basket: opts.basket ?? null,
+      hasStarterBuild: opts.hasStarterBuild ?? true,
+      trigger,
+      allItems: fz.allItems,
+    });
+  const idsOf = (r: ReturnType<typeof factsOf>) => r.context.facts.map((f) => f.id);
+  const addedT = (i: Item): CoachTrigger => ({ type: "item_added", itemId: i.id });
+
+  const fortitude = item("upgrade_chonky"); // vitality 3,200
+  const vest = item("upgrade_regenerating_bullet_shield"); // vitality 1,600
+  const extraHealth = sortedItems.find((i) => i.category === "vitality" && i.cost === 800);
+  const spike = sortedItems.find(
+    (i) => i.category === "gun" && i.cost >= 6400 && values(i).gunDamage > 0,
+  );
+  const [cheapSpirit, secondSpirit] = sortedItems.filter(
+    (i) => i.category === "spirit" && i.cost === 800,
+  );
+  if (!extraHealth || !spike || !cheapSpirit || !secondSpirit)
+    throw new Error("frozen catalogue is missing a fixture item");
+
+  // Role intro, empty build (only when a suggested build exists), unknown hero.
+  assert(
+    idsOf(factsOf(SEVEN, [], { type: "hero_selected" })).join() === "role_intro,empty_build" &&
+      !idsOf(factsOf(SEVEN, [], { type: "hero_selected" }, { hasStarterBuild: false })).includes(
+        "empty_build",
+      ) &&
+      idsOf(factsOf({ id: -1, name: "Nobody", complexity: 1 }, [], { type: "hero_selected" }))
+        .length === 1,
+    "context: role intro from the role table; empty build only when a suggested build exists; an unknown hero gets no role fact",
+  );
+  // First item in a category: only the first.
+  assert(
+    idsOf(factsOf(SEVEN, [cheapSpirit], addedT(cheapSpirit))).includes("first_in_category") &&
+      !idsOf(factsOf(SEVEN, [cheapSpirit, secondSpirit], addedT(secondSpirit))).includes(
+        "first_in_category",
+      ),
+    "context: 'first in category' fires for the first item of a category only",
+  );
+  // Defence before damage: 4,800 vitality fires, 4,000 does not; a tank never; a spike clears it.
+  const vit4800 = [fortitude, vest];
+  const vit4000 = [fortitude, extraHealth];
+  assert(
+    soulsOf(vit4800, "vitality") === VITALITY_ENOUGH_SOULS &&
+      idsOf(factsOf(SEVEN, vit4800, addedT(vest))).includes("green_before_spike") &&
+      !idsOf(factsOf(SEVEN, vit4000, addedT(extraHealth))).includes("green_before_spike") &&
+      !idsOf(factsOf(ABRAMS, vit4800, addedT(vest))).includes("green_before_spike") &&
+      !idsOf(factsOf(SEVEN, [...vit4800, spike], addedT(vest))).includes("green_before_spike"),
+    "context: defence-before-damage at exactly 4,800 vitality souls (not 4,000), never for a tank, never once a damage spike is owned",
+  );
+  // Counter stacking: two mid-game counters, no spike.
+  const twoCounters = [item("upgrade_counterspell"), item("upgrade_metal_skin")];
+  assert(
+    idsOf(factsOf(SEVEN, twoCounters, addedT(twoCounters[1]))).includes("counter_stack") &&
+      !idsOf(factsOf(SEVEN, twoCounters.slice(0, 1), addedT(twoCounters[0]))).includes(
+        "counter_stack",
+      ) &&
+      !idsOf(factsOf(SEVEN, [...twoCounters, spike], addedT(spike))).includes("counter_stack"),
+    "context: counter stacking needs two mid-game counters and no damage spike",
+  );
+  // Anti-synergy: names from the catalogue, the rule's own (plain) reason.
+  const rule = ANTI_SYNERGY_RULES[0];
+  const pair = [item(rule.itemIds[0]), item(rule.itemIds[1])];
+  const anti = factsOf(SEVEN, pair, addedT(pair[1])).context.facts.find(
+    (f) => f.id === "anti_synergy",
+  );
+  assert(
+    anti?.id === "anti_synergy" &&
+      anti.itemNames[0] === pair[0].name &&
+      anti.reason === rule.reason,
+    "context: an anti-synergy pair becomes a fact with catalogue names and the rule's reason",
+  );
+  // Power spike: Seven (carry) on the first big damage item, or crossing 20,000 souls.
+  const spikeAt = ROLE_ONLINE_AT_SOULS.carry ?? 0;
+  const filler = sortedItems.filter((i) => i.category === "vitality" && i.cost === 3200);
+  const under: Item[] = [];
+  for (const i of filler) if (soulsOf(under) + i.cost < spikeAt) under.push(i);
+  const crossing = sortedItems.find(
+    (i) => i.category === "vitality" && soulsOf(under) + i.cost >= spikeAt && !under.includes(i),
+  );
+  assert(
+    idsOf(factsOf(SEVEN, [spike], addedT(spike))).includes("spike_reached") &&
+      !idsOf(factsOf(ABRAMS, [spike], addedT(spike))).includes("spike_reached") &&
+      !!crossing &&
+      idsOf(factsOf(SEVEN, [...under, crossing], addedT(crossing))).includes("spike_reached") &&
+      !idsOf(factsOf(SEVEN, under, addedT(under[under.length - 1]))).includes("spike_reached"),
+    "context: a carry's power spike on its first big damage item or on crossing 20,000 souls; never for a tank",
+  );
+  // Support greed: Paige with two big items while the build is still mid-game
+  // (souls in items <= MID_PHASE_MAX_SOULS, exact boundary); one big item is fine.
+  const bigTwo = sortedItems.filter((i) => i.cost >= 6400).slice(0, 2);
+  const small = sortedItems.filter((i) => i.cost === 800);
+  const padTo = (base: Item[], target: number) => {
+    const out = [...base];
+    for (const i of small) if (soulsOf(out) + i.cost <= target && !out.includes(i)) out.push(i);
+    return out;
+  };
+  const atMid = padTo(bigTwo, MID_PHASE_MAX_SOULS);
+  const pastMid = [...atMid, ...small.filter((i) => !atMid.includes(i)).slice(0, 1)];
+  assert(
+    soulsOf(atMid) <= MID_PHASE_MAX_SOULS &&
+      soulsOf(pastMid) > MID_PHASE_MAX_SOULS &&
+      idsOf(factsOf(PAIGE, atMid, addedT(bigTwo[1]))).includes("support_greed") &&
+      !idsOf(factsOf(PAIGE, pastMid, addedT(bigTwo[1]))).includes("support_greed") &&
+      !idsOf(factsOf(PAIGE, bigTwo.slice(0, 1), addedT(bigTwo[0]))).includes("support_greed") &&
+      !idsOf(factsOf(SEVEN, bigTwo, addedT(bigTwo[1]))).includes("support_greed"),
+    "context: support greed for a support with two big items while the build is mid-game (item souls, exact boundary); not one item, not a carry",
+  );
+  // No sustain: 8 items, none heals (engine sustain value); 7 is not enough.
+  const dry = sortedItems
+    .filter((i) => i.category === "gun" && values(i).sustain === 0)
+    .slice(0, 8);
+  assert(
+    dry.length === 8 &&
+      idsOf(factsOf(SEVEN, dry, addedT(dry[7]))).includes("no_sustain") &&
+      !idsOf(factsOf(SEVEN, dry.slice(0, 7), addedT(dry[6]))).includes("no_sustain") &&
+      !idsOf(factsOf(SEVEN, [...dry, fortitude], addedT(fortitude))).includes("no_sustain"),
+    "context: no-sustain at 8 items with no healing (not 7, not with a healing item)",
+  );
+  // Gap after remove: the removed item left its category empty.
+  assert(
+    idsOf(factsOf(SEVEN, [cheapSpirit], { type: "item_removed", itemId: vest.id })).includes(
+      "gap_after_remove",
+    ) &&
+      !idsOf(
+        factsOf(SEVEN, [cheapSpirit, fortitude], { type: "item_removed", itemId: vest.id }),
+      ).includes("gap_after_remove"),
+    "context: a removal that empties a category is a gap; one that leaves another item is not",
+  );
+  // Next buy: the real basket's plain line; never a raw reason.
+  const sevenKit = fz.kits.find((k) => k.name === "Seven");
+  const sevenRun = sevenKit
+    ? runHeroBasket({
+        heroAbilities: sevenKit.heroAbilities,
+        heroBaseStats: sevenKit.heroBaseStats,
+        heroRoster: fz.roster,
+        allItems: fz.allItems,
+        ownedItems: [],
+        souls: BOON_THRESHOLDS[16]?.souls ?? 0,
+        boonLevel: 16,
+        spiritPower: 20,
+        heroAccuracy: fz.heroAccuracy,
+        rankTier: null,
+      })
+    : null;
+  const basket = sevenRun?.basket ?? null;
+  const top = basket?.picks[0];
+  const nextFact = factsOf(SEVEN, [], { type: "build_reviewed" }, { basket }).context.facts.find(
+    (f) => f.id === "next_buy_reason",
+  );
+  const unplain: BasketResult | null =
+    basket && top
+      ? {
+          ...basket,
+          picks: [
+            {
+              ...top,
+              terms: top.terms.map(({ termId, value, reason }) => ({ termId, value, reason })),
+            },
+          ],
+        }
+      : null;
+  assert(
+    !!top &&
+      nextFact?.id === "next_buy_reason" &&
+      nextFact.itemName === top.item.name &&
+      nextFact.reason === headlineTerm(top.terms)?.plain &&
+      !idsOf(factsOf(SEVEN, [], { type: "build_reviewed" }, { basket: unplain })).includes(
+        "next_buy_reason",
+      ),
+    "context: next buy uses the basket's top pick and its plain-English line; no plain line, no fact",
+  );
+  // Upgrades: the planner replaces a component with its upgrade, so the context
+  // judges "first in category" and "power spike" against the build BEFORE it.
+  const upgrade = sortedItems.find(
+    (u) =>
+      u.category === "spirit" &&
+      u.cost < BIG_ITEM_COST &&
+      (u.componentItems ?? []).some((c) => byIdFz.get(c)?.category === "spirit"),
+  );
+  const component = upgrade
+    ? byIdFz.get(
+        (upgrade.componentItems ?? []).find((c) => byIdFz.get(c)?.category === "spirit") ?? "",
+      )
+    : undefined;
+  // The component case: one spirit item held, upgraded in place.
+  const componentFirst = component ? factsOf(SEVEN, [component], addedT(component)) : null;
+  const upgradedOnly = upgrade ? factsOf(SEVEN, [upgrade], addedT(upgrade)) : null;
+  assert(
+    !!componentFirst &&
+      !!upgradedOnly &&
+      idsOf(componentFirst).includes("first_in_category") &&
+      !idsOf(upgradedOnly).includes("first_in_category"),
+    "context: upgrading your only spirit item is not 'your first spirit item' (the component is put back)",
+  );
+  // Already past 20,000 souls with the component: upgrading it is not a new crossing.
+  const pastWithComponent = component ? padTo([component], spikeAt + 2000) : [];
+  const upgradedPast = upgrade
+    ? [...pastWithComponent.filter((i) => i !== component), upgrade]
+    : [];
+  assert(
+    !!upgrade &&
+      upgrade.cost < BIG_ITEM_COST &&
+      soulsOf(pastWithComponent) >= spikeAt &&
+      !idsOf(factsOf(SEVEN, upgradedPast, addedT(upgrade))).includes("spike_reached"),
+    "context: an upgrade bought after the carry's online-at souls is not a new power spike",
+  );
+  assert(
+    !idsOf(factsOf(SEVEN, [cheapSpirit], { type: "hero_selected" })).includes("empty_build") &&
+      idsOf(factsOf(SEVEN, [cheapSpirit], { type: "starter_applied" })).includes(
+        "starter_explained",
+      ) &&
+      !idsOf(factsOf(SEVEN, [], { type: "item_removed", itemId: "no_such_item" })).includes(
+        "gap_after_remove",
+      ) &&
+      !idsOf(
+        factsOf(SEVEN, [cheapSpirit], { type: "item_added", itemId: "no_such_item" }),
+      ).includes("first_in_category"),
+    "context: no empty-build nudge once items exist; starter applied is explained; unknown trigger items say nothing",
+  );
+  // End to end: frozen Seven, a real basket, through the coach; deterministic.
+  const e2e = factsOf(SEVEN, [], { type: "build_reviewed" }, { basket });
+  const e2eMsg = getCoachMessage(e2e.context, EMPTY_MEMORY, e2e.knownItemNames).message;
+  const shuffled = buildCoachContext({
+    playerMode: "new",
+    hero: SEVEN,
+    souls: 10000,
+    boonLevel: 16,
+    build: [],
+    basket,
+    hasStarterBuild: true,
+    trigger: { type: "build_reviewed" },
+    allItems: [...fz.allItems].reverse(),
+  });
+  const pairBuild = [...pair, ...twoCounters];
+  const coachSays = (build: Item[]) => {
+    const r = factsOf(SEVEN, build, addedT(build[build.length - 1]));
+    return getCoachMessage(r.context, EMPTY_MEMORY, r.knownItemNames).message;
+  };
+  assert(
+    e2eMsg !== null &&
+      JSON.stringify(getCoachMessage(shuffled.context, EMPTY_MEMORY, shuffled.knownItemNames)) ===
+        JSON.stringify(getCoachMessage(e2e.context, EMPTY_MEMORY, e2e.knownItemNames)) &&
+      JSON.stringify(coachSays(pairBuild)) === JSON.stringify(coachSays([...pairBuild].reverse())),
+    "context: frozen Seven end to end gives a valid coach message; shuffled catalogue or build order gives the same message",
+    e2eMsg?.text,
   );
 
   // -----------------------------------------------
