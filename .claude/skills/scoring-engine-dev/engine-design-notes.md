@@ -1790,8 +1790,8 @@ rates up.
 | Enemy health (was 2,500) | 1,341     | 1,748      | 2,449      | 3,005    | 3,537    |
 
 **Result.** Live gates unchanged (M1 mean 0.102, M3 0.077, O2 0.816). Nine of 72 baselines
-changed. Toxic Bullets enters four boon-29 baskets (Seven, Haze ×2, Lady Geist) and leaves
-Infernus at boon 16. Engine section 31 holds the calibration: 3,300–4,600 at a 45k-soul
+changed. Toxic Bullets enters three boon-29 baskets (Abrams, Haze owning early, Lady Geist)
+and leaves Infernus at boon 16. Engine section 31 holds the calibration: 3,300–4,600 at a 45k-soul
 build, and mid within 15% of 2,500.
 
 ## What players on this hero buy (phaseItems.ts, phaseItemTerm)
