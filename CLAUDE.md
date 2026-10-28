@@ -450,9 +450,12 @@ lib/matchReview/              — the match review's lane facts (docs/match-revi
                                 missing or mistyped fields rejected, never read as 0),
                                 laneReview() (one hero's 9:00 lane against its two lane
                                 opponents and partner, the §4.1 judgements, or a typed
-                                no-review reason). Pure; imports only itself and the Item
-                                type (Fixture 21, offline on a pinned real match in
-                                __fixtures__/)
+                                no-review reason), parsePlayerId() (Steam profile link,
+                                SteamID64 via BigInt, friend code, SteamID3/2 -> account id;
+                                custom /id/ links refused) and parseMatchHistory() (recent
+                                normal matches, newest 10). Pure; imports only itself and the
+                                Item type (Fixtures 21 and 23, offline; a pinned real match
+                                in __fixtures__/)
 lib/matchReviewCoachContext.ts — buildMatchCoachContext(): the ONE bridge from a lane report
                                 to the coach (MR2): lane facts with game-clock times, souls
                                 rounded to 50 (Fixture 22)
@@ -743,10 +746,9 @@ session record `docs/session-2026-10-27-match-review.md`). Open:
   `/v1/analytics/player-performance-curve?hero_ids=…&resolution=0`; the rank bracket to
   compare against needs a decision.
 - **Beyond the lane.** Mid-game, objectives, item timings against the starter build.
-- **Recent matches.** Pick from `/v1/players/{account_id}/match-history` instead of
-  pasting an ID.
-- **Phone layout.** The coach sits below the hero picker and report; collapse the picker
-  once a hero is chosen.
+- **Phone layout.** Built: the hero picker collapses once a hero is chosen. The recent
+  matches list (10 rows) still sits above the report on phones; collapse it too if it
+  gets in the way.
 
 ---
 

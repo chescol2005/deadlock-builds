@@ -35,3 +35,17 @@ export interface CoachLine {
   insight: string;
   text: string;
 }
+
+/** One of the player's recent normal matches, ready to show. */
+export interface RecentMatchView {
+  matchId: number;
+  hero: MatchHeroInfo;
+  won: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  /** Match length as a clock, e.g. "34:12". */
+  duration: string;
+  /** When it was played, e.g. "Oct 27, 21:40" (the viewer's time zone). */
+  playedAt: string;
+}

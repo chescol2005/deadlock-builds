@@ -4,3 +4,7 @@
 export * from "./matchTypes";
 export * from "./laneReport";
 export { parseMatchMetadata } from "./parseMatch";
+export { parsePlayerId } from "./playerId";
+export type { PlayerIdResult } from "./playerId";
+export { parseMatchHistory, RECENT_MATCH_LIMIT } from "./parseHistory";
+export type { RecentMatch } from "./parseHistory";

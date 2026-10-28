@@ -44,3 +44,11 @@ export const NO_REVIEW_MESSAGES: Readonly<Record<NoReviewReason, string>> = {
   lane_incomplete:
     "This lane didn't have two players on each team, so there are no clear lane opponents to compare with.",
 };
+
+export const PLAYER_ID_MESSAGES: Readonly<Record<"empty" | "vanity" | "invalid", string>> = {
+  empty: "Paste your Steam profile link, SteamID64 or friend code to see your recent matches.",
+  vanity:
+    "Custom Steam links (steamcommunity.com/id/…) can't be looked up. Use your SteamID64 or friend code instead: Steam shows the friend code under Friends > Add a Friend.",
+  invalid:
+    "That doesn't look like a Steam ID. Paste a steamcommunity.com/profiles/… link, a 17-digit SteamID64 or your friend code.",
+};
