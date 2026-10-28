@@ -40,6 +40,13 @@ import {
   MAX_ACTIVE_ITEMS,
 } from "@/lib/buildUtils";
 import { GUIDES, NAV_SECTIONS, isActiveSection } from "@/lib/navigation";
+import { MATCH_API_BASE, fetchMatchMetadata } from "@/app/match/matchApi";
+import type { MatchLoadError } from "@/app/match/matchApi";
+import {
+  LOAD_ERROR_MESSAGES,
+  NO_REVIEW_MESSAGES,
+  loadErrorMessage,
+} from "@/app/match/matchMessages";
 import { runStarterBuildFixtures } from "./starterBuildFixtures";
 import { fetchVisibleHeroes } from "@/lib/heroApi";
 import { BIG_ITEM_COST, buildCoachContext, VITALITY_ENOUGH_SOULS } from "@/lib/coachContext";
@@ -762,6 +769,11 @@ async function run() {
     "app/build/components/StarterBuildPanel.tsx",
     // M6.5.
     "app/build/components/CoachPanel.tsx",
+    // Match review (MR3).
+    "app/match/components/MatchLookupForm.tsx",
+    "app/match/components/MatchHeroPicker.tsx",
+    "app/match/components/LaneReportPanel.tsx",
+    "app/match/components/LaneCoachPanel.tsx",
   ];
 
   for (const relPath of SIMPLIFIED_PANELS) {
@@ -782,6 +794,11 @@ async function run() {
     // Site nav + homepage.
     "app/components/SiteNav.tsx",
     "app/page.tsx",
+    // Match review (MR3).
+    "app/match/MatchReviewClient.tsx",
+    "app/match/components/MatchLookupForm.tsx",
+    "app/match/components/LaneReportPanel.tsx",
+    "app/match/components/LaneCoachPanel.tsx",
   ];
 
   for (const relPath of TOOLTIP_ADOPTERS) {
@@ -2581,6 +2598,147 @@ async function run() {
       "a match review only ever hears lane insights, and the build coach never says them",
     );
   }
+
+  // -----------------------------------------------
+  // Fixture 23: The match review page (docs/match-review-use-cases.md §5, R9 / R10)
+  // -----------------------------------------------
+  console.log("\n23. The match review page (/match)");
+  const matchDir = readdirSync("app/match", { recursive: true })
+    .map(String)
+    .filter((f) => /\.tsx?$/.test(f))
+    .map((f) => `app/match/${f.replace(/\\/g, "/")}`);
+  // Code only: comments may name what the code must never do ("never localStorage").
+  const stripComments = (src: string) =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'])\/\/.*$/gm, "$1");
+  const matchSrc = new Map(matchDir.map((f) => [f, stripComments(readFileSync(f, "utf-8"))]));
+  const allMatchSrc = [...matchSrc.values()].join("\n");
+  const apiRoutes = existsSync("app/api")
+    ? readdirSync("app/api", { recursive: true })
+        .map(String)
+        .filter((f) => /\.tsx?$/.test(f))
+        .map((f) => readFileSync(`app/api/${f}`, "utf-8"))
+    : [];
+  const clientSrc = matchSrc.get("app/match/MatchReviewClient.tsx") ?? "";
+  const syncUrlBody = clientSrc.slice(
+    clientSrc.indexOf("function syncUrl"),
+    clientSrc.indexOf("\n}\n", clientSrc.indexOf("function syncUrl")),
+  );
+  const fetchCalls = [...allMatchSrc.matchAll(/\bfetch\(/g)].length;
+  assert(
+    matchDir.length >= 8 &&
+      !apiRoutes.some((src) => /api.?key|x-api-key/i.test(src)) &&
+      !/localStorage|document\.cookie/.test(allMatchSrc) &&
+      !/api_key=|[?&]key=/.test(allMatchSrc) &&
+      fetchCalls === 1 &&
+      (matchSrc.get("app/match/matchApi.ts") ?? "").includes('{ "X-API-KEY": key }') &&
+      MATCH_API_BASE === "https://api.deadlock-api.com/v1/matches" &&
+      syncUrlBody.includes('params.set("id"') &&
+      !/key/i.test(syncUrlBody.replace(/\b(id|hero)\b/g, "")) &&
+      clientSrc.includes("window.sessionStorage") &&
+      !(matchSrc.get("app/match/page.tsx") ?? "").includes('"use client"'),
+    "R9 (source): the key is only sent by the one browser fetch, as X-API-KEY to api.deadlock-api.com; no API route, localStorage, cookie or URL ever holds it (sessionStorage only on opt-in)",
+  );
+
+  // R9 (behaviour): the real fetchMatchMetadata against a recorded fetch.
+  const fetchBeforeMock = globalThis.fetch;
+  const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+  const respondWith = (res: () => Response | Promise<Response>) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      });
+      return res();
+    }) as typeof fetch;
+  };
+  const fixtureBody = readFileSync("lib/matchReview/__fixtures__/match-126035190.json", "utf-8");
+  try {
+    respondWith(() => new Response(fixtureBody, { status: 200 }));
+    const okWithKey = await fetchMatchMetadata("126035190", "  secret-key  ");
+    const okNoKey = await fetchMatchMetadata("126035190", "");
+    respondWith(() => new Response('{"status":404}', { status: 404 }));
+    const notFound = await fetchMatchMetadata("1", "");
+    respondWith(() => new Response("busy", { status: 503, headers: { "retry-after": "1477" } }));
+    const busy = await fetchMatchMetadata("999999999", "");
+    respondWith(() => new Response("{}", { status: 403 }));
+    const badKey = await fetchMatchMetadata("5", "nope");
+    respondWith(() => new Response("not json", { status: 200 }));
+    const garbage = await fetchMatchMetadata("5", "");
+    respondWith(() => {
+      throw new TypeError("offline");
+    });
+    const offline = await fetchMatchMetadata("5", "");
+    const before = calls.length;
+    const invalid = await fetchMatchMetadata("12ab", "");
+    assert(
+      okWithKey.ok &&
+        okWithKey.match.match_id === 126035190 &&
+        okNoKey.ok &&
+        calls[0].url === "https://api.deadlock-api.com/v1/matches/126035190/metadata" &&
+        calls[0].headers["x-api-key"] === "secret-key" &&
+        !("x-api-key" in calls[1].headers) &&
+        calls.every((c) => c.url.startsWith(`${MATCH_API_BASE}/`) && !/key/i.test(c.url)) &&
+        !notFound.ok &&
+        notFound.error.kind === "not_found" &&
+        !busy.ok &&
+        busy.error.kind === "steam_busy" &&
+        busy.error.retryAfterS === 1477 &&
+        !badKey.ok &&
+        badKey.error.kind === "bad_key" &&
+        !garbage.ok &&
+        garbage.error.kind === "unreadable" &&
+        !offline.ok &&
+        offline.error.kind === "network" &&
+        !invalid.ok &&
+        invalid.error.kind === "invalid_id" &&
+        calls.length === before,
+      "R9 (behaviour): the key travels only as a trimmed X-API-KEY header to api.deadlock-api.com, never in the URL; 404, 503 + Retry-After, 403, junk, offline and a bad ID each map to their own error; a bad ID makes no request",
+    );
+  } finally {
+    globalThis.fetch = fetchBeforeMock;
+  }
+
+  // Every failure has plain wording.
+  const sampleErrors: MatchLoadError[] = [
+    { kind: "invalid_id" },
+    { kind: "not_found" },
+    { kind: "steam_busy", retryAfterS: 1477 },
+    { kind: "steam_busy", retryAfterS: null },
+    { kind: "rate_limited", retryAfterS: 30 },
+    { kind: "bad_key" },
+    { kind: "unreadable" },
+    { kind: "network" },
+    { kind: "http", status: 500 },
+  ];
+  const errorTexts = sampleErrors.map(loadErrorMessage);
+  const reasonTexts = Object.values(NO_REVIEW_MESSAGES);
+  assert(
+    new Set(sampleErrors.map((e) => e.kind)).size === Object.keys(LOAD_ERROR_MESSAGES).length &&
+      errorTexts.every((t) => t.length > 20 && !/undefined|NaN|null/.test(t)) &&
+      errorTexts[2].includes("about 25 minutes") &&
+      errorTexts[2].includes("key") &&
+      Object.keys(NO_REVIEW_MESSAGES).length === 5 &&
+      reasonTexts.every((t) => t.length > 20),
+    "every load error and no-review reason has a plain-English message; Steam busy says when to retry (1,477 s = about 25 minutes) and that a key helps",
+    errorTexts[2],
+  );
+  assert(
+    NAV_SECTIONS.some((s) => s.href === "/match") &&
+      STATIC_ROUTES.includes("/match") &&
+      /export const metadata/.test(matchSrc.get("app/match/page.tsx") ?? "") &&
+      clientSrc.includes("NO_REVIEW_MESSAGES[review.reason]") &&
+      clientSrc.includes("EMPTY_MEMORY") &&
+      clientSrc.includes('playerMode: simplified ? "new" : "veteran"') &&
+      clientSrc.includes("MATCH_REVIEW_MAX_MESSAGES") &&
+      !/from "@\/lib\/(engine|scoring)/.test(allMatchSrc) &&
+      ["MatchLookupForm", "MatchHeroPicker", "LaneReportPanel", "LaneCoachPanel"].every(
+        (c) =>
+          !/from "@\/lib\/(coach|matchReviewCoachContext)"|laneReview\(/.test(
+            matchSrc.get(`app/match/components/${c}.tsx`) ?? "",
+          ),
+      ),
+    "R10: /match is in the nav and sitemap with metadata; each review gets a fresh coach memory in the viewer's audience; the panels are presentational (no coach, no laneReview, no engine)",
+  );
 
   // -----------------------------------------------
   // Summary

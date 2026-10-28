@@ -216,6 +216,7 @@ export const STATIC_ROUTES: ReadonlyArray<string> = [
   "/heroes",
   "/items",
   "/build",
+  "/match",
   "/guide",
   ...GUIDES.map((g) => g.href),
 ];
