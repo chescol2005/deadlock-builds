@@ -104,19 +104,22 @@ the wording.
 
 These are new `CoachFact` kinds in `lib/coach/`, plus templates for new players and
 veterans, with the same validator (word limits, numbers and items only from the fact, no
-internal terms). Each message shows once per review. The coach shows at most two, in
-priority order:
+internal terms). They answer one trigger, `match_reviewed`, in both audiences. Each
+message shows once per review. The coach shows at most two, in this order (approved in
+MR2, 2026-10-27: the causes come before the summary, which the page already shows):
 
 1. `lane_deaths`: two or more deaths, with times. A gank is called out.
-2. `fell_behind_early`: behind at 6:00.
-3. `lane_result`: ahead, even or behind at 9:00, with the soul gap.
-4. `lost_trades`: took much more damage than you dealt.
-5. `missed_last_hits`: last-hit share well below the opponents' average.
-6. `strong_lane`: ahead with no deaths. Praise is also coaching.
+2. `fell_behind_early`: behind at 6:00, and whether you caught up by 9:00.
+3. `lost_trades`: dealt / taken below 0.8.
+4. `missed_last_hits`: last-hit share well below the opponents' average.
+5. `lane_result`: ahead, even or behind at 9:00, with the soul gap.
+6. `strong_lane`: ahead with no deaths, in place of `lane_result`. Praise is also
+   coaching.
 
-Sample wording (new player): "You were 1,200 souls behind your lane opponents at 9
-minutes. Both of your deaths came before 6 minutes, and each one costs souls and lane
-time." The final wording is approved in MR2, as in #119.
+The approved wording lives in `lib/coach/templates.ts`. Souls and damage are rounded to
+the nearest 50 and last-hit shares to whole percents. An "even" gap is rounded up, so
+"within N souls" stays true. Every warning says what to do instead: the veteran "behind
+at 9:00" line gained "Farm safe camps until your next item." in MR2 (user decision).
 
 `lib/matchReview/` (the facts) must not import `lib/coach/`, and the coach must not
 import `lib/matchReview/`. One bridge, `lib/matchReviewCoachContext.ts`, turns a lane
@@ -145,7 +148,11 @@ No live calls are needed in CI.
 - **MR5: optional Anthropic key.** A Claude model rewords the same facts, or answers
   follow-up questions about them, from the visitor's browser with their own key. The
   validator still applies, and the template text shows whenever the model's answer fails
-  it or there is no key. It needs a prompt sandbox before code (CLAUDE.md M6 rules).
+  it or there is no key. It needs a prompt sandbox before code (CLAUDE.md M6 rules). The
+  validator must get stricter first: it allows any digit run found in a fact's text
+  fields (a death time like "5:31" allows 5 and 31 anywhere). That is safe for templates,
+  but a model could write "5 deaths" and pass. Number checks should be per field before a
+  model writes lane messages (MR2 audit).
 - **Benchmarks.** "A typical Oracle+ Haze has N souls at 9:00". The source exists:
   `/v1/analytics/player-performance-curve?hero_ids=…&resolution=0&min_average_badge=…`
   gives per-hero net worth and creep kills by second (e.g. Oracle+ Haze at 9:00: 6,551

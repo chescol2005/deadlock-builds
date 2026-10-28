@@ -33,6 +33,16 @@ export function fmtSouls(souls: number): string {
   return Math.round(souls).toLocaleString("en-US");
 }
 
+/** "an enemy" at the start of a sentence. */
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "9:00" -> "9": the minute of a game clock the fact carries. */
+function minutes(clock: string): string {
+  return clock.split(":")[0];
+}
+
 /** "a carry" / "an off-carry". */
 function aRole(label: string): string {
   return /^[aeiou]/i.test(label) ? `an ${label.toLowerCase()}` : `a ${label.toLowerCase()}`;
@@ -77,5 +87,52 @@ export function renderInsight(fact: CoachFact, mode: PlayerMode): string {
         : `${fact.itemName} was your only ${CATEGORY_NAME[fact.category]} item, so your build has none now. Add one back if you still need it. ${CATEGORY_PLAIN[fact.category]}`;
     case "starter_explained":
       return `This build for ${fact.heroName} is split into early, mid and late. Buy each phase in order; the panel shows why each item is there.`;
+    case "lane_deaths": {
+      const gank = fact.gankers.length > 0;
+      if (v) {
+        const by = gank ? `, ganked by ${listNames(fact.gankers)}` : "";
+        return `${fact.count} deaths before ${fact.laneEnd} (${fact.deathTimes.join(", ")})${by}. Respect missing enemies and trade near your Guardian.`;
+      }
+      const advice = gank
+        ? `${capitalise(listNames(fact.gankers))} came from another lane to catch you: when an enemy goes missing from the map, play closer to your tower.`
+        : "Back off when your health is low and fight near your own tower.";
+      return `You died ${fact.count} times before ${minutes(fact.laneEnd)} minutes (${listNames(fact.deathTimes)}). Each death gives your lane opponents free souls and time. ${advice}`;
+    }
+    case "fell_behind_early":
+      if (v) {
+        return fact.recovered
+          ? `${fmtSouls(fact.soulsBehind)} souls behind at ${fact.checkTime}, recovered by ${fact.laneEnd}. Keep that up.`
+          : `${fmtSouls(fact.soulsBehind)} souls behind at ${fact.checkTime}, still behind at ${fact.laneEnd}. Focus last hits and orb denies in the first waves.`;
+      }
+      return fact.recovered
+        ? `By ${minutes(fact.checkTime)} minutes you were ${fmtSouls(fact.soulsBehind)} souls behind your lane opponents, but you caught up by ${minutes(fact.laneEnd)} minutes. Keep that up.`
+        : `By ${minutes(fact.checkTime)} minutes you were ${fmtSouls(fact.soulsBehind)} souls behind your lane opponents. Early souls come from troopers: take the last shot on each one, then shoot the soul orb before the enemy does.`;
+    case "lost_trades":
+      return v
+        ? `Lost trades: ${fmtSouls(fact.dealt)} dealt, ${fmtSouls(fact.taken)} taken by ${fact.laneEnd}. Fight on your cooldowns, not theirs.`
+        : `Your lane opponents hurt you more than you hurt them: you took ${fmtSouls(fact.taken)} damage and dealt ${fmtSouls(fact.dealt)}. Fight when your abilities are ready, and step back behind your troopers in between.`;
+    case "missed_last_hits":
+      return v
+        ? `Last hits ${fact.yourShare}% against ${fact.opponentShare}% for your opponents. Secure your orbs and deny theirs.`
+        : `You got the last hit on ${fact.yourShare}% of the troopers you could, your opponents ${fact.opponentShare}%. The last hit pays the souls, so save your shot for when a trooper is almost dead.`;
+    case "lane_result":
+      if (v) {
+        if (fact.result === "even") {
+          return `Even at ${fact.laneEnd} (within ${fmtSouls(fact.soulGap)} souls).`;
+        }
+        return fact.result === "ahead"
+          ? `${fmtSouls(fact.soulGap)} ahead at ${fact.laneEnd}.`
+          : `${fmtSouls(fact.soulGap)} souls behind the opponent average at ${fact.laneEnd}. Farm safe camps until your next item.`;
+      }
+      if (fact.result === "even") {
+        return `At ${minutes(fact.laneEnd)} minutes you were level with your lane opponents. Small edges win lanes: a few more last hits and one fewer death.`;
+      }
+      return fact.result === "ahead"
+        ? `At ${minutes(fact.laneEnd)} minutes you were ${fmtSouls(fact.soulGap)} souls ahead of your lane opponents. Use the lead: buy your next item and help a nearby lane.`
+        : `At ${minutes(fact.laneEnd)} minutes you were ${fmtSouls(fact.soulGap)} souls behind your lane opponents. You can recover: farm the camps on your side of the map and avoid risky fights until your next item.`;
+    case "strong_lane":
+      return v
+        ? `Clean lane: ${fmtSouls(fact.soulGap)} souls up at ${fact.laneEnd}, no deaths. Push and take the Guardian.`
+        : `Strong lane: ${fmtSouls(fact.soulGap)} souls ahead at ${minutes(fact.laneEnd)} minutes and no deaths. Keep the pressure on by pushing your wave toward the enemy Guardian.`;
   }
 }
