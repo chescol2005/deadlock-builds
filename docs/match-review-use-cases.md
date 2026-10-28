@@ -77,14 +77,14 @@ adds last hits, denies, trades, accuracy and the per-snapshot table.
 These starting thresholds are easy to tune. The fixtures assert the classification, not
 the wording.
 
-| Judgement         | Rule                                                                                                                                                                 |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Soul lead (you)   | Your souls against the opponent average at 9:00: **ahead** if more than 10% above, **behind** if more than 10% below, else **even**. 10% is about 600 souls at 9:00. |
-| Lane result       | The same rule applied to the lane soul gap, against the opponents' total                                                                                             |
-| Fell behind early | Behind at 6:00 by the same rule                                                                                                                                      |
-| Costly deaths     | Two or more deaths before 9:00                                                                                                                                       |
-| Won / lost trades | Dealt / taken above 1.25 = won, below 0.8 = lost, else even                                                                                                          |
-| Last hits         | Your last-hit share against the better lane opponent: more than 10 points lower = **missed last hits**                                                               |
+| Judgement         | Rule                                                                                                                                                                                                                                                                 |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Soul lead (you)   | Your souls against the opponent average at 9:00: **ahead** if more than 10% above, **behind** if more than 10% below, else **even**. 10% is about 600 souls at 9:00.                                                                                                 |
+| Lane result       | The same rule applied to the lane soul gap, against the opponents' total                                                                                                                                                                                             |
+| Fell behind early | Behind at 6:00 by the same rule                                                                                                                                                                                                                                      |
+| Costly deaths     | Two or more deaths before 9:00                                                                                                                                                                                                                                       |
+| Won / lost trades | Dealt / taken above 1.25 = won, below 0.8 = lost, else even                                                                                                                                                                                                          |
+| Last hits         | Your last-hit share against the average of your two lane opponents: more than 10 points lower = **missed last hits**. Changed 2026-10-27 (MR1): against the better opponent it flagged 8 of 12 players in the fixture match; the average flags the 3 clear laggards. |
 
 ## 5. The key and privacy
 
@@ -111,7 +111,7 @@ priority order:
 2. `fell_behind_early`: behind at 6:00.
 3. `lane_result`: ahead, even or behind at 9:00, with the soul gap.
 4. `lost_trades`: took much more damage than you dealt.
-5. `missed_last_hits`: last-hit share well below the better opponent.
+5. `missed_last_hits`: last-hit share well below the opponents' average.
 6. `strong_lane`: ahead with no deaths. Praise is also coaching.
 
 Sample wording (new player): "You were 1,200 souls behind your lane opponents at 9

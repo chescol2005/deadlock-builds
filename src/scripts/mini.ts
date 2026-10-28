@@ -65,6 +65,19 @@ import {
 } from "@/lib/heroRoles";
 import type { HeroRole } from "@/lib/heroRoles";
 import {
+  LANE_CHECKPOINTS_S,
+  LANE_END_S,
+  LANE_NAMES,
+  judgeLead,
+  judgeMissedLastHits,
+  judgeTrades,
+  laneReview,
+  lastHitShare,
+  parseMatchMetadata,
+  shotAccuracy,
+} from "@/lib/matchReview";
+import type { CatalogueItem, LaneReport, LaneReviewResult, MatchMetadata } from "@/lib/matchReview";
+import {
   DEFAULT_OG_IMAGE,
   FALLBACK_SITE_URL,
   PREVIEW_ITEM_LIMIT,
@@ -1860,6 +1873,392 @@ async function run() {
       (panelSrc.match(/pointer-coarse:min-h-10/g) ?? []).length >= 3 &&
       !/from "@\/lib\/(coach|engine|scoring)/.test(panelSrc),
     "C9: CoachPanel is presentational, keeps one live region for tips, and has touch-sized buttons",
+  );
+
+  // -----------------------------------------------
+  // Fixture 21: Match review lane facts (docs/match-review-use-cases.md §7, R1–R7)
+  // -----------------------------------------------
+  // Offline: a pinned real match (126035190, trimmed, no account ids) and the frozen
+  // item catalogue. Never a live call.
+  console.log("\n21. Match review lane facts (lib/matchReview/)");
+  const rawMatch: unknown = JSON.parse(
+    readFileSync("lib/matchReview/__fixtures__/match-126035190.json", "utf-8"),
+  );
+  const match = parseMatchMetadata(rawMatch);
+  const catalogue = fz.allItems;
+  const reviewOf = (m: MatchMetadata, heroId: number, cat: readonly CatalogueItem[] = catalogue) =>
+    laneReview(m, heroId, cat);
+  const okReport = (r: LaneReviewResult): LaneReport | null => (r.ok ? r.report : null);
+  const heroIdsInMatch = match?.players.map((p) => p.hero_id) ?? [];
+  const reports = match ? heroIdsInMatch.map((h) => okReport(reviewOf(match, h))) : [];
+  assert(
+    !!match && match.players.length === 12 && reports.every((r) => r !== null),
+    "R6/parse: the pinned match parses, and every one of its 12 heroes gets a lane report",
+  );
+
+  // Boundary: lib/matchReview imports only itself and the Item type.
+  const mrFiles = readdirSync("lib/matchReview").filter((f) => /\.tsx?$/.test(f));
+  const mrBad = mrFiles.flatMap((f) =>
+    importsOf(`lib/matchReview/${f}`)
+      .filter((p) => !p.startsWith("./") && p !== "../items")
+      .map((p) => `${f}: ${p}`),
+  );
+  assert(
+    mrFiles.length >= 4 && mrBad.length === 0,
+    "lib/matchReview/ imports only its own files and lib/items (never the coach, engine, scoring or app)",
+    mrBad.join(", "),
+  );
+
+  if (match) {
+    // R1: same input, same report, whatever the order of players, items or catalogue.
+    const shuffledMatch: MatchMetadata = {
+      ...match,
+      players: [...match.players].reverse().map((p) => ({
+        ...p,
+        items: [...p.items].reverse(),
+        death_details: [...p.death_details].reverse(),
+        stats: [...p.stats].reverse(),
+      })),
+    };
+    const reparsed = parseMatchMetadata(JSON.parse(JSON.stringify(rawMatch)));
+    assert(
+      !!reparsed &&
+        heroIdsInMatch.every(
+          (h) =>
+            JSON.stringify(reviewOf(reparsed, h)) === JSON.stringify(reviewOf(match, h)) &&
+            JSON.stringify(reviewOf(shuffledMatch, h, [...catalogue].reverse())) ===
+              JSON.stringify(reviewOf(match, h)),
+        ),
+      "R1: an independently parsed copy gives the same report; shuffled players, items, deaths, snapshots or catalogue change nothing",
+    );
+
+    // R2: opponents are the two enemies in your lane, the partner the teammate in it.
+    const r2Bad = heroIdsInMatch.filter((h, i) => {
+      const r = reports[i];
+      const me = match.players.find((p) => p.hero_id === h);
+      if (!r || !me) return true;
+      const enemies = match.players
+        .filter((p) => p.team !== me.team && p.assigned_lane === me.assigned_lane)
+        .map((p) => p.player_slot)
+        .sort((a, b) => a - b);
+      const mate = match.players.find(
+        (p) => p.team === me.team && p.assigned_lane === me.assigned_lane && p !== me,
+      );
+      return (
+        r.lane !== me.assigned_lane ||
+        r.you.playerSlot !== me.player_slot ||
+        r.partner.playerSlot !== mate?.player_slot ||
+        JSON.stringify(r.opponents.map((o) => o.playerSlot)) !== JSON.stringify(enemies) ||
+        r.opponents.some((o) => o.team === me.team)
+      );
+    });
+    assert(
+      r2Bad.length === 0 &&
+        [...new Set(match.players.map((p) => p.assigned_lane))].sort().join() === "1,4,6" &&
+        Object.keys(LANE_NAMES).join() === "1,4,6",
+      "R2: for every hero, the opponents are exactly the two enemies with its assigned_lane and the partner is the teammate with it; lanes are York, Broadway and Greenwich",
+      r2Bad.join(", "),
+    );
+
+    // R3: every number is the raw snapshot value, or a stated formula of raw values.
+    const raw540 = (slot: number) =>
+      match.players
+        .find((p) => p.player_slot === slot)
+        ?.stats.find((s) => s.time_stamp_s === LANE_END_S);
+    const raw360 = (slot: number) =>
+      match.players.find((p) => p.player_slot === slot)?.stats.find((s) => s.time_stamp_s === 360)
+        ?.net_worth;
+    const r3Bad = reports.filter((r) => {
+      if (!r) return true;
+      const y = raw540(r.you.playerSlot);
+      const pa = raw540(r.partner.playerSlot);
+      const o = r.opponents.map((op) => raw540(op.playerSlot));
+      if (!y || !pa || !o[0] || !o[1]) return true;
+      const oppAvg = (o[0].net_worth + o[1].net_worth) / 2;
+      return (
+        r.you.atLaneEnd.souls !== y.net_worth ||
+        r.you.atLaneEnd.lastHits !== y.creep_kills ||
+        r.you.atLaneEnd.possibleCreeps !== y.possible_creeps ||
+        r.you.atLaneEnd.denies !== y.denies ||
+        r.you.atLaneEnd.damageDealt !== y.player_damage ||
+        r.you.atLaneEnd.damageTaken !== y.player_damage_taken ||
+        r.soulGap !== y.net_worth - oppAvg ||
+        r.laneSoulGap !== y.net_worth + pa.net_worth - o[0].net_worth - o[1].net_worth ||
+        r.judgements.souls !== judgeLead(y.net_worth, oppAvg) ||
+        r.judgements.lane !==
+          judgeLead(y.net_worth + pa.net_worth, o[0].net_worth + o[1].net_worth) ||
+        r.judgements.trades !== judgeTrades(y.player_damage, y.player_damage_taken) ||
+        r.judgements.atSixMinutes !==
+          judgeLead(
+            raw360(r.you.playerSlot) ?? NaN,
+            ((raw360(r.opponents[0].playerSlot) ?? NaN) +
+              (raw360(r.opponents[1].playerSlot) ?? NaN)) /
+              2,
+          ) ||
+        r.partner.atLaneEnd.souls !== pa.net_worth ||
+        r.opponents.some((op, j) => op.atLaneEnd.souls !== o[j]?.net_worth) ||
+        r.you.snapshots.map((s) => s.timeS).join() !== LANE_CHECKPOINTS_S.join()
+      );
+    });
+    assert(
+      r3Bad.length === 0,
+      "R3: souls (yours, partner's, opponents'), last hits, denies, damage, both soul gaps and the lane / trades / 6:00 judgements match the raw snapshots (snapshot creep_kills, not top-level last_hits); 3:00/6:00/9:00/12:00 shown",
+    );
+
+    // R4: deaths before 9:00 only; a gank is a kill by an enemy from another lane.
+    const r4Bad = heroIdsInMatch.filter((h, i) => {
+      const r = reports[i];
+      const me = match.players.find((p) => p.hero_id === h);
+      if (!r || !me) return true;
+      const early = me.death_details.filter((d) => d.game_time_s < LANE_END_S);
+      const expectedGanks = early.filter((d) => {
+        const k = match.players.find((p) => p.player_slot === d.killer_player_slot);
+        return !!k && k.team !== me.team && k.assigned_lane !== me.assigned_lane;
+      }).length;
+      return (
+        r.deaths.length !== early.length ||
+        r.deaths.some((d) => d.timeS >= LANE_END_S) ||
+        r.deaths.filter((d) => d.gank).length !== expectedGanks ||
+        r.judgements.costlyDeaths !== early.length >= 2
+      );
+    });
+    const totalGanks = reports.reduce(
+      (n, r) => n + (r?.deaths.filter((d) => d.gank).length ?? 0),
+      0,
+    );
+    const anyLateDeath = match.players.some((p) =>
+      p.death_details.some((d) => d.game_time_s >= LANE_END_S),
+    );
+    // A killer slot that matches no player: troopers or a structure, not a gank.
+    const victim = match.players[0];
+    const unknownKiller: MatchMetadata = {
+      ...match,
+      players: match.players.map((p) =>
+        p === victim ? { ...p, death_details: [{ game_time_s: 200, killer_player_slot: 99 }] } : p,
+      ),
+    };
+    const uk = okReport(reviewOf(unknownKiller, victim.hero_id));
+    assert(
+      r4Bad.length === 0 &&
+        totalGanks >= 1 &&
+        anyLateDeath &&
+        uk?.deaths.length === 1 &&
+        uk.deaths[0].killerHeroId === null &&
+        !uk.deaths[0].gank,
+      `R4: only deaths before 9:00 count, ganks are kills by enemies from other lanes (${totalGanks} in the match), an unknown killer is not a gank`,
+      r4Bad.join(", "),
+    );
+
+    // R5: shop items only, bought before 9:00 and not sold before 9:00.
+    const catalogueIds = new Set(catalogue.map((i) => i.numericId));
+    let soldBeforeEnd = 0;
+    let abilityRows = 0;
+    const r5Bad = heroIdsInMatch.filter((h, i) => {
+      const r = reports[i];
+      const me = match.players.find((p) => p.hero_id === h);
+      if (!r || !me) return true;
+      const expected = me.items
+        .filter(
+          (e) =>
+            catalogueIds.has(e.item_id) &&
+            e.game_time_s < LANE_END_S &&
+            (e.sold_time_s === 0 || e.sold_time_s >= LANE_END_S),
+        )
+        .map((e) => e.item_id)
+        .sort((a, b) => a - b);
+      soldBeforeEnd += me.items.filter(
+        (e) => catalogueIds.has(e.item_id) && e.sold_time_s > 0 && e.sold_time_s < LANE_END_S,
+      ).length;
+      abilityRows += me.items.filter((e) => !catalogueIds.has(e.item_id)).length;
+      return (
+        JSON.stringify(r.items.map((it) => it.numericId).sort((a, b) => a - b)) !==
+          JSON.stringify(expected) ||
+        r.items.some((it, j) => j > 0 && it.boughtAtS < r.items[j - 1].boughtAtS)
+      );
+    });
+    assert(
+      r5Bad.length === 0 && soldBeforeEnd >= 1 && abilityRows >= 1,
+      `R5: lane-end items are catalogue shop items bought before 9:00 and held at 9:00, in purchase order (${soldBeforeEnd} sold components and ${abilityRows} ability rows left out)`,
+      r5Bad.join(", "),
+    );
+
+    // R6: unsupported matches get a typed reason, never a partial report.
+    const someHero = heroIdsInMatch[0];
+    const reasonOf = (r: LaneReviewResult) => (r.ok ? "ok" : r.reason);
+    const noLaneEnd: MatchMetadata = {
+      ...match,
+      players: match.players.map((p) =>
+        p.hero_id === heroIdsInMatch[1]
+          ? { ...p, stats: p.stats.filter((s) => s.time_stamp_s !== LANE_END_S) }
+          : p,
+      ),
+    };
+    const meLane = match.players[0].assigned_lane;
+    const extraInLane: MatchMetadata = {
+      ...match,
+      players: match.players.map((p) =>
+        p.assigned_lane !== meLane && p.team === match.players[0].team
+          ? { ...p, assigned_lane: meLane }
+          : p,
+      ),
+    };
+    const noSix: MatchMetadata = {
+      ...match,
+      players: match.players.map((p) => ({
+        ...p,
+        stats: p.stats.filter((s) => s.time_stamp_s !== 360),
+      })),
+    };
+    const noSixReport = okReport(reviewOf(noSix, someHero));
+    // The lane-end snapshot missing for an opponent, not for you.
+    const victimOfGap = match.players[1];
+    const opponentNoLaneEndHero =
+      match.players.find(
+        (p) => p.team !== victimOfGap.team && p.assigned_lane === victimOfGap.assigned_lane,
+      )?.hero_id ?? -1;
+    const opponentNoLaneEnd: MatchMetadata = {
+      ...match,
+      players: match.players.map((p) =>
+        p === victimOfGap
+          ? { ...p, stats: p.stats.filter((s) => s.time_stamp_s !== LANE_END_S) }
+          : p,
+      ),
+    };
+    const duplicateHero: MatchMetadata = {
+      ...match,
+      players: [...match.players, { ...match.players[0], player_slot: 99 }],
+    };
+    assert(
+      reasonOf(reviewOf({ ...match, game_mode: 4 }, someHero)) === "unsupported_mode" &&
+        reasonOf(reviewOf(match, -1)) === "hero_not_in_match" &&
+        reasonOf(reviewOf({ ...match, duration_s: 500 }, someHero)) === "too_short" &&
+        reasonOf(reviewOf(noLaneEnd, heroIdsInMatch[1])) === "missing_snapshot" &&
+        reasonOf(reviewOf(opponentNoLaneEnd, opponentNoLaneEndHero)) === "missing_snapshot" &&
+        reasonOf(reviewOf(duplicateHero, someHero)) === "hero_not_in_match" &&
+        reasonOf(reviewOf(extraInLane, match.players[0].hero_id)) === "lane_incomplete" &&
+        noSixReport !== null &&
+        noSixReport.judgements.atSixMinutes === null,
+      "R6: Street Brawl, an unknown or duplicated hero, a short match, a missing 9:00 snapshot (yours or an opponent's) and a broken lane each give a typed reason; a missing 6:00 snapshot leaves that judgement null, never guessed",
+    );
+    // R5 edges: bought exactly at 9:00 is excluded; sold exactly at 9:00 was held at 9:00.
+    const edgeItem = catalogue[0];
+    const edgeHero = match.players[0];
+    const withEdges: MatchMetadata = {
+      ...match,
+      players: match.players.map((p) =>
+        p === edgeHero
+          ? {
+              ...p,
+              items: [
+                { item_id: edgeItem.numericId, game_time_s: LANE_END_S, sold_time_s: 0 },
+                { item_id: edgeItem.numericId, game_time_s: 100, sold_time_s: LANE_END_S },
+              ],
+            }
+          : p,
+      ),
+    };
+    const edgeItems = okReport(reviewOf(withEdges, edgeHero.hero_id))?.items ?? [];
+    assert(
+      edgeItems.length === 1 && edgeItems[0].boughtAtS === 100,
+      "R5: an item bought exactly at 9:00 is left out; one sold exactly at 9:00 was still held at lane end",
+    );
+    const firstPlayer = (rawMatch as { match_info: { players: Record<string, unknown>[] } })
+      .match_info.players[0];
+    const dropField = (obj: Record<string, unknown>, key: string) =>
+      Object.fromEntries(Object.entries(obj).filter(([k]) => k !== key));
+    const brokenSnapshot = {
+      match_info: {
+        ...(rawMatch as { match_info: Record<string, unknown> }).match_info,
+        players: [
+          {
+            ...firstPlayer,
+            stats: [dropField((firstPlayer.stats as Record<string, unknown>[])[0], "net_worth")],
+          },
+        ],
+      },
+    };
+    const withFirstPlayer = (change: (p: Record<string, unknown>) => Record<string, unknown>) => ({
+      match_info: {
+        ...(rawMatch as { match_info: Record<string, unknown> }).match_info,
+        players: (
+          rawMatch as { match_info: { players: Record<string, unknown>[] } }
+        ).match_info.players.map((p, i) => (i === 0 ? change(p) : p)),
+      },
+    });
+    const brokenPlayers = [
+      withFirstPlayer((p) => dropField(p, "hero_id")),
+      withFirstPlayer((p) => dropField(p, "assigned_lane")),
+      withFirstPlayer((p) => dropField(p, "death_details")),
+      withFirstPlayer((p) => dropField(p, "items")),
+      withFirstPlayer((p) => ({
+        ...p,
+        items: (p.items as Record<string, unknown>[]).map((it) => dropField(it, "sold_time_s")),
+      })),
+      withFirstPlayer((p) => ({
+        ...p,
+        stats: (p.stats as Record<string, unknown>[]).map((st) => ({ ...st, net_worth: "6000" })),
+      })),
+      withFirstPlayer((p) => ({
+        ...p,
+        stats: (p.stats as Record<string, unknown>[]).map((st) => ({ ...st, denies: Infinity })),
+      })),
+    ];
+    const emptyDeaths = parseMatchMetadata(withFirstPlayer((p) => ({ ...p, death_details: [] })));
+    assert(
+      brokenPlayers.every((b) => parseMatchMetadata(b) === null) &&
+        emptyDeaths !== null &&
+        emptyDeaths.players[0].death_details.length === 0,
+      "parse: a full match with one player missing hero_id, assigned_lane, death_details, items or sold_time_s, or with a string or infinite stat, is rejected; an empty death list is accepted as none",
+    );
+    assert(
+      parseMatchMetadata(null) === null &&
+        parseMatchMetadata({ status: 404, error: "Match metadata not found." }) === null &&
+        parseMatchMetadata({
+          match_info: { match_id: 1, duration_s: 2000, game_mode: 1, players: [] },
+        }) === null &&
+        parseMatchMetadata(brokenSnapshot) === null &&
+        JSON.stringify(parseMatchMetadata((rawMatch as { match_info: unknown }).match_info)) ===
+          JSON.stringify(match),
+      "parse: error bodies, empty matches and a snapshot missing a field are rejected (missing is not zero); the bare match_info parses the same",
+    );
+  }
+
+  // R7: the §4.1 thresholds at their edges.
+  assert(
+    judgeLead(110, 100) === "even" &&
+      judgeLead(111, 100) === "ahead" &&
+      judgeLead(90, 100) === "even" &&
+      judgeLead(89, 100) === "behind" &&
+      judgeLead(0, 0) === "even" &&
+      judgeLead(5, 0) === "ahead" &&
+      judgeTrades(125, 100) === "even" &&
+      judgeTrades(126, 100) === "won" &&
+      judgeTrades(80, 100) === "even" &&
+      judgeTrades(79, 100) === "lost" &&
+      judgeTrades(0, 0) === "even" &&
+      judgeTrades(10, 0) === "won" &&
+      judgeMissedLastHits(0.4, [0.6, 0.4]) === false &&
+      judgeMissedLastHits(0.39, [0.6, 0.4]) === true &&
+      judgeMissedLastHits(0.7, [0.8]) === false &&
+      judgeMissedLastHits(null, [0.9, 0.8]) === null &&
+      judgeMissedLastHits(0.1, [null, 0.9]) === null &&
+      judgeMissedLastHits(0.1, []) === null &&
+      lastHitShare({ lastHits: 3, possibleCreeps: 0 }) === null &&
+      shotAccuracy({ shotsHit: 0, shotsMissed: 0 }) === null,
+    "R7: ahead / behind beyond 10%, won / lost trades beyond 1.25 / 0.8, missed last hits beyond 10 points below the opponent average; edges are even; unknown data gives null, never a verdict",
+  );
+  // Real data: the rule flags the clear laggards only (the better-opponent version
+  // flagged 8 of 12 in this match).
+  const flagged = reports.filter((r) => r?.judgements.missedLastHits === true);
+  const lowestInLane = (r: LaneReport) => {
+    const mine = lastHitShare(r.you.atLaneEnd) ?? 1;
+    return [r.partner, ...r.opponents].every((p) => (lastHitShare(p.atLaneEnd) ?? 0) > mine);
+  };
+  assert(
+    flagged.length >= 1 &&
+      flagged.length <= 4 &&
+      flagged.every((r) => r !== null && lowestInLane(r)),
+    `R7: in the pinned match, missed last hits flags ${flagged.length} of 12, each the lowest last-hitter in its lane`,
   );
 
   // -----------------------------------------------
