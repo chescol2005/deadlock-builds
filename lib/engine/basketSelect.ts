@@ -1358,8 +1358,150 @@ function makeResult(
   };
 }
 
+/** The plans `constructBasket` compared (Milestone H), for the probe and fixtures. */
+export interface BasketPlans {
+  greedy: { result: BasketResult; value: number };
+  /** Each anchored plan tried, in candidate order; result null when the anchor could not lead. */
+  anchored: Array<{ anchor: ItemCandidate; result: BasketResult | null; value: number }>;
+  /** The anchored plan chosen, or null when the greedy basket stands. */
+  chosen: { anchor: ItemCandidate; result: BasketResult; value: number } | null;
+}
+
 /**
- * Greedy budgeted maximum coverage over `candidates`.
+ * Every plan `constructBasket` weighs: today's greedy basket, and for each of the
+ * phase's most valuable big items (`anchorCandidates`) the same greedy basket with that
+ * item bought first. `chosen` is the best anchored plan when its total value beats the
+ * greedy one by more than ANCHOR_MARGIN, else null.
+ */
+export function basketPlans(
+  candidates: ReadonlyArray<ItemCandidate>,
+  ctx: BasketContext,
+  terms: ReadonlyArray<MarginalTermFn> = DEFAULT_BASKET_TERMS,
+): BasketPlans {
+  // Owned items are never candidates (H7). Callers filter them already; the
+  // engine enforces it too.
+  const ownedIds = new Set(ctx.owned.map((o) => o.itemId));
+  const pool = sanitizeCandidates(candidates).filter((c) => !ownedIds.has(c.itemId));
+  const greedy = greedyBasket(pool, ctx, terms, null) ?? {
+    result: makeResult(ctx, [], initialBasketState(ctx).coverage, 0, "no-candidates"),
+    value: 0,
+  };
+
+  // Planned big items (Milestone H): try saving up for each of the few most valuable
+  // big items, and keep that plan only when it is clearly worth more.
+  const greedyIds = new Set(greedy.result.picks.map((p) => p.item.itemId));
+  const anchored: BasketPlans["anchored"] = [];
+  let best: BasketPlans["chosen"] = null;
+  for (const anchor of anchorCandidates(pool, ctx, terms)) {
+    if (greedyIds.has(anchor.itemId)) continue;
+    const plan = greedyBasket(pool, ctx, terms, anchor.itemId);
+    anchored.push({ anchor, result: plan?.result ?? null, value: plan?.value ?? 0 });
+    if (!plan) continue;
+    if (
+      !best ||
+      plan.value > best.value ||
+      (plan.value === best.value && outranks(anchor, 0, best.anchor, 0))
+    ) {
+      best = { ...plan, anchor };
+    }
+  }
+  const chosen = best && best.value > greedy.value * (1 + ANCHOR_MARGIN) ? best : null;
+  return { greedy, anchored, chosen };
+}
+
+/**
+ * The basket for this context: the greedy basket, or the anchored plan `basketPlans`
+ * chose (its big item carries a zero-value "anchor" reason saying why it was worth
+ * saving for). Every hard rule of the greedy loop holds either way, because every plan
+ * is a greedy basket.
+ */
+export function constructBasket(
+  candidates: ReadonlyArray<ItemCandidate>,
+  ctx: BasketContext,
+  terms: ReadonlyArray<MarginalTermFn> = DEFAULT_BASKET_TERMS,
+): BasketResult {
+  const { greedy, chosen } = basketPlans(candidates, ctx, terms);
+  if (!chosen) return greedy.result;
+
+  const gain = Math.round((chosen.value / Math.max(greedy.value, 1e-9) - 1) * 100);
+  const anchorId = chosen.anchor.itemId;
+  return {
+    ...chosen.result,
+    picks: chosen.result.picks.map((pick) =>
+      pick.item.itemId === anchorId
+        ? {
+            ...pick,
+            terms: [
+              ...pick.terms,
+              {
+                termId: "anchor",
+                value: 0,
+                reason: `Worth saving for: a plan built around it is worth ${gain}% more than buying cheaper items first (${formatSouls(chosen.value)} vs ${formatSouls(greedy.value)} value)`,
+                plain:
+                  "Worth saving up for: it does more for this hero than the cheaper items you would buy instead.",
+              },
+            ],
+          }
+        : pick,
+    ),
+  };
+}
+
+/** Big items worth trying to save for: early 3,200+ (tier 3), later 6,400+ (tier 4). */
+export const ANCHOR_MIN_COST: Readonly<Record<"early" | "later", number>> = {
+  early: 3200,
+  later: 6400,
+};
+/** How many big items each phase tries to save for (the most valuable first). */
+export const ANCHOR_CANDIDATES = 4;
+/**
+ * An anchored plan replaces the greedy basket only when its total value is more than
+ * this much higher, so small differences never flip a build (docs/milestone-h.md §6.2).
+ */
+export const ANCHOR_MARGIN = 0.05;
+
+/**
+ * The phase's most valuable big items that could be bought first: unowned, at or over
+ * the phase's anchor cost, affordable in one slot and not blocked by components. Value
+ * is every term's value with nothing bought yet; ties break by the basket's total order.
+ */
+function anchorCandidates(
+  pool: ReadonlyArray<ItemCandidate>,
+  ctx: BasketContext,
+  terms: ReadonlyArray<MarginalTermFn>,
+): ItemCandidate[] {
+  const start = initialBasketState(ctx);
+  const held = [...(start.held ?? [])];
+  const state: BasketState = { ...start, picked: [], held };
+  const closures = componentClosures([...ctx.owned, ...pool]);
+  const minCost = ctx.phase === "early" ? ANCHOR_MIN_COST.early : ANCHOR_MIN_COST.later;
+  const scored: Array<{ candidate: ItemCandidate; value: number }> = [];
+  for (const candidate of pool) {
+    if (candidate.cost < minCost || blockedByComponents(candidate, state, closures)) continue;
+    const eff = effectiveCost(candidate, held);
+    if (eff.cost > ctx.soulBudget || ctx.maxItems - 1 + eff.consumes.length < 0) continue;
+    let value = 0;
+    for (const term of terms) {
+      const r = term.evaluate(candidate, state, ctx);
+      if (r !== null && Number.isFinite(r.value)) value += r.value;
+    }
+    if (value > 0) scored.push({ candidate, value });
+  }
+  return (
+    scored
+      // Never 0, which is safe: candidates are deduplicated by id and outranks ends in
+      // an id tie-break, so this is a strict total order.
+      .sort((a, b) => (outranks(a.candidate, a.value, b.candidate, b.value) ? -1 : 1))
+      .slice(0, ANCHOR_CANDIDATES)
+      .map((s) => s.candidate)
+  );
+}
+
+/**
+ * Greedy budgeted maximum coverage over `pool`, and the basket's total value (the sum
+ * of its picks' marginal values). With `anchorId`, that item is bought first, before
+ * any other, regardless of its shop's budget share (saving up is a deliberate
+ * overspend); null when the anchor cannot be bought or adds nothing.
  *
  * Each iteration: score every still-affordable, not-yet-picked candidate by the
  * sum of `terms[].evaluate(...)`, take the best under the total order in
@@ -1378,15 +1520,13 @@ function makeResult(
  *   `<= 0`, i.e. it would add nothing (all its coverage already satisfied) or
  *   would be a net negative once the analytics nudge is applied.
  */
-export function constructBasket(
-  candidates: ReadonlyArray<ItemCandidate>,
+function greedyBasket(
+  pool: ReadonlyArray<ItemCandidate>,
   ctx: BasketContext,
-  terms: ReadonlyArray<MarginalTermFn> = DEFAULT_BASKET_TERMS,
-): BasketResult {
-  // Owned items are never candidates (H7). Callers filter them already; the
-  // engine enforces it too.
-  const ownedIds = new Set(ctx.owned.map((o) => o.itemId));
-  const remaining = sanitizeCandidates(candidates).filter((c) => !ownedIds.has(c.itemId));
+  terms: ReadonlyArray<MarginalTermFn>,
+  anchorId: string | null,
+): { result: BasketResult; value: number } | null {
+  const remaining = [...pool];
 
   const initial = initialBasketState(ctx);
   let held: ItemCandidate[] = [...(initial.held ?? [])];
@@ -1403,7 +1543,9 @@ export function constructBasket(
   const picked: ItemCandidate[] = [];
 
   if (remaining.length === 0) {
-    return makeResult(ctx, picks, coverage, spent, "no-candidates");
+    return anchorId === null
+      ? { result: makeResult(ctx, picks, coverage, spent, "no-candidates"), value: 0 }
+      : null;
   }
 
   let stopReason: BasketResult["stopReason"] = "budget";
@@ -1438,11 +1580,13 @@ export function constructBasket(
     // With shop budgets, first look only at items their shop can still pay
     // for; when no shop has room for a useful pick, the souls left over are
     // one shared pool (second pass), so a phase still spends its budget.
-    const passes = ctx.shopBudgets ? [ctx.shopBudgets, null] : [null];
+    const forced = anchorId !== null && picks.length === 0 ? anchorId : null;
+    const passes = ctx.shopBudgets && forced === null ? [ctx.shopBudgets, null] : [null];
     for (const shopBudgets of passes) {
       if (shopBudgets === null && bestIndex !== -1 && bestValue > 0) break;
       for (let i = 0; i < remaining.length; i += 1) {
         const candidate = remaining[i];
+        if (forced !== null && candidate.itemId !== forced) continue;
         if (blockedByComponents(candidate, state, closures)) continue;
 
         const eff = effectiveCost(candidate, held);
@@ -1480,10 +1624,12 @@ export function constructBasket(
           bestScore = score;
           bestTerms = candidateTerms;
           bestCost = eff;
-          bestPooled = ctx.shopBudgets !== undefined && shopBudgets === null;
+          bestPooled = ctx.shopBudgets !== undefined && shopBudgets === null && forced === null;
         }
       }
     }
+
+    if (forced !== null && (bestIndex === -1 || bestValue <= 0)) return null;
 
     if (!sawAffordable) {
       // Out of free slots takes precedence, as before owned coverage existed.
@@ -1556,5 +1702,6 @@ export function constructBasket(
     }
   }
 
-  return makeResult(ctx, picks, coverage, spent, stopReason);
+  const value = picks.reduce((sum, p) => sum + p.marginalValue, 0);
+  return { result: makeResult(ctx, picks, coverage, spent, stopReason), value };
 }

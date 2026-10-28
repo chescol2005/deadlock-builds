@@ -25,6 +25,7 @@ import {
   rankingPrice,
 } from "@/lib/engine/basketSelect";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
+import { ANCHOR_MARGIN, basketPlans } from "@/lib/engine/basketSelect";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import { heroCategorySplit } from "@/lib/engine/categorySplit";
 import { enemyHealthRates, heroPhaseItems } from "@/lib/engine/phaseItems";
@@ -315,6 +316,20 @@ async function main(): Promise<void> {
   console.log(
     `  unmet: ${unmet.length ? unmet.map((c) => `${c} ${fmt(basket.unmetNeed[c], 1)}`).join(", ") : "none"}`,
   );
+
+  // Planned big items (Milestone H): the plans constructBasket compared.
+  const plans = basketPlans(candidates, ctx);
+  console.log(
+    `\nPlans compared (an anchored plan is kept only above +${ANCHOR_MARGIN * 100}%): greedy ${fmt(plans.greedy.value)}`,
+  );
+  for (const a of plans.anchored) {
+    const gain = plans.greedy.value > 0 ? (a.value / plans.greedy.value - 1) * 100 : 0;
+    console.log(
+      `  save for ${pad(a.anchor.name, 24)} ${a.result ? `${lpad(fmt(a.value), 7)} (${gain >= 0 ? "+" : ""}${fmt(gain, 1)}%)` : "cannot lead"}` +
+        (plans.chosen?.anchor.itemId === a.anchor.itemId ? "  <- chosen" : ""),
+    );
+  }
+  if (plans.anchored.length === 0) console.log("  no big item to save for");
 
   console.log(
     `\nFirst-pick ranking (top ${Math.min(args.top, ranked.length)} of ${ranked.length} affordable):`,
