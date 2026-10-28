@@ -18,6 +18,10 @@ import { kitHealPerTrade, selfHealValue } from "../kitHeal";
 import type { HeroBaseStats } from "../../heroStats";
 import type { Item } from "../../items";
 import {
+  ANCHOR_CANDIDATES,
+  ANCHOR_MARGIN,
+  ANCHOR_MIN_COST,
+  basketPlans,
   analyticsTerm,
   categoryBonusTerm,
   CATEGORY_SPLIT_MAX_FRACTION,
@@ -5487,6 +5491,126 @@ console.log("\n25. Baseline baskets on frozen inputs (item scoring review §2.1)
         : undefined,
     );
   }
+}
+
+// ---------------------------------------------
+// 32. Planned big items: anchored plans (Milestone H, docs/milestone-h.md §3)
+// ---------------------------------------------
+console.log("\n32. Planned big items: anchored plans (Milestone H)");
+{
+  const gunNeed = { ...zeroValues(), gunDamage: 1 };
+  // Only two small gun items exist: greedy buys both (1,600 souls) and can't afford the
+  // big one with what is left. Saving for the big item first is worth more.
+  const small = [
+    mkCandidate("small_a", 901, "gun", 800, { gunDamage: 50 }),
+    mkCandidate("small_b", 902, "gun", 800, { gunDamage: 50 }),
+  ];
+  const bigFor = (gun: number) => mkCandidate("big", 903, "gun", 3200, { gunDamage: gun });
+  const early = (budget = 3200) =>
+    makeBasketContext({ needVector: gunNeed, soulBudget: budget, maxItems: 12, phase: "early" });
+
+  const winning = [...small, bigFor(180)];
+  const plans = basketPlans(winning, early());
+  const result = constructBasket(winning, early());
+  const anchorTerm = result.picks[0]?.terms.find((t) => t.termId === "anchor");
+  assert(
+    plans.greedy.result.picks.map((p) => p.item.itemId).join() === "small_a,small_b" &&
+      plans.chosen?.anchor.itemId === "big" &&
+      plans.chosen.value > plans.greedy.value * (1 + ANCHOR_MARGIN) &&
+      result.picks[0]?.item.itemId === "big" &&
+      result.totalCost <= 3200 &&
+      anchorTerm !== undefined &&
+      anchorTerm.value === 0 &&
+      anchorTerm.reason.startsWith("Worth saving for") &&
+      (anchorTerm.plain ?? "").startsWith("Worth saving up for"),
+    "an anchored plan worth more than the greedy basket (by > the margin) is chosen: the big item first, within budget, with a zero-value 'worth saving for' reason",
+    `greedy ${plans.greedy.value.toFixed(1)}, anchored ${plans.chosen?.value.toFixed(1)}`,
+  );
+
+  // Just above the greedy value but within the margin: the greedy basket stands.
+  const close = [...small, bigFor(109)];
+  const closePlans = basketPlans(close, early());
+  const closeAnchor = closePlans.anchored.find((a) => a.anchor.itemId === "big");
+  assert(
+    closeAnchor !== undefined &&
+      closeAnchor.value > closePlans.greedy.value &&
+      closeAnchor.value <= closePlans.greedy.value * (1 + ANCHOR_MARGIN) &&
+      closePlans.chosen === null &&
+      JSON.stringify(constructBasket(close, early())) === JSON.stringify(closePlans.greedy.result),
+    `a plan worth more by no more than ${ANCHOR_MARGIN * 100}% leaves the greedy basket unchanged`,
+    `greedy ${closePlans.greedy.value.toFixed(1)}, anchored ${closeAnchor?.value.toFixed(1)}`,
+  );
+
+  // Deterministic: candidate order changes nothing.
+  assert(
+    JSON.stringify(constructBasket([...winning].reverse(), early())) === JSON.stringify(result),
+    "anchored plans are order-independent (same basket for shuffled candidates)",
+  );
+
+  // Who may anchor: the phase's cost floor, ownership, affordability, the candidate cap.
+  const below = [
+    ...small,
+    mkCandidate("big", 903, "gun", ANCHOR_MIN_COST.early - 100, { gunDamage: 180 }),
+  ];
+  const midCtx = makeBasketContext({
+    needVector: gunNeed,
+    soulBudget: 3200,
+    maxItems: 12,
+    phase: "mid",
+  });
+  const ownedCtx = makeBasketContext({
+    needVector: gunNeed,
+    soulBudget: 3200,
+    maxItems: 12,
+    phase: "early",
+    ownedCandidates: [bigFor(180)],
+  });
+  const many = [
+    ...small,
+    ...Array.from({ length: ANCHOR_CANDIDATES + 3 }, (_, i) =>
+      mkCandidate(`big_${i}`, 950 + i, "gun", 3200, { gunDamage: 120 + i }),
+    ),
+  ];
+  const manyPlans = basketPlans(many, early());
+  assert(
+    basketPlans(below, early()).anchored.length === 0 &&
+      basketPlans(winning, midCtx).anchored.length === 0 &&
+      ANCHOR_MIN_COST.later === 6400 &&
+      basketPlans(winning, ownedCtx).anchored.every((a) => a.anchor.itemId !== "big") &&
+      basketPlans(winning, early(3000)).anchored.length === 0 &&
+      manyPlans.anchored.length <= ANCHOR_CANDIDATES &&
+      manyPlans.anchored.every((a) => Number(a.anchor.itemId.split("_")[1]) >= 3),
+    `anchors: early 3,200+ and later 6,400+ only, never owned or unaffordable, at most the ${ANCHOR_CANDIDATES} most valuable`,
+  );
+
+  // Later phases save for 6,400+ items: the same shape, one tier up.
+  const lateCtx = makeBasketContext({
+    needVector: gunNeed,
+    soulBudget: 6400,
+    maxItems: 12,
+    phase: "late",
+  });
+  const lateCandidates = [
+    // One 3,200 item, better per soul; greedy buys it and can't afford the tier-4 after.
+    mkCandidate("mid_a", 911, "gun", 3200, { gunDamage: 120 }),
+    mkCandidate("t4", 913, "gun", 6400, { gunDamage: 220 }),
+  ];
+  const latePlans = basketPlans(lateCandidates, lateCtx);
+  assert(
+    latePlans.anchored.map((x) => x.anchor.itemId).join() === "t4" &&
+      latePlans.chosen?.anchor.itemId === "t4" &&
+      constructBasket(lateCandidates, lateCtx).picks[0]?.item.itemId === "t4",
+    "later phases save for a 6,400+ item the same way (3,200 items are not anchors there)",
+  );
+
+  // An item the greedy basket already buys is not re-tried as an anchor.
+  const greedyBuysBig = [...small, bigFor(900)];
+  assert(
+    basketPlans(greedyBuysBig, early(4800)).greedy.result.picks.some(
+      (p) => p.item.itemId === "big",
+    ) && basketPlans(greedyBuysBig, early(4800)).anchored.every((a) => a.anchor.itemId !== "big"),
+    "a big item the greedy basket already buys is not tried again as an anchor",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

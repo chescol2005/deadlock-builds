@@ -95,12 +95,12 @@ const MID_REAL_TOP_BASELINE = 0.816; // baseline history: 0.679 refit -> 0.731 r
 
 /**
  * Milestone H (docs/milestone-h.md §4.1): saving up for big items, on ALL heroes.
- * FLOORS are the counts measured before H2 (2026-10-28) and may only be raised: a
+ * FLOORS are the measured counts (raised by H2, 2026-10-28) and may only be raised: a
  * count below its floor fails. TARGETS are the approved bars. A target not yet met is
  * listed in KNOWN_BIG_ITEM_GAPS; a listed target that is met fails until it is removed,
  * so progress is locked in. P3 is the reference heroes' T1 keys in KNOWN_LEAN_GAPS.
  */
-const BIG_ITEM_FLOORS = { P1: 0, P2: 22, P4: 21, P5: 1 } as const;
+const BIG_ITEM_FLOORS = { P1: 1, P2: 22, P4: 26, P5: 2 } as const; // H2 anchored plans (2026-10-28); was P1 0, P4 21, P5 1
 const BIG_ITEM_TARGETS = { P1: 12, P2: 33, P4: 32, P5: 4 } as const;
 const KNOWN_BIG_ITEM_GAPS: ReadonlySet<keyof typeof BIG_ITEM_TARGETS> = new Set([
   "P1",

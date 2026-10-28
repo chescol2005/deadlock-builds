@@ -139,3 +139,32 @@ Each carries a recommendation; approving the doc as written accepts them.
 5. **If P4 or P5 can't reach target without breaking a guard.** **Recommendation:** ship
    what passes the guards, record the rest as accepted gaps with the measured cost, as C5
    did.
+
+## 7. Results
+
+### H2: anchored plans (2026-10-28)
+
+Shipped as designed (4 candidates, 5% margin), after a live sweep on all 44 heroes:
+
+| ID  | Before  | After H2 | Target |
+| --- | ------- | -------- | ------ |
+| P1  | 0 / 24  | 1 / 24   | 12     |
+| P2  | 22 / 44 | 22 / 44  | 33     |
+| P4  | 21 / 52 | 26 / 52  | 32     |
+| P5  | 1 / 10  | 2 / 10   | 4      |
+
+- **Guards:** all pass. 2 of 72 baselines change, both late phases, both toward real
+  play: Haze now ends with Siphon Bullets, Wraith with Ricochet. A starter build takes
+  ~39 ms against ~27 ms with anchors off (1.45×, inside the 3× guard).
+- **Late ceiling of this approach:** 8 or 12 candidates and no margin reach only 27 / 52.
+- **Why early rushes don't come:** in the engine's own value model the rush plan is worth
+  less. Seven early: seven basics 361, Cultist Sacrifice plan 295. Saving 3,200 souls
+  leaves room for three more items, and the basics add up to more.
+- **A slot cost in the comparison was tried and rejected.** Charging each plan a share of
+  the greedy value per item for every slot it uses: at the strength where rushes start
+  (f = 0.5) it matched 4 / 24, picked the wrong item (Seven: Rapid Recharge, not Cultist
+  Sacrifice) and started rushing heroes whose players don't (1 false rush, 7 at f = 0.75).
+  The kit model has no signal for WHICH big item a hero's players rush.
+- **User decision (2026-10-28):** ship the anchored plans, then try a deeper model: value
+  an early plan by its effect on the whole build (early to late), since a rush item stays
+  while early basics are later sold or consumed. Floors raised to P1 1, P4 26, P5 2.
