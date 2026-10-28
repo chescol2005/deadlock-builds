@@ -434,14 +434,28 @@ lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cac
                                 accuracy per hero per rank tier) and getRankTiers()
 lib/coach/                    — the build coach (M6, docs/milestone-m6.md): pure, imports
                                 nothing from lib/engine / lib/scoring / app (Fixture 18).
-                                coachTypes (facts), triggerRules (12 insights x trigger x
-                                audience, priority), sessionMemory (never repeat), templates
-                                (approved wording, new player / veteran), responseValidator
-                                (word limits, fact-only numbers and items, no internal
-                                terms). Templates only; no model yet
+                                coachTypes (facts), triggerRules (18 insights x trigger x
+                                audience, priority: 12 build + 6 lane insights on the
+                                match_reviewed trigger), sessionMemory (never repeat),
+                                templates (approved wording, new player / veteran),
+                                responseValidator (word limits, fact-only numbers and items,
+                                no internal terms). getCoachMessage (one per build action),
+                                getCoachMessages (up to 2 per match review). Templates only;
+                                no model yet
 lib/coachContext.ts           — buildCoachContext(): the ONE bridge from a build to the coach
                                 (M6.3): facts from the build, basket plain reasons, anti-
                                 synergies, roles; upgrade-aware (Fixture 19)
+lib/matchReview/              — the match review's lane facts (docs/match-review-use-
+                                cases.md): parseMatchMetadata() (unknown JSON -> typed match;
+                                missing or mistyped fields rejected, never read as 0),
+                                laneReview() (one hero's 9:00 lane against its two lane
+                                opponents and partner, the §4.1 judgements, or a typed
+                                no-review reason). Pure; imports only itself and the Item
+                                type (Fixture 21, offline on a pinned real match in
+                                __fixtures__/)
+lib/matchReviewCoachContext.ts — buildMatchCoachContext(): the ONE bridge from a lane report
+                                to the coach (MR2): lane facts with game-clock times, souls
+                                rounded to 50 (Fixture 22)
 app/components/                — cross-route shared UI (Milestone C):
   Tooltip.tsx                 — Tooltip, InfoTooltip — sanctioned title= replacement
   AudienceTabs.tsx             — reusable two(+)-audience tab switcher
@@ -456,6 +470,13 @@ app/sitemap.ts, app/robots.ts — sitemap (static routes, guides, hero/build/ite
 app/page.tsx                  — homepage: pitch, hero picker, how-it-works,
                                 guides strip (fetch fails open to a /heroes link)
 app/guide/page.tsx            — guides index (cards from GUIDES)
+app/match/                    — the match review page (MR3): page.tsx (server: heroes +
+                                shop items), MatchReviewClient (lookup, hero picker, review,
+                                coach), matchApi.ts (the ONE browser fetch of match metadata;
+                                the optional deadlock-api key goes only there, as X-API-KEY,
+                                never to an app route, localStorage or the URL: Fixture 23),
+                                matchMessages.ts (plain wording for every error), and
+                                presentational panels in components/
 app/build/[heroId]/page.tsx   — server component, fetches items + hero data
 app/build/BuildClient.tsx     — single state source of truth; owns viewMode
                                 ("simplified" | "advanced") via AudienceTabs
@@ -687,6 +708,8 @@ build; the basket's soul budget is `boonSouls − cost of owned items`.
 | M6        | ✅ Closed | Build coach: hero role table (checked against data), coach core with approved template wording, context builder, CoachPanel in `/build` (`docs/milestone-m6.md`)                    |
 | M7        | ⏸ Queued  | Beginner / Aggressive / Safe starter templates with coach annotations (engine work, moved out of M6)                                                                                |
 | M8        | ⏸ Queued  | Skill-path planner from match data, on the existing grid (moved out of M6)                                                                                                          |
+| MR        | ✅ Closed | Match review (`/match`): lane facts from match metadata, six coach lane insights, the page with an optional deadlock-api key (`docs/match-review-use-cases.md`, PRs #123–#127)      |
+| MR5       | ⏸ Queued  | Optional Anthropic key: a model rewords the lane facts in the browser; needs per-field number checks in the validator first                                                         |
 
 ### After Milestones F and G: open follow-ups
 
@@ -708,6 +731,22 @@ day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
 - **Item tags.** `Item.tags` are slot-derived and only feed the unwired staged pipeline.
 - **Narrow Hero Basket column.** Item names truncate in the 260 px right column of
   `/build` at 1366.
+
+### After the match review: open follow-ups
+
+The match review closed on 2026-10-27 (PRs #123–#127; `docs/match-review-use-cases.md`,
+session record `docs/session-2026-10-27-match-review.md`). Open:
+
+- **MR5, model wording.** The validator allows any digit run found in a fact's text
+  fields; make number checks per field before a model writes lane messages.
+- **Benchmarks.** Per-hero "typical player at 9:00" from
+  `/v1/analytics/player-performance-curve?hero_ids=…&resolution=0`; the rank bracket to
+  compare against needs a decision.
+- **Beyond the lane.** Mid-game, objectives, item timings against the starter build.
+- **Recent matches.** Pick from `/v1/players/{account_id}/match-history` instead of
+  pasting an ID.
+- **Phone layout.** The coach sits below the hero picker and report; collapse the picker
+  once a hero is chosen.
 
 ---
 

@@ -1,8 +1,9 @@
 # Match review (lane phase): use cases and acceptance criteria
 
-**Status:** APPROVED 2026-10-26, with every recommendation in §9 accepted as written.
-Fixtures (MR1) are written from this version; change this doc first if an expectation
-needs to change (see "Testing Expectations" in CLAUDE.md).
+**Status:** BUILT 2026-10-27 (PRs #123–#127). Approved 2026-10-26 with every
+recommendation in §9 accepted; changed since with the user's sign-off: the last-hit rule
+(§4.1), the coach order and one veteran line (§6). Change this doc first if an
+expectation needs to change (see "Testing Expectations" in CLAUDE.md).
 **Work items:** MR0 (this doc) → MR1 lane facts + fixtures → MR2 coach lane insights (AI
 layer, separate PR) → MR3 page → MR4 close. Later: MR5, an optional Anthropic key.
 
