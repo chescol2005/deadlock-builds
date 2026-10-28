@@ -50,7 +50,14 @@ import { runHeroBasket } from "@/lib/engine/heroBasket";
 import type { BasketResult } from "@/lib/engine/types";
 import { headlineTerm } from "@/lib/basketReasons";
 import type { Item } from "@/lib/items";
-import { EMPTY_MEMORY, getCoachMessage } from "@/lib/coach";
+import {
+  EMPTY_MEMORY,
+  MATCH_REVIEW_MAX_MESSAGES,
+  getCoachMessage,
+  getCoachMessages,
+} from "@/lib/coach";
+import { coachCandidates } from "@/lib/coach/triggerRules";
+import { buildMatchCoachContext, gameClock, laneFacts } from "@/lib/matchReviewCoachContext";
 import type { CoachContext, CoachFact, CoachTrigger, InsightId, PlayerMode } from "@/lib/coach";
 import { INSIGHT_PRIORITY, INSIGHT_RULES } from "@/lib/coach/triggerRules";
 import { renderInsight } from "@/lib/coach/templates";
@@ -94,6 +101,52 @@ import {
   siteUrl,
   sitemapEntries,
 } from "@/lib/seo";
+
+/** Every lane-insight template variant (MR2), shared by Fixtures 18 and 22. */
+const LANE_SAMPLE_FACTS: CoachFact[] = [
+  {
+    id: "lane_deaths",
+    count: 2,
+    deathTimes: ["5:31", "7:46"],
+    gankers: ["Haze"],
+    laneEnd: "9:00",
+  },
+  {
+    id: "lane_deaths",
+    count: 3,
+    deathTimes: ["0:43", "2:23", "5:44"],
+    gankers: [],
+    laneEnd: "9:00",
+  },
+  {
+    id: "fell_behind_early",
+    soulsBehind: 650,
+    recovered: false,
+    checkTime: "6:00",
+    laneEnd: "9:00",
+  },
+  {
+    id: "fell_behind_early",
+    soulsBehind: 650,
+    recovered: true,
+    checkTime: "6:00",
+    laneEnd: "9:00",
+  },
+  { id: "lost_trades", dealt: 2200, taken: 3100, laneEnd: "9:00" },
+  { id: "missed_last_hits", yourShare: 44, opponentShare: 70 },
+  { id: "lane_result", result: "behind", soulGap: 600, laneEnd: "9:00" },
+  { id: "lane_result", result: "ahead", soulGap: 600, laneEnd: "9:00" },
+  { id: "lane_result", result: "even", soulGap: 300, laneEnd: "9:00" },
+  { id: "strong_lane", soulGap: 650, laneEnd: "9:00" },
+];
+const LANE_INSIGHTS: ReadonlyArray<InsightId> = [
+  "lane_deaths",
+  "fell_behind_early",
+  "lost_trades",
+  "missed_last_hits",
+  "lane_result",
+  "strong_lane",
+];
 
 let passed = 0;
 let failed = 0;
@@ -1357,6 +1410,8 @@ async function run() {
     { id: "no_sustain", itemCount: 8 },
     { id: "gap_after_remove", itemName: "Extra Regen", category: "vitality" },
     { id: "starter_explained", heroName: "Abrams" },
+    // Match review lane insights (MR2): every template variant.
+    ...LANE_SAMPLE_FACTS,
   ];
   const ALL_TRIGGERS: CoachTrigger[] = [
     { type: "hero_selected" },
@@ -1364,6 +1419,7 @@ async function run() {
     { type: "item_removed", itemId: "x" },
     { type: "starter_applied" },
     { type: "build_reviewed" },
+    { type: "match_reviewed" },
   ];
   const coachCtx = (
     facts: CoachFact[],
@@ -1402,7 +1458,7 @@ async function run() {
   }
   assert(
     c4Wrong.length === 0,
-    "C4: every insight speaks on exactly its triggers and audiences (12 insights x 5 triggers x 2 audiences)",
+    `C4: every insight speaks on exactly its triggers and audiences (${Object.keys(INSIGHT_RULES).length} insights x ${ALL_TRIGGERS.length} triggers x 2 audiences)`,
     c4Wrong.join(", "),
   );
   const emptyFact = sampleFacts[1];
@@ -2260,6 +2316,271 @@ async function run() {
       flagged.every((r) => r !== null && lowestInLane(r)),
     `R7: in the pinned match, missed last hits flags ${flagged.length} of 12, each the lowest last-hitter in its lane`,
   );
+
+  // -----------------------------------------------
+  // Fixture 22: Coach lane insights (docs/match-review-use-cases.md §6, R8)
+  // -----------------------------------------------
+  console.log("\n22. Coach lane insights (match review MR2)");
+  const bridgeImports = importsOf("lib/matchReviewCoachContext.ts");
+  assert(
+    bridgeImports.includes("./matchReview") &&
+      bridgeImports.includes("./coach") &&
+      bridgeImports.every((p) =>
+        ["./items", "./boonSystem", "./heroRoles", "./matchReview", "./coach"].includes(p),
+      ),
+    "lib/matchReviewCoachContext.ts is the one bridge: it reads the lane report and the coach, and nothing from the engine, scoring or app",
+    bridgeImports.join(", "),
+  );
+  // Lane warnings say what to do instead, in both audiences.
+  const LANE_FIX_WORDS =
+    /\b(back off|play|fight|focus|take|shoot|secure|deny|save|farm|avoid|respect|push|keep|use)\b/i;
+  const laneNoFix = LANE_SAMPLE_FACTS.filter(
+    (f) => !(f.id === "lane_result" && f.result !== "behind"),
+  ).flatMap((f) =>
+    (["new", "veteran"] as PlayerMode[])
+      .filter((m) => !LANE_FIX_WORDS.test(renderInsight(f, m)))
+      .map((m) => `${f.id}/${m}`),
+  );
+  assert(
+    laneNoFix.length === 0,
+    "C6: every lane warning, in both audiences, says what to do instead",
+    laneNoFix.join(", "),
+  );
+  assert(
+    INSIGHT_PRIORITY.indexOf("lane_deaths") < INSIGHT_PRIORITY.indexOf("fell_behind_early") &&
+      INSIGHT_PRIORITY.indexOf("fell_behind_early") < INSIGHT_PRIORITY.indexOf("lost_trades") &&
+      INSIGHT_PRIORITY.indexOf("lost_trades") < INSIGHT_PRIORITY.indexOf("missed_last_hits") &&
+      INSIGHT_PRIORITY.indexOf("missed_last_hits") < INSIGHT_PRIORITY.indexOf("lane_result") &&
+      INSIGHT_PRIORITY.indexOf("lane_result") < INSIGHT_PRIORITY.indexOf("strong_lane") &&
+      MATCH_REVIEW_MAX_MESSAGES === 2,
+    "approved order: deaths, fell behind early, lost trades, missed last hits, lane result, strong lane; at most 2 per review",
+  );
+
+  if (match) {
+    const heroNameMap = new Map(
+      Object.entries(HERO_ROLES).map(([id, e]) => [Number(id), e.name] as const),
+    );
+    const laneCtx = (r: LaneReport, mode: PlayerMode) =>
+      buildMatchCoachContext({
+        playerMode: mode,
+        report: r,
+        hero: {
+          id: r.you.heroId,
+          name: heroNameMap.get(r.you.heroId) ?? "",
+          complexity: 1,
+        },
+        heroNames: heroNameMap,
+        allItems: fz.allItems,
+      });
+    const okReports = reports.filter((r): r is LaneReport => r !== null);
+
+    // Each lane fact exists exactly when its judgement holds.
+    const factBad = okReports.filter((r) => {
+      const ids = laneFacts(r, heroNameMap).map((f) => f.id);
+      const has = (id: InsightId) => ids.includes(id);
+      const j = r.judgements;
+      const strong = j.souls === "ahead" && r.deaths.length === 0;
+      return (
+        has("lane_deaths") !== j.costlyDeaths ||
+        has("fell_behind_early") !== (j.atSixMinutes === "behind") ||
+        has("lost_trades") !== (j.trades === "lost") ||
+        has("missed_last_hits") !== (j.missedLastHits === true) ||
+        has("strong_lane") !== strong ||
+        has("lane_result") === strong
+      );
+    });
+    assert(
+      factBad.length === 0 && okReports.length === 12,
+      "each lane fact exists exactly when its judgement holds; strong lane replaces the lane result",
+      factBad.map((r) => r.you.heroId).join(", "),
+    );
+
+    // The numbers each fact carries are the report's, rounded as approved.
+    const numBad = okReports.flatMap((r) =>
+      laneFacts(r, heroNameMap).flatMap((f) => {
+        switch (f.id) {
+          case "lane_deaths": {
+            const ganked = r.deaths
+              .filter((d) => d.gank && d.killerHeroId !== null)
+              .map((d) => heroNameMap.get(d.killerHeroId ?? -1));
+            return f.count === r.deaths.length &&
+              f.deathTimes.join() === r.deaths.map((d) => gameClock(d.timeS)).join() &&
+              f.gankers.every((n) => ganked.includes(n)) &&
+              new Set(ganked).size === f.gankers.length &&
+              f.laneEnd === "9:00"
+              ? []
+              : [`${r.you.heroId}/${f.id}`];
+          }
+          case "lane_result":
+            return f.soulGap % 50 === 0 &&
+              f.soulGap >= 50 &&
+              (f.result !== "even" || f.soulGap >= Math.abs(r.soulGap))
+              ? []
+              : [`${r.you.heroId}/${f.id}`];
+          case "lost_trades":
+            return f.dealt % 50 === 0 &&
+              f.taken % 50 === 0 &&
+              Math.abs(f.dealt - r.you.atLaneEnd.damageDealt) <= 25 &&
+              Math.abs(f.taken - r.you.atLaneEnd.damageTaken) <= 25 &&
+              f.dealt < f.taken
+              ? []
+              : [`${r.you.heroId}/${f.id}`];
+          case "fell_behind_early": {
+            const at6 = (slot: number) =>
+              match.players
+                .find((pl) => pl.player_slot === slot)
+                ?.stats.find((st) => st.time_stamp_s === 360)?.net_worth ?? NaN;
+            const behind =
+              (at6(r.opponents[0].playerSlot) + at6(r.opponents[1].playerSlot)) / 2 -
+              at6(r.you.playerSlot);
+            return f.soulsBehind % 50 === 0 &&
+              Math.abs(f.soulsBehind - behind) <= 25 &&
+              f.recovered === (r.judgements.souls !== "behind") &&
+              f.checkTime === "6:00"
+              ? []
+              : [`${r.you.heroId}/${f.id}`];
+          }
+          case "strong_lane":
+            return f.soulGap % 50 === 0 && Math.abs(f.soulGap - r.soulGap) <= 25
+              ? []
+              : [`${r.you.heroId}/${f.id}`];
+          case "missed_last_hits":
+            return f.yourShare === Math.round((lastHitShare(r.you.atLaneEnd) ?? -1) * 100) &&
+              f.opponentShare ===
+                Math.round(
+                  (((lastHitShare(r.opponents[0].atLaneEnd) ?? NaN) +
+                    (lastHitShare(r.opponents[1].atLaneEnd) ?? NaN)) /
+                    2) *
+                    100,
+                ) &&
+              f.yourShare < f.opponentShare
+              ? []
+              : [`${r.you.heroId}/${f.id}`];
+          default:
+            return [];
+        }
+      }),
+    );
+    assert(
+      numBad.length === 0 &&
+        gameClock(331) === "5:31" &&
+        gameClock(540) === "9:00" &&
+        gameClock(65) === "1:05",
+      "lane facts carry the report's numbers: death times as m:ss, ganker names, souls and damage to the nearest 50, an even gap rounded up so 'within' holds",
+      numBad.join(", "),
+    );
+
+    // End to end on every hero and audience: at most two messages, the top
+    // candidates in priority order, none dropped by the validator, deterministic.
+    const e2eBad: string[] = [];
+    let twoMessageReviews = 0;
+    let sampleText = "";
+    for (const r of okReports) {
+      for (const mode of ["new", "veteran"] as PlayerMode[]) {
+        const { context, knownItemNames } = laneCtx(r, mode);
+        const out = getCoachMessages(
+          context,
+          EMPTY_MEMORY,
+          knownItemNames,
+          MATCH_REVIEW_MAX_MESSAGES,
+        );
+        const expected = coachCandidates(context, EMPTY_MEMORY)
+          .slice(0, MATCH_REVIEW_MAX_MESSAGES)
+          .map((f) => f.id);
+        const again = getCoachMessages(
+          laneCtx(r, mode).context,
+          EMPTY_MEMORY,
+          knownItemNames,
+          MATCH_REVIEW_MAX_MESSAGES,
+        );
+        if (
+          out.messages.length === 0 ||
+          out.messages.map((m) => m.insight).join() !== expected.join() ||
+          JSON.stringify(out) !== JSON.stringify(again)
+        ) {
+          e2eBad.push(`${r.you.heroId}/${mode}`);
+        }
+        if (out.messages.length === 2) twoMessageReviews++;
+        if (r.deaths.some((d) => d.gank) && mode === "new" && !sampleText) {
+          sampleText = out.messages.map((m) => m.text).join(" // ");
+        }
+      }
+    }
+    // Synthetic edges on a real report: unnamed and partly named ganks, rounding
+    // that would make a lost trade read as even, the 50-soul floor, many deaths.
+    const base = okReports[0];
+    const gankDeaths = (killers: Array<number | null>): LaneReport["deaths"] =>
+      killers.map((k, i) => ({ timeS: 100 + i * 60, killerHeroId: k, gank: true }));
+    const withJ = (r: LaneReport, j: Partial<LaneReport["judgements"]>): LaneReport => ({
+      ...r,
+      judgements: { ...r.judgements, ...j },
+    });
+    const knownHero = [...heroNameMap.keys()][0];
+    const deathFact = (r: LaneReport) =>
+      laneFacts(r, heroNameMap).find((f) => f.id === "lane_deaths");
+    const unnamed = deathFact(
+      withJ({ ...base, deaths: gankDeaths([null, -5]) }, { costlyDeaths: true }),
+    );
+    const mixed = deathFact(
+      withJ({ ...base, deaths: gankDeaths([knownHero, null]) }, { costlyDeaths: true }),
+    );
+    const sixDeaths = withJ(
+      { ...base, deaths: gankDeaths([knownHero, knownHero, null, null, knownHero, null]) },
+      { costlyDeaths: true },
+    );
+    const sixSaid = (["new", "veteran"] as PlayerMode[]).every((m) => {
+      const { context, knownItemNames } = laneCtx(sixDeaths, m);
+      return (
+        getCoachMessage(context, EMPTY_MEMORY, knownItemNames).message?.insight === "lane_deaths"
+      );
+    });
+    const unnamedText = unnamed ? renderInsight(unnamed, "new") : "";
+    const evenTrade = withJ(
+      {
+        ...base,
+        you: {
+          ...base.you,
+          atLaneEnd: { ...base.you.atLaneEnd, damageDealt: 79, damageTaken: 100 },
+        },
+      },
+      { trades: "lost" },
+    );
+    const tinyLead = withJ({ ...base, deaths: [], soulGap: 10 }, { souls: "ahead" });
+    const strongTiny = laneFacts(tinyLead, heroNameMap).find((f) => f.id === "strong_lane");
+    assert(
+      unnamed?.id === "lane_deaths" &&
+        unnamed.gankers.join() === "an enemy" &&
+        unnamedText.includes("An enemy came from another lane") &&
+        mixed?.id === "lane_deaths" &&
+        mixed.gankers.join() === `${heroNameMap.get(knownHero)},an enemy` &&
+        sixSaid &&
+        !laneFacts(evenTrade, heroNameMap).some((f) => f.id === "lost_trades") &&
+        strongTiny?.id === "strong_lane" &&
+        strongTiny.soulGap === 50,
+      "edges: an unnamed ganker is 'an enemy', never dropped into no-gank advice; six deaths still fit the word limit in both audiences; a lost trade that rounds to even is not said; a gap never shows as 0",
+      unnamedText,
+    );
+    assert(
+      e2eBad.length === 0 && twoMessageReviews >= 1,
+      `pinned match end to end: every hero gets 1-2 coach messages in both audiences, the top candidates in priority order, none dropped by the validator, same every time (${twoMessageReviews} of 24 reviews show two)`,
+      e2eBad.join(", "),
+    );
+    console.log(`     e.g. ${sampleText}`);
+    // Build insights never answer a match review, and lane insights never answer a build action.
+    const laneOnly = okReports.every((r) => {
+      const ctx = laneCtx(r, "new").context;
+      return coachCandidates(ctx, EMPTY_MEMORY).every((f) => LANE_INSIGHTS.includes(f.id));
+    });
+    assert(
+      laneOnly &&
+        LANE_SAMPLE_FACTS.every((f) =>
+          (["new", "veteran"] as PlayerMode[]).every(
+            (m) => say([f], { type: "build_reviewed" }, m) === null,
+          ),
+        ),
+      "a match review only ever hears lane insights, and the build coach never says them",
+    );
+  }
 
   // -----------------------------------------------
   // Summary

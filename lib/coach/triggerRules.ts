@@ -1,6 +1,7 @@
 // lib/coach/triggerRules.ts — whether the coach speaks, and about what
 // (docs/milestone-m6.md §5). Deterministic: the same context and memory always
-// give the same choice. At most one insight per action.
+// give the same choice. At most one insight per build action; a match review shows
+// up to MATCH_REVIEW_MAX_MESSAGES.
 
 import type {
   CoachContext,
@@ -37,7 +38,16 @@ export const INSIGHT_RULES: Readonly<Record<InsightId, InsightRule>> = {
   no_sustain: { triggers: ["item_added", "build_reviewed"], modes: BOTH },
   gap_after_remove: { triggers: ["item_removed"], modes: BOTH },
   starter_explained: { triggers: ["starter_applied"], modes: NEW },
+  lane_deaths: { triggers: ["match_reviewed"], modes: BOTH },
+  fell_behind_early: { triggers: ["match_reviewed"], modes: BOTH },
+  lost_trades: { triggers: ["match_reviewed"], modes: BOTH },
+  missed_last_hits: { triggers: ["match_reviewed"], modes: BOTH },
+  lane_result: { triggers: ["match_reviewed"], modes: BOTH },
+  strong_lane: { triggers: ["match_reviewed"], modes: BOTH },
 };
+
+/** A match review shows at most this many messages (docs/match-review-use-cases.md §6). */
+export const MATCH_REVIEW_MAX_MESSAGES = 2;
 
 /**
  * When several insights apply, the most urgent speaks: a mistake to undo, then
@@ -56,6 +66,14 @@ export const INSIGHT_PRIORITY: ReadonlyArray<InsightId> = [
   "empty_build",
   "first_in_category",
   "next_buy_reason",
+  // Match review: causes before the summary, which the page already shows
+  // (approved order, MR2).
+  "lane_deaths",
+  "fell_behind_early",
+  "lost_trades",
+  "missed_last_hits",
+  "lane_result",
+  "strong_lane",
 ];
 
 function allowed(fact: CoachFact, ctx: CoachContext): boolean {

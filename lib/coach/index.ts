@@ -12,6 +12,7 @@ import { coachCandidates } from "./triggerRules";
 
 export type * from "./coachTypes";
 export { EMPTY_MEMORY } from "./sessionMemory";
+export { MATCH_REVIEW_MAX_MESSAGES } from "./triggerRules";
 
 /**
  * The coach's response to this action: at most one message, and the memory to
@@ -33,4 +34,26 @@ export function getCoachMessage(
     }
   }
   return { message: null, memory };
+}
+
+/**
+ * Up to `max` messages for one action, most urgent first (the match review shows
+ * MATCH_REVIEW_MAX_MESSAGES). Each one is remembered before the next is chosen,
+ * so no insight is said twice.
+ */
+export function getCoachMessages(
+  ctx: CoachContext,
+  memory: CoachMemory,
+  knownItemNames: ReadonlyArray<string>,
+  max: number,
+): { messages: CoachMessage[]; memory: CoachMemory } {
+  const messages: CoachMessage[] = [];
+  let current = memory;
+  while (messages.length < max) {
+    const next = getCoachMessage(ctx, current, knownItemNames);
+    if (!next.message) break;
+    messages.push(next.message);
+    current = next.memory;
+  }
+  return { messages, memory: current };
 }
