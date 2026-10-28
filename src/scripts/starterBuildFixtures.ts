@@ -10,6 +10,7 @@
 // Live network: reads the same API data the planner does, so results move with
 // patches. Node-only (scripts).
 
+import { T1_TOLERANCE, measureBigItems, type BigItemHero, type CountCheck } from "./bigItemChecks";
 import type { Item } from "@/lib/items";
 import { MAX_ACTIVE_ITEMS } from "@/lib/buildUtils";
 import { componentClosure, heroPairLift } from "@/lib/engine/pairLift";
@@ -84,8 +85,6 @@ const MEAN_L1_MAX = 0.12;
 
 /** O1: early picks that must be among the hero's real top 10 early buys. */
 const O1_MIN_HITS = 2;
-/** T1: allowed gap in the early share of souls on 3,200+ items, engine vs real. */
-const T1_TOLERANCE = 0.15;
 /**
  * O2 baseline: share of the reference heroes' mid picks that are in the hero's
  * real 10–20 min top 10. May only be raised (docs/starter-build-use-cases.md §4.3).
@@ -93,6 +92,22 @@ const T1_TOLERANCE = 0.15;
 // Rebased on the post-patch tables (§2.1): 36/53 = 0.679. Was 0.69 (37/53, 2026-10-24).
 // Raised to 40/49 = 0.816 by the G4 profile refit in fight-value units (2026-10-25).
 const MID_REAL_TOP_BASELINE = 0.816; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4
+
+/**
+ * Milestone H (docs/milestone-h.md §4.1): saving up for big items, on ALL heroes.
+ * FLOORS are the counts measured before H2 (2026-10-28) and may only be raised: a
+ * count below its floor fails. TARGETS are the approved bars. A target not yet met is
+ * listed in KNOWN_BIG_ITEM_GAPS; a listed target that is met fails until it is removed,
+ * so progress is locked in. P3 is the reference heroes' T1 keys in KNOWN_LEAN_GAPS.
+ */
+const BIG_ITEM_FLOORS = { P1: 0, P2: 22, P4: 21, P5: 1 } as const;
+const BIG_ITEM_TARGETS = { P1: 12, P2: 33, P4: 32, P5: 4 } as const;
+const KNOWN_BIG_ITEM_GAPS: ReadonlySet<keyof typeof BIG_ITEM_TARGETS> = new Set([
+  "P1",
+  "P2",
+  "P4",
+  "P5",
+] as const);
 
 const sum = (xs: ReadonlyArray<number>) => xs.reduce((a, b) => a + b, 0);
 
@@ -890,5 +905,57 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
       found.length > 0,
       found.length > 0 ? `${found.length} upgrade path(s), e.g. ${found[0]}` : "no upgrade paths",
     );
+  }
+
+  // P1-P5 — Milestone H: the build saves up for big items like real players on THIS
+  // hero, across all heroes with measured phase items (docs/milestone-h.md §2).
+  {
+    const started = performance.now();
+    const bigHeroes: BigItemHero[] = [];
+    for (const hero of d.heroes) {
+      const rates = heroPhaseItems(d.phaseItemsTable, hero.id);
+      if (!rates) continue;
+      const kit = kits.get(hero.name) ?? (await loadHeroKit(hero));
+      if (!kit) continue;
+      const build = builds.get(hero.name) ?? buildStarterBuild(inputsFor(kit));
+      if (build) bigHeroes.push({ name: hero.name, build, rates });
+    }
+    const ms = (performance.now() - started) / Math.max(1, bigHeroes.length);
+    const m = measureBigItems(bigHeroes, d.allItems);
+    const checks: Array<[keyof typeof BIG_ITEM_TARGETS, string, CountCheck]> = [
+      ["P1", "early rushes (3,200+, >= 20% of players) held at the early phase", m.earlyRush],
+      ["P2", "heroes within 15 pts of real early share in 3,200+ items", m.earlyShare],
+      ["P4", "6,400+ items in the real late top 3 held by the late phase", m.lateTopBig],
+      ["P5", "6,400+ mid buys (>= 20% of players) held by the mid phase", m.midBig],
+    ];
+    assert(
+      bigHeroes.length >= 40,
+      `H P setup: ${bigHeroes.length} heroes with measured phase items and a starter build (~${Math.round(ms)} ms each incl. kit load)`,
+    );
+    for (const [id, label, c] of checks) {
+      const detail = `${c.hit}/${c.total}; missing e.g. ${c.misses.slice(0, 4).join(" | ") || "none"}`;
+      assert(
+        c.hit >= BIG_ITEM_FLOORS[id],
+        `H ${id} floor: ${label} ${c.hit} >= ${BIG_ITEM_FLOORS[id]} (no regression)`,
+        detail,
+      );
+      const met = c.hit >= BIG_ITEM_TARGETS[id];
+      const listed = KNOWN_BIG_ITEM_GAPS.has(id);
+      if (met && listed) {
+        assert(
+          false,
+          `H ${id} target met (${c.hit} >= ${BIG_ITEM_TARGETS[id]}) — remove it from KNOWN_BIG_ITEM_GAPS`,
+          detail,
+        );
+      } else if (met) {
+        assert(true, `H ${id}: ${label} ${c.hit}/${c.total} (target ${BIG_ITEM_TARGETS[id]})`);
+      } else if (listed) {
+        console.log(
+          `  ⏳ known gap H ${id}: ${label} ${c.hit}/${c.total} (target ${BIG_ITEM_TARGETS[id]})`,
+        );
+      } else {
+        assert(false, `H ${id} target missed and not in KNOWN_BIG_ITEM_GAPS: ${label}`, detail);
+      }
+    }
   }
 }
