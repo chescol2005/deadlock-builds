@@ -160,8 +160,10 @@ No live calls are needed in CI.
   souls, 19.9 last hits, ~14.6k samples). `lane-matchup-stats` sums lane duos, so it is
   less useful per player.
 - **Beyond the lane.** Mid-game, objectives, item timings against the starter build.
-- **Recent matches.** Pick from your recent matches by account ID instead of pasting an
-  ID. `/v1/players/{account_id}/match-history` works without a key.
+- **Recent matches.** Built 2026-10-28: a Steam profile link, SteamID64 or friend code
+  lists your 10 newest normal matches from `/v1/players/{account_id}/match-history`; a
+  pick loads the match with your hero already chosen. The account id stays in memory,
+  never in the page link or storage.
 
 ## 9. Open questions for sign-off
 

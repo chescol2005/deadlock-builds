@@ -1,13 +1,17 @@
-// app/match/matchApi.ts — fetches match metadata from the visitor's browser
+// app/match/matchApi.ts — fetches match data from the visitor's browser
 // (docs/match-review-use-cases.md §5). The optional deadlock-api key goes only to
 // api.deadlock-api.com, as the X-API-KEY header: never to this site, never in a URL
-// (Fixture 23, R9). Responses verified 2026-10-26: 404 "Match metadata not found.",
-// 503 "Steam is busy" with Retry-After.
+// (Fixture 23, R9). Every request goes through apiGet(), the one fetch call.
+// Responses verified: match metadata 2026-10-26 (404 "Match metadata not found.",
+// 503 "Steam is busy" with Retry-After); match history 2026-10-28 (a JSON array; a bad
+// account id is a 400 with a plain-text body).
 
-import { parseMatchMetadata } from "@/lib/matchReview";
-import type { MatchMetadata } from "@/lib/matchReview";
+import { parseMatchHistory, parseMatchMetadata } from "@/lib/matchReview";
+import type { MatchMetadata, RecentMatch } from "@/lib/matchReview";
 
-export const MATCH_API_BASE = "https://api.deadlock-api.com/v1/matches";
+export const API_ORIGIN = "https://api.deadlock-api.com";
+export const MATCH_API_BASE = `${API_ORIGIN}/v1/matches`;
+export const PLAYER_API_BASE = `${API_ORIGIN}/v1/players`;
 
 /** A match ID: digits only. */
 export const MATCH_ID_PATTERN = /^\d{1,12}$/;
@@ -27,22 +31,29 @@ export type MatchLoadResult =
   | { ok: true; match: MatchMetadata }
   | { ok: false; error: MatchLoadError };
 
+export type HistoryLoadResult =
+  | { ok: true; matches: RecentMatch[] }
+  | { ok: false; error: MatchLoadError };
+
 function retryAfter(res: Response): number | null {
   const raw = res.headers.get("retry-after");
   const n = raw === null ? NaN : Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-export async function fetchMatchMetadata(
-  matchId: string,
+/**
+ * GET a deadlock-api path and read its JSON, mapping every failure to a MatchLoadError.
+ * Aborts propagate, so a newer lookup can cancel an older one.
+ */
+async function apiGet(
+  path: string,
   apiKey: string,
   signal?: AbortSignal,
-): Promise<MatchLoadResult> {
-  if (!MATCH_ID_PATTERN.test(matchId)) return { ok: false, error: { kind: "invalid_id" } };
+): Promise<{ ok: true; json: unknown } | { ok: false; error: MatchLoadError }> {
   const key = apiKey.trim();
   let res: Response;
   try {
-    res = await fetch(`${MATCH_API_BASE}/${matchId}/metadata`, {
+    res = await fetch(`${API_ORIGIN}${path}`, {
       headers: key ? { "X-API-KEY": key } : undefined,
       signal,
     });
@@ -59,12 +70,36 @@ export async function fetchMatchMetadata(
   }
   if (res.status === 401 || res.status === 403) return { ok: false, error: { kind: "bad_key" } };
   if (!res.ok) return { ok: false, error: { kind: "http", status: res.status } };
-  let json: unknown;
   try {
-    json = await res.json();
+    return { ok: true, json: await res.json() };
   } catch {
     return { ok: false, error: { kind: "unreadable" } };
   }
-  const match = parseMatchMetadata(json);
+}
+
+export async function fetchMatchMetadata(
+  matchId: string,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<MatchLoadResult> {
+  if (!MATCH_ID_PATTERN.test(matchId)) return { ok: false, error: { kind: "invalid_id" } };
+  const got = await apiGet(`/v1/matches/${matchId}/metadata`, apiKey, signal);
+  if (!got.ok) return got;
+  const match = parseMatchMetadata(got.json);
   return match ? { ok: true, match } : { ok: false, error: { kind: "unreadable" } };
+}
+
+/** The account's recent normal matches; `accountId` comes from parsePlayerId(). */
+export async function fetchMatchHistory(
+  accountId: number,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<HistoryLoadResult> {
+  if (!Number.isInteger(accountId) || accountId <= 0 || accountId > 0xffffffff) {
+    return { ok: false, error: { kind: "invalid_id" } };
+  }
+  const got = await apiGet(`/v1/players/${accountId}/match-history`, apiKey, signal);
+  if (!got.ok) return got;
+  const matches = parseMatchHistory(got.json);
+  return matches ? { ok: true, matches } : { ok: false, error: { kind: "unreadable" } };
 }

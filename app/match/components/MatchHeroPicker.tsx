@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { LaneGroup, MatchHeroInfo } from "../matchViewTypes";
 import { MatchIcon } from "./MatchIcon";
 
@@ -35,6 +36,46 @@ function HeroButton({ hero, selected, onSelect }: HeroButtonProps) {
 
 // `simplified` is part of the panel convention; picking a hero has no veteran-only detail.
 export function MatchHeroPicker({ lanes, selectedHeroId, onSelect }: MatchHeroPickerProps) {
+  // UI-only: whether the full picker is re-opened after a hero was chosen.
+  const [expanded, setExpanded] = useState(false);
+
+  const selected = useMemo(
+    () =>
+      lanes
+        .flatMap((group) => group.teams.flat().map((hero) => ({ hero, laneName: group.laneName })))
+        .find((entry) => entry.hero.id === selectedHeroId) ?? null,
+    [lanes, selectedHeroId],
+  );
+
+  function handleSelect(heroId: number) {
+    onSelect(heroId);
+    setExpanded(false);
+  }
+
+  if (selected && !expanded) {
+    return (
+      <section
+        aria-label="Your hero"
+        className="flex flex-wrap items-center gap-x-2 gap-y-2 rounded-lg border border-zinc-700 bg-zinc-900 p-3"
+      >
+        <span className="text-sm text-zinc-500">You played</span>
+        <MatchIcon src={selected.hero.icon} name={selected.hero.name} size="sm" />
+        <span className="min-w-0 truncate text-sm font-semibold text-white">
+          {selected.hero.name}
+        </span>
+        <span className="text-sm text-zinc-500">· {selected.laneName} lane</span>
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          aria-expanded={false}
+          className="ml-auto rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-medium text-amber-400 hover:border-amber-500 pointer-coarse:min-h-10 pointer-coarse:min-w-10"
+        >
+          Change
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section
       aria-label="Pick your hero"
@@ -55,7 +96,7 @@ export function MatchHeroPicker({ lanes, selectedHeroId, onSelect }: MatchHeroPi
                     key={hero.id}
                     hero={hero}
                     selected={hero.id === selectedHeroId}
-                    onSelect={onSelect}
+                    onSelect={handleSelect}
                   />
                 ))}
               </div>
@@ -66,7 +107,7 @@ export function MatchHeroPicker({ lanes, selectedHeroId, onSelect }: MatchHeroPi
                     key={hero.id}
                     hero={hero}
                     selected={hero.id === selectedHeroId}
-                    onSelect={onSelect}
+                    onSelect={handleSelect}
                   />
                 ))}
               </div>

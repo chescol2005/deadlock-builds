@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { RefObject } from "react";
 import type { Item } from "@/lib/items";
-import { LANE_NAMES, laneReview } from "@/lib/matchReview";
+import { LANE_NAMES, laneReview, parsePlayerId } from "@/lib/matchReview";
+import type { RecentMatch } from "@/lib/matchReview";
 import type { MatchMetadata } from "@/lib/matchReview";
 import { buildMatchCoachContext, gameClock } from "@/lib/matchReviewCoachContext";
 import { EMPTY_MEMORY, MATCH_REVIEW_MAX_MESSAGES, getCoachMessages } from "@/lib/coach";
@@ -13,10 +14,17 @@ import { MatchLookupForm } from "./components/MatchLookupForm";
 import { MatchHeroPicker } from "./components/MatchHeroPicker";
 import { LaneReportPanel } from "./components/LaneReportPanel";
 import { LaneCoachPanel } from "./components/LaneCoachPanel";
-import { MATCH_ID_PATTERN, fetchMatchMetadata } from "./matchApi";
+import { MATCH_ID_PATTERN, fetchMatchHistory, fetchMatchMetadata } from "./matchApi";
 import type { MatchLoadError } from "./matchApi";
-import { NO_REVIEW_MESSAGES, loadErrorMessage } from "./matchMessages";
-import type { CoachLine, LaneGroup, LaneItemView, MatchHeroInfo } from "./matchViewTypes";
+import { NO_REVIEW_MESSAGES, PLAYER_ID_MESSAGES, loadErrorMessage } from "./matchMessages";
+import { RecentMatchesPanel } from "./components/RecentMatchesPanel";
+import type {
+  CoachLine,
+  LaneGroup,
+  LaneItemView,
+  MatchHeroInfo,
+  RecentMatchView,
+} from "./matchViewTypes";
 
 export interface MatchPageHero extends MatchHeroInfo {
   /** Valve's 1–4 difficulty; null when the API has none. */
@@ -66,6 +74,24 @@ function subscribeStoredKey(listener: () => void): () => void {
   keyListeners.add(listener);
   return () => keyListeners.delete(listener);
 }
+
+/**
+ * The player's recent matches. The account id lives only in this state: never in the
+ * URL (a shared review must not expose a Steam account) and never in storage.
+ */
+type HistoryState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "loaded"; matches: RecentMatch[] };
+
+const PLAYED_AT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
 
 type LoadState =
   | { status: "idle" }
@@ -131,6 +157,9 @@ export function MatchReviewClient({
   const [load, setLoad] = useState<LoadState>({ status: "idle" });
   const [heroId, setHeroId] = useState<number | null>(initialHeroId);
   const abortRef = useRef<AbortController | null>(null);
+  const [playerInput, setPlayerInput] = useState("");
+  const [history, setHistory] = useState<HistoryState>({ status: "idle" });
+  const historyAbortRef = useRef<AbortController | null>(null);
 
   const heroById = useMemo(() => new Map(heroes.map((h) => [h.id, h])), [heroes]);
   const heroInfo = useMemo(() => {
@@ -154,7 +183,37 @@ export function MatchReviewClient({
   }, [initialMatchId, initialHeroId]);
 
   function handleSubmit() {
+    if (history.status === "error") setHistory({ status: "idle" });
     void runLoad(matchIdInput.trim(), heroId, apiKey, abortRef, setLoad, setHeroId);
+  }
+
+  async function handleFindMatches() {
+    const parsed = parsePlayerId(playerInput);
+    if (!parsed.ok) {
+      setHistory({ status: "error", message: PLAYER_ID_MESSAGES[parsed.reason] });
+      return;
+    }
+    historyAbortRef.current?.abort();
+    const controller = new AbortController();
+    historyAbortRef.current = controller;
+    setHistory({ status: "loading" });
+    try {
+      const result = await fetchMatchHistory(parsed.accountId, apiKey, controller.signal);
+      if (controller.signal.aborted) return;
+      setHistory(
+        result.ok
+          ? { status: "loaded", matches: result.matches }
+          : { status: "error", message: loadErrorMessage(result.error) },
+      );
+    } catch {
+      // Aborted by a newer lookup: that lookup owns the state now.
+    }
+  }
+
+  /** A recent match: load it with the hero the player used already picked. */
+  function handleSelectRecent(m: RecentMatchView) {
+    setMatchIdInput(String(m.matchId));
+    void runLoad(String(m.matchId), m.hero.id, apiKey, abortRef, setLoad, setHeroId);
   }
 
   function handleSelectHero(id: number) {
@@ -247,12 +306,31 @@ export function MatchReviewClient({
     ).messages.map((m) => ({ insight: m.insight, text: m.text }));
   }, [review, simplified, heroById, heroNames, allItems]);
 
+  const recentViews = useMemo<RecentMatchView[]>(
+    () =>
+      history.status === "loaded"
+        ? history.matches.map((m) => ({
+            matchId: m.matchId,
+            hero: heroInfo.get(m.heroId) ?? { id: m.heroId, name: `Hero ${m.heroId}`, icon: null },
+            won: m.won,
+            kills: m.kills,
+            deaths: m.deaths,
+            assists: m.assists,
+            duration: gameClock(m.durationS),
+            playedAt: PLAYED_AT.format(new Date(m.startTime * 1000)),
+          }))
+        : [],
+    [history, heroInfo],
+  );
+
   const formError =
-    load.status === "error"
-      ? loadErrorMessage(load.error)
-      : review && !review.ok
-        ? NO_REVIEW_MESSAGES[review.reason]
-        : null;
+    history.status === "error"
+      ? history.message
+      : load.status === "error"
+        ? loadErrorMessage(load.error)
+        : review && !review.ok
+          ? NO_REVIEW_MESSAGES[review.reason]
+          : null;
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
@@ -279,9 +357,22 @@ export function MatchReviewClient({
           onRememberKeyChange={handleRememberKeyChange}
           onSubmit={handleSubmit}
           loading={load.status === "loading"}
+          playerInput={playerInput}
+          onPlayerInputChange={setPlayerInput}
+          onFindMatches={() => void handleFindMatches()}
+          historyLoading={history.status === "loading"}
           error={formError}
           simplified={simplified}
         />
+
+        {history.status === "loaded" && (
+          <RecentMatchesPanel
+            matches={recentViews}
+            selectedMatchId={match?.match_id ?? null}
+            onSelect={handleSelectRecent}
+            simplified={simplified}
+          />
+        )}
 
         {match && (
           <MatchHeroPicker

@@ -40,11 +40,18 @@ import {
   MAX_ACTIVE_ITEMS,
 } from "@/lib/buildUtils";
 import { GUIDES, NAV_SECTIONS, isActiveSection } from "@/lib/navigation";
-import { MATCH_API_BASE, fetchMatchMetadata } from "@/app/match/matchApi";
+import {
+  API_ORIGIN,
+  MATCH_API_BASE,
+  PLAYER_API_BASE,
+  fetchMatchHistory,
+  fetchMatchMetadata,
+} from "@/app/match/matchApi";
 import type { MatchLoadError } from "@/app/match/matchApi";
 import {
   LOAD_ERROR_MESSAGES,
   NO_REVIEW_MESSAGES,
+  PLAYER_ID_MESSAGES,
   loadErrorMessage,
 } from "@/app/match/matchMessages";
 import { runStarterBuildFixtures } from "./starterBuildFixtures";
@@ -87,7 +94,10 @@ import {
   judgeTrades,
   laneReview,
   lastHitShare,
+  parseMatchHistory,
   parseMatchMetadata,
+  parsePlayerId,
+  RECENT_MATCH_LIMIT,
   shotAccuracy,
 } from "@/lib/matchReview";
 import type { CatalogueItem, LaneReport, LaneReviewResult, MatchMetadata } from "@/lib/matchReview";
@@ -774,6 +784,7 @@ async function run() {
     "app/match/components/MatchHeroPicker.tsx",
     "app/match/components/LaneReportPanel.tsx",
     "app/match/components/LaneCoachPanel.tsx",
+    "app/match/components/RecentMatchesPanel.tsx",
   ];
 
   for (const relPath of SIMPLIFIED_PANELS) {
@@ -799,6 +810,7 @@ async function run() {
     "app/match/components/MatchLookupForm.tsx",
     "app/match/components/LaneReportPanel.tsx",
     "app/match/components/LaneCoachPanel.tsx",
+    "app/match/components/RecentMatchesPanel.tsx",
   ];
 
   for (const relPath of TOOLTIP_ADOPTERS) {
@@ -2632,6 +2644,7 @@ async function run() {
       fetchCalls === 1 &&
       (matchSrc.get("app/match/matchApi.ts") ?? "").includes('{ "X-API-KEY": key }') &&
       MATCH_API_BASE === "https://api.deadlock-api.com/v1/matches" &&
+      API_ORIGIN === "https://api.deadlock-api.com" &&
       syncUrlBody.includes('params.set("id"') &&
       !/key/i.test(syncUrlBody.replace(/\b(id|hero)\b/g, "")) &&
       clientSrc.includes("window.sessionStorage") &&
@@ -2677,7 +2690,7 @@ async function run() {
         calls[0].url === "https://api.deadlock-api.com/v1/matches/126035190/metadata" &&
         calls[0].headers["x-api-key"] === "secret-key" &&
         !("x-api-key" in calls[1].headers) &&
-        calls.every((c) => c.url.startsWith(`${MATCH_API_BASE}/`) && !/key/i.test(c.url)) &&
+        calls.every((c) => c.url.startsWith(`${API_ORIGIN}/`) && !/key/i.test(c.url)) &&
         !notFound.ok &&
         notFound.error.kind === "not_found" &&
         !busy.ok &&
@@ -2697,6 +2710,109 @@ async function run() {
   } finally {
     globalThis.fetch = fetchBeforeMock;
   }
+
+  // Recent matches: the Steam ID parser, the history parser and the history fetch.
+  const id64 = "76561198240005040";
+  const idCases: Array<[string, number | string]> = [
+    [id64, 279739312],
+    [`https://steamcommunity.com/profiles/${id64}/`, 279739312],
+    [`steamcommunity.com/profiles/${id64}`, 279739312],
+    ["279739312", 279739312],
+    [" 279739312 ", 279739312],
+    ["[U:1:279739312]", 279739312],
+    ["U:1:279739312", 279739312],
+    ["STEAM_0:0:139869656", 279739312],
+    ["STEAM_1:1:5", 11],
+    ["https://steamcommunity.com/id/someone/", "vanity"],
+    ["", "empty"],
+    ["   ", "empty"],
+    ["4294967295", 4294967295],
+    ["4294967296", "invalid"],
+    ["0", "invalid"],
+    ["76561197960265728", "invalid"],
+    ["12ab", "invalid"],
+    ["-5", "invalid"],
+    ["https://steamcommunity.com/profiles/123/", "invalid"],
+  ];
+  const idBad = idCases.filter(([input, want]) => {
+    const r = parsePlayerId(input);
+    return r.ok ? r.accountId !== want : r.reason !== want;
+  });
+  assert(
+    idBad.length === 0,
+    "player ID: SteamID64 (exact past 2^53), profile links, friend code, SteamID3 and SteamID2 give the account id; custom /id/ links, empty, zero and 33-bit values get a reason",
+    idBad.map(([i]) => i).join(" | "),
+  );
+  const row = (over: Record<string, unknown>) => ({
+    account_id: 1,
+    match_id: 100,
+    hero_id: 7,
+    start_time: 1793155856,
+    game_mode: 1,
+    match_mode: 1,
+    player_team: 1,
+    player_kills: 7,
+    player_deaths: 2,
+    player_assists: 9,
+    match_duration_s: 2052,
+    match_result: 1,
+    ...over,
+  });
+  const historyRows = [
+    row({ match_id: 103, start_time: 1793155000, match_result: 0 }),
+    row({ match_id: 104, start_time: 1793159000 }),
+    row({ match_id: 105, start_time: 1793158000, game_mode: 4 }),
+    row({ match_id: 106, start_time: 1793157000, player_kills: null }),
+    ...Array.from({ length: 12 }, (_, i) => row({ match_id: 200 + i, start_time: 1793000000 - i })),
+  ];
+  const parsedHistory = parseMatchHistory(historyRows);
+  assert(
+    parsedHistory !== null &&
+      parsedHistory.length === RECENT_MATCH_LIMIT &&
+      parsedHistory[0].matchId === 104 &&
+      parsedHistory[1].matchId === 103 &&
+      parsedHistory[0].won &&
+      !parsedHistory[1].won &&
+      parsedHistory[0].kills === 7 &&
+      !parsedHistory.some((m) => m.matchId === 105 || m.matchId === 106) &&
+      JSON.stringify(parseMatchHistory([...historyRows].reverse())) ===
+        JSON.stringify(parsedHistory) &&
+      parseMatchHistory({ status: 400 }) === null &&
+      parseMatchHistory([])?.length === 0,
+    "history: newest normal matches first, capped at 10; a win is match_result = player_team; Street Brawl and rows missing a field are left out; order-independent; a non-list is rejected",
+  );
+  const historyCallsFrom = calls.length;
+  try {
+    respondWith(() => new Response(JSON.stringify(historyRows), { status: 200 }));
+    const hist = await fetchMatchHistory(279739312, " k ");
+    respondWith(() => new Response("Invalid URL: Invalid steam id string", { status: 400 }));
+    const hist400 = await fetchMatchHistory(279739312, "");
+    const before = calls.length;
+    const histBad = await fetchMatchHistory(4294967296, "");
+    const histCalls = calls.slice(historyCallsFrom);
+    assert(
+      hist.ok &&
+        hist.matches.length === RECENT_MATCH_LIMIT &&
+        histCalls[0].url === `${PLAYER_API_BASE}/279739312/match-history` &&
+        histCalls[0].headers["x-api-key"] === "k" &&
+        !hist400.ok &&
+        hist400.error.kind === "http" &&
+        !histBad.ok &&
+        histBad.error.kind === "invalid_id" &&
+        calls.length === before,
+      "history fetch: one GET to the player's match-history with the key as a header only; a 400 plain-text body is an error, not a crash; an out-of-range id makes no request",
+    );
+  } finally {
+    globalThis.fetch = fetchBeforeMock;
+  }
+  assert(
+    !/account|player/i.test(syncUrlBody.replace(/\bplayed\b/g, "")) &&
+      !/sessionStorage\.setItem\([^)]*(player|account)/i.test(clientSrc) &&
+      clientSrc.includes("PLAYER_ID_MESSAGES[parsed.reason]") &&
+      clientSrc.includes("m.hero.id, apiKey") &&
+      Object.values(PLAYER_ID_MESSAGES).every((t) => t.length > 20),
+    "the Steam account never reaches the page link or storage; a recent match loads with the hero you played already picked; every unreadable Steam ID has plain wording",
+  );
 
   // Every failure has plain wording.
   const sampleErrors: MatchLoadError[] = [
