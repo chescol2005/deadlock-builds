@@ -52,6 +52,11 @@ export const NAV_SECTIONS: ReadonlyArray<NavLink> = [
     description: "Plan a build for a hero and see why each item is suggested.",
   },
   {
+    href: "/match",
+    label: "Match review",
+    description: "Paste a match ID and see how your lane went, with plain-English coaching.",
+  },
+  {
     href: "/guide",
     label: "Guides",
     description: "Short explainers on the systems the game doesn't teach you.",
