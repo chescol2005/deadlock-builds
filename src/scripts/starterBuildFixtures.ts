@@ -432,6 +432,38 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     assert(bad.length === 0, `P1 every headline reason is plain English: ${name}`, bad.join(" | "));
   }
 
+  // H-anchor — a big item the basket saved up for (Milestone H3) headlines "worth saving
+  // up for", though its anchor term carries no value; nothing positive, no headline.
+  {
+    const anchor = {
+      termId: "anchor",
+      value: 0,
+      reason: "Worth saving for",
+      plain: "Worth saving up",
+    };
+    const coverage = { termId: "coverage", value: 40, reason: "gun", plain: "More gun damage" };
+    let anchored = 0;
+    const bad: string[] = [];
+    for (const [name, build] of builds) {
+      for (const p of build.phases) {
+        for (const pick of p.basket.picks) {
+          const a = pick.terms.find((t) => t.termId === "anchor");
+          if (!a) continue;
+          anchored += 1;
+          if (headlineReason(pick.terms) !== a.plain) bad.push(`${name}: ${pick.item.name}`);
+        }
+      }
+    }
+    assert(
+      headlineTerm([coverage, anchor])?.termId === "anchor" &&
+        headlineTerm([anchor]) === null &&
+        anchored > 0 &&
+        bad.length === 0,
+      `H-anchor saved-up picks headline "worth saving up for" (${anchored} in the reference builds)`,
+      bad.join(" | ") || undefined,
+    );
+  }
+
   // P2 — the measured pair lift is never the headline; where it argues for a
   // pick, the simplified view shows it as its own labelled line (review §2.4).
   {
