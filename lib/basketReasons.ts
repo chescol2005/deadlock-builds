@@ -35,14 +35,21 @@ export function headlineReason(terms: ReadonlyArray<MarginalTerm>): string | nul
 // shop budget): shown in the breakdown, never a reason to buy.
 const NOTE_TERMS: ReadonlySet<string> = new Set(["shop-budget"]);
 
+// A big item the basket saved up for (Milestone H): zero value of its own, but the
+// reason the pick comes first, so it headlines whenever anything argues for the pick.
+const ANCHOR_TERM = "anchor";
+
 /**
- * The highest-value positive term that is not population data (population data
- * only when nothing else is positive). Null when no term argues FOR the pick.
+ * The "worth saving for" term when the pick has one, else the highest-value
+ * positive term that is not population data (population data only when nothing
+ * else is positive). Null when no term argues FOR the pick.
  */
 export function headlineTerm(terms: ReadonlyArray<MarginalTerm>): MarginalTerm | null {
   const positive = terms.filter((t) => t.value > 0 && !NOTE_TERMS.has(t.termId));
   const own = positive.filter((t) => !POPULATION_TERMS.has(t.termId));
   const pool = own.length > 0 ? own : positive;
   if (pool.length === 0) return null;
+  const anchor = terms.find((t) => t.termId === ANCHOR_TERM);
+  if (anchor) return anchor;
   return pool.reduce((best, t) => (t.value > best.value ? t : best), pool[0]);
 }
