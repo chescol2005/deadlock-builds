@@ -1,6 +1,7 @@
 # Milestone H: planned big items
 
-**Status:** APPROVED 2026-10-28, with every recommendation in §6 accepted as written.
+**Status:** CLOSED 2026-10-28 (PRs #129–#133). Approved the same day, with every
+recommendation in §6 accepted as written. Results and accepted gaps in §7.
 Per "Testing Expectations", no engine code changes until these criteria are approved;
 change this doc first if an expectation needs to change.
 
@@ -168,3 +169,39 @@ Shipped as designed (4 candidates, 5% margin), after a live sweep on all 44 hero
 - **User decision (2026-10-28):** ship the anchored plans, then try a deeper model: value
   an early plan by its effect on the whole build (early to late), since a rush item stays
   while early basics are later sold or consumed. Floors raised to P1 1, P4 26, P5 2.
+
+### X1: whole-build lookahead (tried, not shipped)
+
+Each early alternative (the greedy basket and every anchored plan) was played out through
+mid and late, and scored by the value of what the player holds at each checkpoint (early
+
+- mid + late, each valued in that checkpoint's context). The best total won, over the
+  shipped build by a margin. A throwaway switch in `buildStarterBuild`, measured with
+  `npm run mini` on all 44 heroes, then removed:
+
+| Margin     | P1     | P2      | P4      | P5     | Guards broken                      |
+| ---------- | ------ | ------- | ------- | ------ | ---------------------------------- |
+| H2 shipped | 1 / 24 | 22 / 44 | 26 / 52 | 2 / 10 | none                               |
+| 0          | 4 / 24 | 19 / 44 | 28 / 52 | 2 / 10 | M1 (Seven, Infernus, mean), T1, O2 |
+| 3%         | 2 / 24 | 21 / 44 | 27 / 52 | 2 / 10 | M1 Seven, O2, P2 floor             |
+| 5%         | 2 / 24 | 22 / 44 | 26 / 52 | 2 / 10 | M1 Seven, O2                       |
+
+- The whole-build gains are small: 0–7% on the 13 heroes whose early plan changed, within
+  the noise of the value model.
+- About 10 of the 13 swaps were false rushes (Toxic Bullets, Tesla Bullets, Fortitude,
+  Veil Walker, Fury Trance, Torment Pulse). At 5% only Seven changes (to Cultist
+  Sacrifice), and that breaks Seven's M1 and O2.
+- It costs about 5–8× today's starter-build time.
+- **Conclusion:** the search is not what's missing. The value model rates a few cheap
+  basics close to one rush item, so neither a slot cost nor lookahead finds the real
+  rushes. That is a value-model change (what a rush item is worth to the hero who rushes
+  it), outside this milestone.
+
+### H3 and close
+
+- **H3 (#132):** a saved-up pick headlines its "worth saving up for" reason in the
+  simplified view, the starter build panel and the coach's next-buy tip
+  (`headlineTerm`). No scoring change; baselines unchanged.
+- **Accepted gaps at close:** P1 1 / 24, P2 22 / 44, P3 0 / 3, P4 26 / 52, P5 2 / 10 stay
+  in `KNOWN_BIG_ITEM_GAPS` with floors as a ratchet. C5 / C6 are re-accepted in
+  `docs/item-scoring-review.md` with this cause.

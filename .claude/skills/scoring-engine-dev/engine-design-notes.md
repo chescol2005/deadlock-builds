@@ -1829,6 +1829,41 @@ top 10) and O2 is 37/53. O1/O2 read the table the term is tuned on, so Fixture 1
 logs them without the signal (18 early, 3/50 mid): that gap is the signal's contribution. T1 fails for the three real rushes (Seven, Lady Geist, Wraith):
 the shop budget defers the rush to the next phase as an upgrade.
 
+## Planned big items (basketPlans, Milestone H)
+
+A greedy value-per-soul pick can never save up: a 3,200-soul item worth more than three
+800-soul items, but less per soul, is never bought first (item scoring review C5).
+`basketPlans` compares plans instead of picks:
+
+- **Plans:** today's greedy basket, plus one greedy basket per anchor, with that item
+  bought first (`greedyBasket(pool, ctx, terms, anchorId)`). A forced first pick skips
+  the shop-budget pass (saving up is a deliberate overspend); an anchor that can't be
+  bought or adds nothing gives null.
+- **Anchors** (`anchorCandidates`): the `ANCHOR_CANDIDATES` = 4 most valuable unowned
+  items at or over `ANCHOR_MIN_COST` (early 3,200, later 6,400), affordable in one slot,
+  not blocked by components, valued with nothing bought yet. An item the greedy basket
+  already buys is not retried.
+- **Choice:** the best anchored plan replaces the greedy basket only when its total value
+  (the sum of its picks' marginal values) is more than `ANCHOR_MARGIN` = 5% higher.
+  Every plan is a greedy basket, so every hard rule holds either way.
+- **Reason:** the anchor pick gets a zero-value `anchor` term ("Worth saving up for: …").
+  `headlineTerm` (`lib/basketReasons.ts`) headlines it whenever anything argues for the
+  pick (H3).
+- **Measured** (`src/scripts/bigItemChecks.ts`, Fixture 13 "H P1–P5"): late top-3 tier-4
+  items held 21 → 26 / 52, early rushes 0 → 1 / 24. Starter build ~39 ms vs ~27 ms. The
+  probe prints every plan under "Plans compared".
+
+**Don't retry these** (`docs/milestone-h.md` §7):
+
+- More candidates or no margin: the late ceiling is 27 / 52.
+- A slot cost in the comparison: rushes appear only at a strength (f = 0.5) that picks
+  the wrong item (Seven: Rapid Recharge) and starts false rushes.
+- Whole-build lookahead (score each early plan by what is held at early + mid + late):
+  gains of 0–7%, about 10 of 13 swaps false rushes, M1 / O2 broken even at a 5% margin.
+
+The open cause is the value model: it rates a few cheap basics close to one rush item, and
+has no signal for WHICH big item a hero's players rush. Fix that, not the search.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical
