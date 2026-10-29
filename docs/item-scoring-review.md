@@ -177,6 +177,12 @@ model at the phase checkpoint.
   Geist, Wraith) stays an **accepted gap**.
 - Applying the exemption to every item at least 20% of players buy, rather than 3,200+
   items only, broke the budgets (mean L1 0.206). Hence the cost floor.
+- **Milestone H (2026-10-28), re-accepted.** Anchored plans (saving up for a big item
+  when the plan is worth over 5% more) shipped. Early rushes rose only from 0 to 1 / 24,
+  and a whole-build lookahead didn't do better without false rushes. In the engine's
+  own value model the rush plan is worth less (Seven early: basics 361, Cultist Sacrifice
+  plan 295). The open cause is the value model, not the search
+  (`docs/milestone-h.md` §7).
 
 **C6: live sweep** (all 44 heroes × boon 5 / 10 / 16 / 22 / 29, empty build, against
 each hero's real per-phase buy rates). Accepted gaps, with reasons:
@@ -189,6 +195,9 @@ each hero's real per-phase buy rates). Accepted gaps, with reasons:
 - **Late tier-4 items under-bought** (Boundless Spirit, Unstoppable, Ricochet, Silencer,
   Tankbuster are each among some hero's real late top 3): the same greedy value-per-soul
   cause as C5. A shared follow-up with C5: rank or reserve for planned big items.
+  **Milestone H (2026-10-28):** partly resolved. Anchored plans raised late top-3 tier-4
+  items held from 21 to 26 / 52 (Haze gains Siphon Bullets, Wraith Ricochet); the rest
+  are re-accepted with C5's cause.
 - **Cheap items picked at boon 29 with an empty build** (Spirit Strike, Extra Health,
   Monster Rounds, Battle Vest...): an artifact of the test case. Nobody reaches 30,000
   souls owning nothing, and real players bought those items early. The starter build's
