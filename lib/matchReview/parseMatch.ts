@@ -88,7 +88,13 @@ function readPlayer(v: unknown): MatchPlayer | null {
   const death_details = mapAll(v.death_details, readDeath);
   const stats = mapAll(v.stats, readSnapshot);
   if (!items || !death_details || !stats) return null;
-  return { player_slot, team, hero_id, assigned_lane, items, death_details, stats };
+  // The rank is optional: without it the benchmark falls back to all ranks (§10.2).
+  const rankData = v.player_rank_data;
+  const rank_badge =
+    isObject(rankData) && isNum(rankData.initial_display_rank)
+      ? rankData.initial_display_rank
+      : null;
+  return { player_slot, team, hero_id, assigned_lane, rank_badge, items, death_details, stats };
 }
 
 /** Accepts the API response (`{ match_info: ... }`) or the bare match_info object. */

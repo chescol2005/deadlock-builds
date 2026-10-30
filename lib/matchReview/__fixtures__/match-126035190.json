@@ -9,6 +9,7 @@
         "team": 1,
         "hero_id": 12,
         "assigned_lane": 1,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 18921423, "game_time_s": 18, "sold_time_s": 0 },
           { "item_id": 18921423, "game_time_s": 59, "sold_time_s": 0 },
@@ -204,6 +205,7 @@
         "team": 0,
         "hero_id": 78,
         "assigned_lane": 6,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 2603013853, "game_time_s": 18, "sold_time_s": 0 },
           { "item_id": 3077079169, "game_time_s": 61, "sold_time_s": 635 },
@@ -396,6 +398,7 @@
         "team": 1,
         "hero_id": 84,
         "assigned_lane": 4,
+        "player_rank_data": { "initial_display_rank": 64 },
         "items": [
           { "item_id": 3681399397, "game_time_s": 23, "sold_time_s": 0 },
           { "item_id": 2462046703, "game_time_s": 85, "sold_time_s": 2053 },
@@ -593,6 +596,7 @@
         "team": 0,
         "hero_id": 52,
         "assigned_lane": 4,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 2221949202, "game_time_s": 17, "sold_time_s": 0 },
           { "item_id": 1439347412, "game_time_s": 57, "sold_time_s": 1951 },
@@ -780,6 +784,7 @@
         "team": 1,
         "hero_id": 1,
         "assigned_lane": 6,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 1593133799, "game_time_s": 12, "sold_time_s": 0 },
           { "item_id": 1593133799, "game_time_s": 46, "sold_time_s": 0 },
@@ -977,6 +982,7 @@
         "team": 0,
         "hero_id": 13,
         "assigned_lane": 1,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 1080948381, "game_time_s": 10, "sold_time_s": 0 },
           { "item_id": 968099481, "game_time_s": 63, "sold_time_s": 977 },
@@ -1164,6 +1170,7 @@
         "team": 1,
         "hero_id": 7,
         "assigned_lane": 4,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 1999680326, "game_time_s": 10, "sold_time_s": 0 },
           { "item_id": 1999680326, "game_time_s": 46, "sold_time_s": 0 },
@@ -1356,6 +1363,7 @@
         "team": 0,
         "hero_id": 3,
         "assigned_lane": 6,
+        "player_rank_data": { "initial_display_rank": 64 },
         "items": [
           { "item_id": 2048438176, "game_time_s": 12, "sold_time_s": 0 },
           { "item_id": 3077079169, "game_time_s": 61, "sold_time_s": 326 },
@@ -1550,6 +1558,7 @@
         "team": 0,
         "hero_id": 11,
         "assigned_lane": 4,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 3760705623, "game_time_s": 13, "sold_time_s": 0 },
           { "item_id": 1710079648, "game_time_s": 56, "sold_time_s": 281 },
@@ -1730,6 +1739,7 @@
         "team": 1,
         "hero_id": 63,
         "assigned_lane": 1,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 1233782561, "game_time_s": 21, "sold_time_s": 0 },
           { "item_id": 1998374645, "game_time_s": 91, "sold_time_s": 1314 },
@@ -1918,6 +1928,7 @@
         "team": 0,
         "hero_id": 87,
         "assigned_lane": 1,
+        "player_rank_data": { "initial_display_rank": 65 },
         "items": [
           { "item_id": 267712790, "game_time_s": 0, "sold_time_s": 0 },
           { "item_id": 267712790, "game_time_s": 62, "sold_time_s": 0 },
@@ -2109,6 +2120,7 @@
         "team": 1,
         "hero_id": 31,
         "assigned_lane": 6,
+        "player_rank_data": { "initial_display_rank": 66 },
         "items": [
           { "item_id": 519124136, "game_time_s": 23, "sold_time_s": 0 },
           { "item_id": 519124136, "game_time_s": 44, "sold_time_s": 0 },

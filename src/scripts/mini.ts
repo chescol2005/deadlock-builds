@@ -86,6 +86,16 @@ import {
 } from "@/lib/heroRoles";
 import type { HeroRole } from "@/lib/heroRoles";
 import {
+  BENCHMARK_MIN_SNAPSHOTS,
+  BENCHMARK_STATS,
+  BENCHMARK_STD_MARGIN,
+  badgeRange,
+  benchmarkLane,
+  defaultBenchmarkTier,
+  judgeAgainstTypical,
+  performanceCurveQuery,
+  parsePerformanceCurve,
+  rankTierOf,
   LANE_CHECKPOINTS_S,
   LANE_END_S,
   LANE_NAMES,
@@ -2855,6 +2865,168 @@ async function run() {
       ),
     "R10: /match is in the nav and sitemap with metadata; each review gets a fresh coach memory in the viewer's audience; the panels are presentational (no coach, no laneReview, no engine)",
   );
+
+  // -----------------------------------------------
+  // Fixture 24: Match review benchmarks (docs/match-review-use-cases.md §10.6, B1–B6)
+  // -----------------------------------------------
+  // Offline: the pinned match and a pinned curve response (Kelvin, Ritualist, the default
+  // bracket of the match's Kelvin player). Never a live call.
+  console.log("\n24. Match review benchmarks (lib/matchReview/benchmark.ts)");
+  {
+    const rawCurve: unknown = JSON.parse(
+      readFileSync("lib/matchReview/__fixtures__/curve-hero12-ritualist.json", "utf-8"),
+    );
+    const rows = Array.isArray(rawCurve) ? (rawCurve as Array<Record<string, unknown>>) : [];
+    const row540 = rows.find((r) => r.game_time === LANE_END_S);
+    const curve = parsePerformanceCurve(rawCurve);
+    const kelvinMatch = parseMatchMetadata(rawMatch);
+    const kelvin = kelvinMatch ? okReport(laneReview(kelvinMatch, 12, catalogue)) : null;
+
+    // B1: parsing takes the 9:00 row; anything missing is rejected, never read as 0.
+    const without540 = rows.filter((r) => r.game_time !== LANE_END_S);
+    const edit540 = (patch: Record<string, unknown>) =>
+      rows.map((r) => (r.game_time === LANE_END_S ? { ...r, ...patch } : r));
+    const badStat = parsePerformanceCurve(edit540({ denies_avg: "1.9" }));
+    const negStd = parsePerformanceCurve(edit540({ player_damage_std: -1 }));
+    const noSamples = parsePerformanceCurve(
+      rows.map((r) => {
+        if (r.game_time !== LANE_END_S) return r;
+        const copy = { ...r };
+        delete copy.samples;
+        return copy;
+      }),
+    );
+    assert(
+      !!curve &&
+        !!row540 &&
+        curve.snapshots === row540.samples &&
+        curve.stats.souls?.avg === row540.net_worth_avg &&
+        curve.stats.lastHits?.std === row540.creep_kills_std &&
+        BENCHMARK_STATS.every((s) => curve.stats[s] !== null) &&
+        parsePerformanceCurve(without540) === null &&
+        parsePerformanceCurve([...rows, row540]) === null &&
+        parsePerformanceCurve({ rows }) === null &&
+        noSamples === null &&
+        badStat !== null &&
+        badStat.stats.denies === null &&
+        badStat.stats.souls !== null &&
+        negStd?.stats.damageDealt === null,
+      "B1: the pinned curve parses at 9:00; no 9:00 row, two of them, a non-array or no snapshot count is rejected; a missing, non-numeric or negative-std stat is that stat's 'no benchmark'",
+    );
+
+    // B2: every comparison is the raw values.
+    const result = kelvin ? benchmarkLane(kelvin, curve, 6) : null;
+    const bm = result?.ok ? result.benchmark : null;
+    const raw = (stat: string, k: "avg" | "std") => row540?.[`${stat}_${k}`];
+    const fields: Record<string, [string, number | undefined]> = {
+      souls: ["net_worth", kelvin?.you.atLaneEnd.souls],
+      lastHits: ["creep_kills", kelvin?.you.atLaneEnd.lastHits],
+      denies: ["denies", kelvin?.you.atLaneEnd.denies],
+      damageDealt: ["player_damage", kelvin?.you.atLaneEnd.damageDealt],
+      deaths: ["deaths", kelvin?.you.atLaneEnd.deaths],
+    };
+    assert(
+      !!bm &&
+        bm.heroId === 12 &&
+        bm.tier === 6 &&
+        bm.snapshots === row540?.samples &&
+        bm.stats.map((s) => s.stat).join() === BENCHMARK_STATS.join() &&
+        bm.stats.every(
+          (s) =>
+            s.you === fields[s.stat][1] &&
+            s.avg === raw(fields[s.stat][0], "avg") &&
+            s.std === raw(fields[s.stat][0], "std"),
+        ),
+      "B2: each stat compares your raw 9:00 value with the curve's raw average and std, in order",
+      bm?.stats
+        .map((s) => `${s.stat} ${s.you} vs ${s.avg.toFixed(1)}±${s.std.toFixed(1)} ${s.judgement}`)
+        .join(" | "),
+    );
+
+    // B3: the judgement, at the one-std edges and for deaths (fewer is better).
+    const d = { avg: 100, std: 10 };
+    assert(
+      judgeAgainstTypical(111, d, false) === "above" &&
+        judgeAgainstTypical(110, d, false) === "typical" &&
+        judgeAgainstTypical(90, d, false) === "typical" &&
+        judgeAgainstTypical(89, d, false) === "below" &&
+        judgeAgainstTypical(3, { avg: 1, std: 1 }, true) === "below" &&
+        judgeAgainstTypical(2, { avg: 1, std: 1 }, true) === "typical" &&
+        judgeAgainstTypical(0, { avg: 2, std: 0.9 }, true) === "above" &&
+        judgeAgainstTypical(5, { avg: 5, std: 0 }, false) === null &&
+        BENCHMARK_STD_MARGIN === 1,
+      "B3: more than one std better is above, worse is below, exactly one std is typical; deaths judge fewer as better; zero std is no judgement",
+    );
+
+    // B4: the default bracket is your rank at match start, else all ranks.
+    const unranked: unknown = JSON.parse(JSON.stringify(rawMatch), (k, v: unknown) =>
+      k === "player_rank_data" ? undefined : v,
+    );
+    const unrankedMatch = parseMatchMetadata(unranked);
+    const unrankedKelvin = unrankedMatch
+      ? okReport(laneReview(unrankedMatch, 12, catalogue))
+      : null;
+    const q6 = new URLSearchParams(performanceCurveQuery(12, 6));
+    const qAll = new URLSearchParams(performanceCurveQuery(12, null));
+    assert(
+      kelvin?.you.rankBadge === 65 &&
+        !!kelvinMatch &&
+        kelvinMatch.players.every((p) => p.rank_badge !== null) &&
+        defaultBenchmarkTier(kelvin) === 6 &&
+        unrankedMatch !== null &&
+        unrankedMatch.players.every((p) => p.rank_badge === null) &&
+        !!unrankedKelvin &&
+        defaultBenchmarkTier(unrankedKelvin) === null &&
+        rankTierOf(0) === null &&
+        rankTierOf(null) === null &&
+        rankTierOf(5) === null &&
+        rankTierOf(60) === null &&
+        rankTierOf(67) === null &&
+        rankTierOf(11) === 1 &&
+        rankTierOf(116) === 11 &&
+        rankTierOf(121) === null &&
+        badgeRange(6).min === 61 &&
+        badgeRange(6).max === 66 &&
+        q6.get("hero_ids") === "12" &&
+        q6.get("resolution") === "0" &&
+        q6.get("min_average_badge") === "61" &&
+        q6.get("max_average_badge") === "66" &&
+        !qAll.has("min_average_badge") &&
+        !qAll.has("max_average_badge"),
+      "B4: the default bracket is the player's starting-rank tier (65 = Ritualist), all ranks without one; badges outside tiers 1–11 or subtiers 1–6 are not ranks; a tier queries tier x 10 + 1..6",
+    );
+
+    // B5: no data is a typed reason, and the lane report is untouched.
+    const before = JSON.stringify(kelvin);
+    const thin = curve ? { ...curve, snapshots: BENCHMARK_MIN_SNAPSHOTS - 1 } : null;
+    const floor = curve ? { ...curve, snapshots: BENCHMARK_MIN_SNAPSHOTS } : null;
+    const empty = curve
+      ? {
+          ...curve,
+          stats: Object.fromEntries(BENCHMARK_STATS.map((s) => [s, null])) as typeof curve.stats,
+        }
+      : null;
+    const reason = (r: ReturnType<typeof benchmarkLane> | null) => (r && !r.ok ? r.reason : "ok");
+    assert(
+      !!kelvin &&
+        reason(benchmarkLane(kelvin, null, 6)) === "unavailable" &&
+        reason(benchmarkLane(kelvin, thin, 6)) === "not_enough_games" &&
+        reason(benchmarkLane(kelvin, floor, 6)) === "ok" &&
+        reason(benchmarkLane(kelvin, empty, 6)) === "unavailable" &&
+        JSON.stringify(kelvin) === before,
+      `B5: no curve or no stats is "unavailable", under ${BENCHMARK_MIN_SNAPSHOTS} snapshots is "not_enough_games"; the lane report is unchanged`,
+    );
+
+    // B6: deterministic, whatever the row order.
+    const shuffled = parsePerformanceCurve([...rows].reverse());
+    assert(
+      !!kelvin &&
+        JSON.stringify(benchmarkLane(kelvin, shuffled, 6)) === JSON.stringify(result) &&
+        JSON.stringify(benchmarkLane(kelvin, curve, 6)) === JSON.stringify(result) &&
+        importsOf("lib/matchReview/benchmark.ts").every((p) => p.startsWith("./")),
+      "B6: the same inputs give the same benchmark, whatever the curve's row order; benchmark.ts imports only lib/matchReview",
+    );
+  }
 
   // -----------------------------------------------
   // Summary

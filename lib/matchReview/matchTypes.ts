@@ -43,6 +43,11 @@ export interface MatchPlayer {
   hero_id: number;
   /** 1 = York (yellow), 4 = Broadway (blue), 6 = Greenwich (green). */
   assigned_lane: number;
+  /**
+   * `player_rank_data.initial_display_rank`: the player's badge at match start (tier x 10
+   * + subtier, e.g. 65 = Ritualist 5). Optional in the response: null when absent.
+   */
+  rank_badge: number | null;
   items: MatchItemEvent[];
   death_details: MatchDeath[];
   stats: MatchStatsSnapshot[];
@@ -83,6 +88,8 @@ export interface LanePlayer {
   heroId: number;
   playerSlot: number;
   team: number;
+  /** The badge at match start (MatchPlayer.rank_badge); null when unknown. */
+  rankBadge: number | null;
   /** The snapshots at LANE_CHECKPOINTS_S that the match has, in time order. */
   snapshots: LaneSnapshot[];
   /** The lane-end (9:00) snapshot. */

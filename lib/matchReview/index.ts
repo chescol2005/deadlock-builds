@@ -8,3 +8,4 @@ export { parsePlayerId } from "./playerId";
 export type { PlayerIdResult } from "./playerId";
 export { parseMatchHistory, RECENT_MATCH_LIMIT } from "./parseHistory";
 export type { RecentMatch } from "./parseHistory";
+export * from "./benchmark";
