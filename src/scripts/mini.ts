@@ -46,10 +46,12 @@ import {
   PLAYER_API_BASE,
   fetchMatchHistory,
   fetchMatchMetadata,
+  fetchPerformanceCurve,
 } from "@/app/match/matchApi";
 import type { MatchLoadError } from "@/app/match/matchApi";
 import {
   LOAD_ERROR_MESSAGES,
+  NO_BENCHMARK_MESSAGES,
   NO_REVIEW_MESSAGES,
   PLAYER_ID_MESSAGES,
   loadErrorMessage,
@@ -795,6 +797,8 @@ async function run() {
     "app/match/components/LaneReportPanel.tsx",
     "app/match/components/LaneCoachPanel.tsx",
     "app/match/components/RecentMatchesPanel.tsx",
+    // Match review benchmarks (MRB2).
+    "app/match/components/LaneBenchmarkPanel.tsx",
   ];
 
   for (const relPath of SIMPLIFIED_PANELS) {
@@ -821,6 +825,8 @@ async function run() {
     "app/match/components/LaneReportPanel.tsx",
     "app/match/components/LaneCoachPanel.tsx",
     "app/match/components/RecentMatchesPanel.tsx",
+    // Match review benchmarks (MRB2).
+    "app/match/components/LaneBenchmarkPanel.tsx",
   ];
 
   for (const relPath of TOOLTIP_ADOPTERS) {
@@ -2721,6 +2727,49 @@ async function run() {
     globalThis.fetch = fetchBeforeMock;
   }
 
+  // B7: the benchmark goes through the same one fetch; the key goes nowhere new, and the
+  // rank picked never reaches the URL (docs/match-review-use-cases.md §10.6).
+  const curveBody = readFileSync(
+    "lib/matchReview/__fixtures__/curve-hero12-ritualist.json",
+    "utf-8",
+  );
+  const curveCallsStart = calls.length;
+  try {
+    respondWith(() => new Response(curveBody, { status: 200 }));
+    const curveWithKey = await fetchPerformanceCurve(12, 6, "  secret-key  ");
+    const curveAllRanks = await fetchPerformanceCurve(12, null, "");
+    respondWith(() => new Response("oops", { status: 500 }));
+    const curveError = await fetchPerformanceCurve(12, 6, "");
+    respondWith(() => new Response("not json", { status: 200 }));
+    const curveJunk = await fetchPerformanceCurve(12, 6, "");
+    respondWith(() => {
+      throw new TypeError("offline");
+    });
+    const curveOffline = await fetchPerformanceCurve(12, 6, "");
+    const curveCalls = calls.slice(curveCallsStart);
+    assert(
+      curveWithKey?.snapshots === 10378 &&
+        curveAllRanks !== null &&
+        curveCalls[0].url ===
+          `${API_ORIGIN}/v1/analytics/player-performance-curve?hero_ids=12&resolution=0&min_average_badge=61&max_average_badge=66` &&
+        curveCalls[0].headers["x-api-key"] === "secret-key" &&
+        curveCalls[1].url ===
+          `${API_ORIGIN}/v1/analytics/player-performance-curve?hero_ids=12&resolution=0` &&
+        !("x-api-key" in curveCalls[1].headers) &&
+        curveCalls.every((c) => c.url.startsWith(`${API_ORIGIN}/`) && !/key/i.test(c.url)) &&
+        curveError === null &&
+        curveJunk === null &&
+        curveOffline === null &&
+        clientSrc.includes("fetchPerformanceCurve(") &&
+        !/tier|rank/i.test(syncUrlBody) &&
+        clientSrc.includes("NO_BENCHMARK_MESSAGES[result.reason]") &&
+        Object.keys(NO_BENCHMARK_MESSAGES).sort().join() === "not_enough_games,unavailable",
+      "B7: the benchmark loads through the one fetch (key only as X-API-KEY to api.deadlock-api.com, the tier as badge range); any failure is null, shown with its own plain line; the rank never reaches the URL",
+    );
+  } finally {
+    globalThis.fetch = fetchBeforeMock;
+  }
+
   // Recent matches: the Steam ID parser, the history parser and the history fetch.
   const id64 = "76561198240005040";
   const idCases: Array<[string, number | string]> = [
@@ -2857,7 +2906,13 @@ async function run() {
       clientSrc.includes('playerMode: simplified ? "new" : "veteran"') &&
       clientSrc.includes("MATCH_REVIEW_MAX_MESSAGES") &&
       !/from "@\/lib\/(engine|scoring)/.test(allMatchSrc) &&
-      ["MatchLookupForm", "MatchHeroPicker", "LaneReportPanel", "LaneCoachPanel"].every(
+      [
+        "MatchLookupForm",
+        "MatchHeroPicker",
+        "LaneReportPanel",
+        "LaneCoachPanel",
+        "LaneBenchmarkPanel",
+      ].every(
         (c) =>
           !/from "@\/lib\/(coach|matchReviewCoachContext)"|laneReview\(/.test(
             matchSrc.get(`app/match/components/${c}.tsx`) ?? "",

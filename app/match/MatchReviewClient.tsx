@@ -3,8 +3,16 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { RefObject } from "react";
 import type { Item } from "@/lib/items";
-import { LANE_NAMES, laneReview, parsePlayerId } from "@/lib/matchReview";
-import type { RecentMatch } from "@/lib/matchReview";
+import {
+  LANE_NAMES,
+  MAX_RANK_TIER,
+  MIN_RANK_TIER,
+  benchmarkLane,
+  defaultBenchmarkTier,
+  laneReview,
+  parsePlayerId,
+} from "@/lib/matchReview";
+import type { CurvePoint, RecentMatch } from "@/lib/matchReview";
 import type { MatchMetadata } from "@/lib/matchReview";
 import { buildMatchCoachContext, gameClock } from "@/lib/matchReviewCoachContext";
 import { EMPTY_MEMORY, MATCH_REVIEW_MAX_MESSAGES, getCoachMessages } from "@/lib/coach";
@@ -14,15 +22,28 @@ import { MatchLookupForm } from "./components/MatchLookupForm";
 import { MatchHeroPicker } from "./components/MatchHeroPicker";
 import { LaneReportPanel } from "./components/LaneReportPanel";
 import { LaneCoachPanel } from "./components/LaneCoachPanel";
-import { MATCH_ID_PATTERN, fetchMatchHistory, fetchMatchMetadata } from "./matchApi";
+import { LaneBenchmarkPanel } from "./components/LaneBenchmarkPanel";
+import {
+  MATCH_ID_PATTERN,
+  fetchMatchHistory,
+  fetchMatchMetadata,
+  fetchPerformanceCurve,
+} from "./matchApi";
 import type { MatchLoadError } from "./matchApi";
-import { NO_REVIEW_MESSAGES, PLAYER_ID_MESSAGES, loadErrorMessage } from "./matchMessages";
+import {
+  NO_BENCHMARK_MESSAGES,
+  NO_REVIEW_MESSAGES,
+  PLAYER_ID_MESSAGES,
+  loadErrorMessage,
+} from "./matchMessages";
 import { RecentMatchesPanel } from "./components/RecentMatchesPanel";
 import type {
+  BenchmarkView,
   CoachLine,
   LaneGroup,
   LaneItemView,
   MatchHeroInfo,
+  RankOption,
   RecentMatchView,
 } from "./matchViewTypes";
 
@@ -34,6 +55,8 @@ export interface MatchPageHero extends MatchHeroInfo {
 interface MatchReviewClientProps {
   heroes: ReadonlyArray<MatchPageHero>;
   allItems: ReadonlyArray<Item>;
+  /** Rank tier names (`/v1/assets/ranks`); may be empty, then tiers show as "Rank N". */
+  rankNames: ReadonlyArray<{ tier: number; name: string }>;
   /** From the URL (?id=), so a shared review link reloads itself. */
   initialMatchId: string;
   initialHeroId: number | null;
@@ -132,6 +155,38 @@ async function runLoad(
   }
 }
 
+/** The curve fetched for one hero and bracket; `curve` null = it couldn't be loaded. */
+interface CurveState {
+  key: string;
+  curve: CurvePoint | null;
+}
+
+function curveKey(heroId: number, tier: number | null): string {
+  return `${heroId}:${tier ?? "all"}`;
+}
+
+/**
+ * Loads the typical player's 9:00 point (docs/match-review-use-cases.md §10). A newer
+ * load aborts the older one; a failure lands as a null curve ("unavailable").
+ */
+async function runCurveLoad(
+  heroId: number,
+  tier: number | null,
+  apiKey: string,
+  abortRef: RefObject<AbortController | null>,
+  setCurve: (s: CurveState) => void,
+): Promise<void> {
+  abortRef.current?.abort();
+  const controller = new AbortController();
+  abortRef.current = controller;
+  try {
+    const curve = await fetchPerformanceCurve(heroId, tier, apiKey, controller.signal);
+    if (!controller.signal.aborted) setCurve({ key: curveKey(heroId, tier), curve });
+  } catch {
+    // Aborted by a newer load: that load owns the state now.
+  }
+}
+
 /** Puts the match and hero (never the key) in the address bar, so the review can be shared. */
 function syncUrl(matchId: string | null, heroId: number | null): void {
   const params = new URLSearchParams();
@@ -144,6 +199,7 @@ function syncUrl(matchId: string | null, heroId: number | null): void {
 export function MatchReviewClient({
   heroes,
   allItems,
+  rankNames,
   initialMatchId,
   initialHeroId,
 }: MatchReviewClientProps) {
@@ -160,6 +216,18 @@ export function MatchReviewClient({
   const [playerInput, setPlayerInput] = useState("");
   const [history, setHistory] = useState<HistoryState>({ status: "idle" });
   const historyAbortRef = useRef<AbortController | null>(null);
+  // The benchmark bracket the visitor picked, for one review only: a new match or hero
+  // starts again from that player's own rank (§10.2). Never in the URL.
+  const [tierChoice, setTierChoice] = useState<{ reviewKey: string; tier: number | null } | null>(
+    null,
+  );
+  const [curveState, setCurveState] = useState<CurveState | null>(null);
+  const curveAbortRef = useRef<AbortController | null>(null);
+  // The key for the benchmark call, read when it starts (typing it doesn't refetch).
+  const apiKeyRef = useRef(apiKey);
+  useEffect(() => {
+    apiKeyRef.current = apiKey;
+  }, [apiKey]);
 
   const heroById = useMemo(() => new Map(heroes.map((h) => [h.id, h])), [heroes]);
   const heroInfo = useMemo(() => {
@@ -260,6 +328,44 @@ export function MatchReviewClient({
     () => (match && heroId !== null ? laneReview(match, heroId, allItems) : null),
     [match, heroId, allItems],
   );
+
+  const reviewKey = review?.ok ? `${review.report.matchId}:${review.report.you.heroId}` : null;
+  const benchmarkTier = useMemo(() => {
+    if (!review?.ok) return null;
+    return tierChoice?.reviewKey === reviewKey
+      ? tierChoice.tier
+      : defaultBenchmarkTier(review.report);
+  }, [review, reviewKey, tierChoice]);
+  const benchmarkHeroId = review?.ok ? review.report.you.heroId : null;
+
+  useEffect(() => {
+    if (benchmarkHeroId === null) return;
+    void runCurveLoad(
+      benchmarkHeroId,
+      benchmarkTier,
+      apiKeyRef.current,
+      curveAbortRef,
+      setCurveState,
+    );
+  }, [benchmarkHeroId, benchmarkTier]);
+
+  const rankOptions = useMemo<RankOption[]>(() => {
+    const names = new Map(rankNames.map((r) => [r.tier, r.name]));
+    const tiers: RankOption[] = [];
+    for (let t = MIN_RANK_TIER; t <= MAX_RANK_TIER; t += 1) {
+      tiers.push({ tier: t, name: names.get(t) ?? `Rank ${t}` });
+    }
+    return [{ tier: null, name: "All ranks" }, ...tiers];
+  }, [rankNames]);
+
+  const benchmarkView = useMemo<BenchmarkView>(() => {
+    if (!review?.ok || benchmarkHeroId === null) return { status: "loading" };
+    if (curveState?.key !== curveKey(benchmarkHeroId, benchmarkTier)) return { status: "loading" };
+    const result = benchmarkLane(review.report, curveState.curve, benchmarkTier);
+    return result.ok
+      ? { status: "ok", benchmark: result.benchmark }
+      : { status: "none", message: NO_BENCHMARK_MESSAGES[result.reason] };
+  }, [review, benchmarkHeroId, benchmarkTier, curveState]);
 
   const laneItems = useMemo<LaneItemView[]>(() => {
     if (!review?.ok) return [];
@@ -385,12 +491,22 @@ export function MatchReviewClient({
 
         {review?.ok && (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <LaneReportPanel
-              report={review.report}
-              heroes={heroInfo}
-              items={laneItems}
-              simplified={simplified}
-            />
+            <div className="flex min-w-0 flex-col gap-6">
+              <LaneReportPanel
+                report={review.report}
+                heroes={heroInfo}
+                items={laneItems}
+                simplified={simplified}
+              />
+              <LaneBenchmarkPanel
+                heroName={heroById.get(review.report.you.heroId)?.name ?? "player"}
+                ranks={rankOptions}
+                tier={benchmarkTier}
+                onTierChange={(tier) => reviewKey && setTierChoice({ reviewKey, tier })}
+                view={benchmarkView}
+                simplified={simplified}
+              />
+            </div>
             <LaneCoachPanel messages={coachLines} simplified={simplified} />
           </div>
         )}
