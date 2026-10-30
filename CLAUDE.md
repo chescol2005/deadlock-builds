@@ -440,7 +440,7 @@ lib/analyticsStore.ts         — getItemAnalytics(), getHeroAnalytics() — cac
 lib/coach/                    — the build coach (M6, docs/milestone-m6.md): pure, imports
                                 nothing from lib/engine / lib/scoring / app (Fixture 18).
                                 coachTypes (facts), triggerRules (18 insights x trigger x
-                                audience, priority: 12 build + 6 lane insights on the
+                                audience, priority: 12 build + 7 lane insights on the
                                 match_reviewed trigger), sessionMemory (never repeat),
                                 templates (approved wording, new player / veteran),
                                 responseValidator (word limits, fact-only numbers and items,
@@ -458,12 +458,16 @@ lib/matchReview/              — the match review's lane facts (docs/match-revi
                                 no-review reason), parsePlayerId() (Steam profile link,
                                 SteamID64 via BigInt, friend code, SteamID3/2 -> account id;
                                 custom /id/ links refused) and parseMatchHistory() (recent
-                                normal matches, newest 10). Pure; imports only itself and the
+                                normal matches, newest 10), and benchmark.ts (MRB1: the per-
+                                hero performance curve's 9:00 point, your starting-rank tier as
+                                the default bracket, a one-std judgement for five stats).
+                                Pure; imports only itself and the
                                 Item type (Fixtures 21 and 23, offline; a pinned real match
                                 in __fixtures__/)
 lib/matchReviewCoachContext.ts — buildMatchCoachContext(): the ONE bridge from a lane report
                                 to the coach (MR2): lane facts with game-clock times, souls
-                                rounded to 50 (Fixture 22)
+                                rounded to 50, and typicalSoulsFact() from a loaded benchmark
+                                (MRB3; Fixture 22)
 app/components/                — cross-route shared UI (Milestone C):
   Tooltip.tsx                 — Tooltip, InfoTooltip — sanctioned title= replacement
   AudienceTabs.tsx             — reusable two(+)-audience tab switcher
@@ -484,7 +488,8 @@ app/match/                    — the match review page (MR3): page.tsx (server:
                                 the optional deadlock-api key goes only there, as X-API-KEY,
                                 never to an app route, localStorage or the URL: Fixture 23),
                                 matchMessages.ts (plain wording for every error), and
-                                presentational panels in components/
+                                presentational panels in components/ (LaneBenchmarkPanel:
+                                you against a typical player, rank picker; MRB2)
 app/build/[heroId]/page.tsx   — server component, fetches items + hero data
 app/build/BuildClient.tsx     — single state source of truth; owns viewMode
                                 ("simplified" | "advanced") via AudienceTabs
@@ -717,6 +722,7 @@ build; the basket's soul budget is `boonSouls − cost of owned items`.
 | M7        | ⏸ Queued  | Beginner / Aggressive / Safe starter templates with coach annotations (engine work, moved out of M6)                                                                                     |
 | M8        | ⏸ Queued  | Skill-path planner from match data, on the existing grid (moved out of M6)                                                                                                               |
 | MR        | ✅ Closed | Match review (`/match`): lane facts from match metadata, six coach lane insights, the page with an optional deadlock-api key (`docs/match-review-use-cases.md`, PRs #123–#127)           |
+| MRB       | ✅ Closed | Match review benchmarks: you against a typical player on your hero at 9:00, rank picker defaulting to your starting rank, coach souls line (§10, PRs #134–#138)                          |
 | H         | ✅ Closed | Planned big items: anchored plans in the basket (save up for a big item when the plan is worth more), "worth saving up for" reason; lookahead tried and rejected (`docs/milestone-h.md`) |
 | MR5       | ⏸ Queued  | Optional Anthropic key: a model rewords the lane facts in the browser; needs per-field number checks in the validator first                                                              |
 
@@ -749,9 +755,9 @@ session record `docs/session-2026-10-27-match-review.md`). Open:
 
 - **MR5, model wording.** The validator allows any digit run found in a fact's text
   fields; make number checks per field before a model writes lane messages.
-- **Benchmarks.** Per-hero "typical player at 9:00" from
-  `/v1/analytics/player-performance-curve?hero_ids=…&resolution=0`; the rank bracket to
-  compare against needs a decision.
+- **Benchmarks.** Built 2026-10-29 (§10, PRs #134–#138). Open: the curve covers the last
+  30 days, not the match's patch; and the team-average badge in match metadata has been 0
+  since about 2026-08-17, so the default bracket is the player's own starting rank.
 - **Beyond the lane.** Mid-game, objectives, item timings against the starter build.
 - **Phone layout.** Built: the hero picker collapses once a hero is chosen. The recent
   matches list (10 rows) still sits above the report on phones; collapse it too if it
