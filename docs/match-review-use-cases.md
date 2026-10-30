@@ -6,6 +6,8 @@ recommendation in §9 accepted; changed since with the user's sign-off: the last
 expectation needs to change (see "Testing Expectations" in CLAUDE.md).
 **Work items:** MR0 (this doc) → MR1 lane facts + fixtures → MR2 coach lane insights (AI
 layer, separate PR) → MR3 page → MR4 close. Later: MR5, an optional Anthropic key.
+**Benchmarks (§10):** APPROVED 2026-10-29 with every §10.7 recommendation accepted. MRB0 (§10) → MRB1 facts →
+MRB2 page → MRB3 coach line (AI layer, separate PR) → MRB4 close.
 
 ## 1. What the feature is
 
@@ -154,7 +156,7 @@ No live calls are needed in CI.
   fields (a death time like "5:31" allows 5 and 31 anywhere). That is safe for templates,
   but a model could write "5 deaths" and pass. Number checks should be per field before a
   model writes lane messages (MR2 audit).
-- **Benchmarks.** "A typical Oracle+ Haze has N souls at 9:00". The source exists:
+- **Benchmarks.** Now planned in §10. "A typical Oracle+ Haze has N souls at 9:00". The source exists:
   `/v1/analytics/player-performance-curve?hero_ids=…&resolution=0&min_average_badge=…`
   gives per-hero net worth and creep kills by second (e.g. Oracle+ Haze at 9:00: 6,551
   souls, 19.9 last hits, ~14.6k samples). `lane-matchup-stats` sums lane duos, so it is
@@ -181,3 +183,118 @@ recommendations.
 5. **Benchmarks in v1.** The per-hero source is confirmed (§8). **Recommendation:** not
    in v1; ship the opponent comparison first, then add benchmarks as a small follow-up.
    Matching the match's rank bracket needs its own decision.
+
+## 10. Benchmarks: you against a typical player (MRB)
+
+The lane report compares you with the three players in your lane. A benchmark adds a
+second yardstick: a typical player on the same hero, at a rank the visitor picks. It
+answers "was that lane normal for this hero, or was the whole lane slow?"
+
+### 10.1 Source
+
+`GET /v1/analytics/player-performance-curve?hero_ids={hero}&resolution=0` (unauthenticated,
+CORS `*`; browsers and the CDN cache it 10 minutes, the server up to an hour). With `resolution=0` it returns one row per stats snapshot
+time (180, 360, 540, ...), each with `<stat>_avg`, `<stat>_std` and `samples` (the number of player snapshots
+averaged: at 9:00, roughly the players still in a match then). The
+benchmark uses the `game_time` 540 row, the same 9:00 as the lane report. Rank filters:
+`min_average_badge` / `max_average_badge` (badge = tier × 10 + subtier, 1–6), which filter on
+the match's average badge, not the player's own. Matches default to the last 30 days.
+The definitions match the lane report's `stats[]` fields (net worth, `creep_kills`,
+`denies`, `player_damage`, running-total `deaths`); verified by `data-verifier`
+2026-10-29.
+
+Measured 2026-10-29, Seven at 9:00:
+
+| Bracket          | Souls (avg ± std) | Last hits  | Damage dealt  | Snapshots |
+| ---------------- | ----------------- | ---------- | ------------- | --------- |
+| All ranks        | 5,915 ± 1,009     | 23.9 ± 7.7 | 3,485 ± 1,285 | 1,286,508 |
+| Initiate (11–16) | 5,844 ± 888       | 25.0 ± 7.0 | 3,431 ± 1,227 | 18,283    |
+| Oracle+ (91–116) | 7,004 ± 1,085     | 29.3 ± 7.2 | 3,246 ± 1,267 | 19,110    |
+
+### 10.2 The rank bracket (user decision, 2026-10-29)
+
+The visitor picks it: a rank dropdown next to the report, "All ranks" plus each rank
+tier by name (from `/v1/assets/ranks`: 1 Initiate to 11 Eternus, six subtiers each). One
+tier is the badge range tier × 10 + 1 to tier × 10 + 6. Tier 0 (Obscurus, unranked) is
+not offered.
+
+- **Default:** the reviewed player's own rank at the start of the match, the tier of
+  `players[].player_rank_data.initial_display_rank` (e.g. 65 = Ritualist 5). Matchmaking
+  groups similar ranks, so it stands in for the match's average badge that the curve
+  filters on. "All ranks" when the field is missing, 0, or outside tiers 1–11.
+- **Not the match's `average_badge_team0/1`:** `data-verifier` found both at 0 on every
+  sampled match since about 2026-08-17 (0 of 300 per sample, the 1,000 newest included),
+  though 80–88% were populated before.
+- The choice lives in memory with the rest of the review. It is not added to the URL.
+
+### 10.3 What is compared
+
+Your 9:00 value against the bracket's 9:00 average, using its standard deviation:
+
+| Stat         | Your value (lane report) | Benchmark field                        |
+| ------------ | ------------------------ | -------------------------------------- |
+| Souls        | `net_worth`              | `net_worth_avg` / `_std`               |
+| Last hits    | `creep_kills`            | `creep_kills_avg` / `_std`             |
+| Denies       | `denies`                 | `denies_avg` / `_std`                  |
+| Damage dealt | `player_damage`          | `player_damage_avg` / `_std`           |
+| Deaths       | deaths before 9:00       | `deaths_avg` / `_std` (fewer = better) |
+
+**Judgement:** **above typical** when more than one standard deviation better than the
+average, **below typical** when more than one worse, else **typical**. Normal variation
+is never flagged, and the rule needs no tuning per stat. A zero or missing standard
+deviation makes that stat "no benchmark", never a judgement.
+
+### 10.4 What the page shows
+
+- **Simplified view:** one line under the soul summary, for example "A typical Seven
+  (Initiate) has about 5,850 souls at 9:00. You had 4,900: below typical." Plus the rank
+  dropdown, with a tooltip saying what "typical" means.
+- **Veteran view:** a "Typical" column in the lane table for the five stats, showing
+  average ± standard deviation, the judgement, and the sample count.
+- **Failure is never a broken report.** If the fetch fails, the response is malformed, the
+  9:00 row is missing, or the bracket has fewer than 200 snapshots, the lane report shows
+  unchanged, with one plain line ("Not enough games at this rank to compare yet" / "The
+  typical-player numbers couldn't be loaded"). The 200 floor matches
+  `ANALYTICS_MIN_MATCHES`.
+- The same key rules as §5 apply. The benchmark call needs no key; when the visitor has
+  given one, it goes to api.deadlock-api.com as `X-API-KEY` like the match call, and
+  nowhere else.
+
+### 10.5 The coach (MRB3, AI-layer PR)
+
+One new lane insight, `typical_souls`: your souls at 9:00 against the typical player in
+the chosen bracket, said only when the souls are above or below typical. It ranks after
+the causes (deaths, fell behind early, trades, last hits) and before `lane_result`,
+within the existing two-message cap. Its wording goes to the user for approval in MRB3,
+like MR2's.
+
+### 10.6 Acceptance criteria (each becomes a fixture)
+
+The fixtures run on a pinned real curve response under `lib/matchReview/__fixtures__/`.
+CI makes no live calls.
+
+| ID  | Criterion                                                                                                                                                                     |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | Parsing takes the 540 row; a missing row, a missing or non-numeric field, or a negative standard deviation is rejected (that stat or the whole benchmark), never read as 0.   |
+| B2  | Each comparison equals the raw values: your value, the average, the standard deviation, the sample count (spot-checked against the JSON).                                     |
+| B3  | The judgement in §10.3 classifies correctly, including exactly one standard deviation away (typical) and deaths, where fewer is better (synthetic cases).                     |
+| B4  | The default bracket is the reviewed player's `initial_display_rank` tier; missing, 0 or out of range gives all ranks. A tier's badge range is tier × 10 + 1 to tier × 10 + 6. |
+| B5  | Fewer than 200 samples, a failed fetch or a malformed response gives a typed "no benchmark" reason, and the lane report is unchanged.                                         |
+| B6  | Same inputs, same benchmark (deterministic). `lib/matchReview/` still imports neither `lib/coach/` nor the app.                                                               |
+| B7  | The benchmark fetch goes through `matchApi.ts`'s one fetch helper; the key goes nowhere new (R9's source scan extended).                                                      |
+| B8  | The coach's `typical_souls` messages pass the validator for both audiences; the numbers in them appear in the facts (MRB3).                                                   |
+
+### 10.7 Open questions for sign-off
+
+Each carries a recommendation; approving this section as written accepts them.
+
+1. **One standard deviation** as the line between typical and above / below.
+   **Recommendation:** yes. About two in three players fall inside it, so a flag means
+   something.
+2. **The 30-day window** (the API default), not the patch the match was played on.
+   **Recommendation:** yes for now. Old matches are compared with today's players, and
+   the page says "over the last 30 days".
+3. **Five stats, judged the same way.** **Recommendation:** yes. Accuracy has no curve
+   field, so it stays opponent-only.
+4. **200-snapshot floor.** **Recommendation:** yes, as `ANALYTICS_MIN_MATCHES` already
+   does for item win rates.
