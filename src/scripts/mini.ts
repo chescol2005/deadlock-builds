@@ -73,7 +73,12 @@ import {
   getCoachMessages,
 } from "@/lib/coach";
 import { coachCandidates } from "@/lib/coach/triggerRules";
-import { buildMatchCoachContext, gameClock, laneFacts } from "@/lib/matchReviewCoachContext";
+import {
+  buildMatchCoachContext,
+  gameClock,
+  laneFacts,
+  typicalSoulsFact,
+} from "@/lib/matchReviewCoachContext";
 import type { CoachContext, CoachFact, CoachTrigger, InsightId, PlayerMode } from "@/lib/coach";
 import { INSIGHT_PRIORITY, INSIGHT_RULES } from "@/lib/coach/triggerRules";
 import { renderInsight } from "@/lib/coach/templates";
@@ -167,6 +172,24 @@ const LANE_SAMPLE_FACTS: CoachFact[] = [
   { id: "lane_result", result: "ahead", soulGap: 600, laneEnd: "9:00" },
   { id: "lane_result", result: "even", soulGap: 300, laneEnd: "9:00" },
   { id: "strong_lane", soulGap: 650, laneEnd: "9:00" },
+  {
+    id: "typical_souls",
+    heroName: "Kelvin",
+    rankName: "Ritualist",
+    result: "below",
+    yourSouls: 4900,
+    typicalSouls: 6050,
+    laneEnd: "9:00",
+  },
+  {
+    id: "typical_souls",
+    heroName: "Kelvin",
+    rankName: null,
+    result: "above",
+    yourSouls: 7400,
+    typicalSouls: 6050,
+    laneEnd: "9:00",
+  },
 ];
 const LANE_INSIGHTS: ReadonlyArray<InsightId> = [
   "lane_deaths",
@@ -175,6 +198,7 @@ const LANE_INSIGHTS: ReadonlyArray<InsightId> = [
   "missed_last_hits",
   "lane_result",
   "strong_lane",
+  "typical_souls",
 ];
 
 let passed = 0;
@@ -2380,7 +2404,9 @@ async function run() {
   const LANE_FIX_WORDS =
     /\b(back off|play|fight|focus|take|shoot|secure|deny|save|farm|avoid|respect|push|keep|use)\b/i;
   const laneNoFix = LANE_SAMPLE_FACTS.filter(
-    (f) => !(f.id === "lane_result" && f.result !== "behind"),
+    (f) =>
+      !(f.id === "lane_result" && f.result !== "behind") &&
+      !(f.id === "typical_souls" && f.result === "above"),
   ).flatMap((f) =>
     (["new", "veteran"] as PlayerMode[])
       .filter((m) => !LANE_FIX_WORDS.test(renderInsight(f, m)))
@@ -2395,10 +2421,11 @@ async function run() {
     INSIGHT_PRIORITY.indexOf("lane_deaths") < INSIGHT_PRIORITY.indexOf("fell_behind_early") &&
       INSIGHT_PRIORITY.indexOf("fell_behind_early") < INSIGHT_PRIORITY.indexOf("lost_trades") &&
       INSIGHT_PRIORITY.indexOf("lost_trades") < INSIGHT_PRIORITY.indexOf("missed_last_hits") &&
-      INSIGHT_PRIORITY.indexOf("missed_last_hits") < INSIGHT_PRIORITY.indexOf("lane_result") &&
+      INSIGHT_PRIORITY.indexOf("missed_last_hits") < INSIGHT_PRIORITY.indexOf("typical_souls") &&
+      INSIGHT_PRIORITY.indexOf("typical_souls") < INSIGHT_PRIORITY.indexOf("lane_result") &&
       INSIGHT_PRIORITY.indexOf("lane_result") < INSIGHT_PRIORITY.indexOf("strong_lane") &&
       MATCH_REVIEW_MAX_MESSAGES === 2,
-    "approved order: deaths, fell behind early, lost trades, missed last hits, lane result, strong lane; at most 2 per review",
+    "approved order: deaths, fell behind early, lost trades, missed last hits, typical souls, lane result, strong lane; at most 2 per review",
   );
 
   if (match) {
@@ -2624,6 +2651,93 @@ async function run() {
           ),
         ),
       "a match review only ever hears lane insights, and the build coach never says them",
+    );
+  }
+
+  // B8: the typical-player souls line (docs/match-review-use-cases.md §10.5, MRB3).
+  {
+    const curve = parsePerformanceCurve(
+      JSON.parse(readFileSync("lib/matchReview/__fixtures__/curve-hero12-ritualist.json", "utf-8")),
+    );
+    const kelvinMatch = parseMatchMetadata(rawMatch);
+    const kelvin = kelvinMatch ? okReport(laneReview(kelvinMatch, 12, catalogue)) : null;
+    const bmOf = (r: LaneReport, souls: number) => {
+      const res = benchmarkLane(
+        { ...r, you: { ...r.you, atLaneEnd: { ...r.you.atLaneEnd, souls } } },
+        curve,
+        6,
+      );
+      return res.ok ? res.benchmark : null;
+    };
+    const avg = curve?.stats.souls?.avg ?? NaN;
+    const std = curve?.stats.souls?.std ?? NaN;
+    const low = kelvin ? bmOf(kelvin, Math.round(avg - 2 * std)) : null;
+    const high = kelvin ? bmOf(kelvin, Math.round(avg + 2 * std)) : null;
+    const typicalBm = kelvin ? bmOf(kelvin, kelvin.you.atLaneEnd.souls) : null;
+    const lowFact = low ? typicalSoulsFact(low, "Kelvin", "Ritualist") : null;
+    const highFact = high ? typicalSoulsFact(high, "Kelvin", null) : null;
+    const coachWith = (
+      r: LaneReport,
+      mode: PlayerMode,
+      bm: typeof low,
+      rankName: string | null,
+    ) => {
+      const { context, knownItemNames } = buildMatchCoachContext({
+        playerMode: mode,
+        report: r,
+        hero: { id: 12, name: "Kelvin", complexity: 1 },
+        heroNames: new Map([[12, "Kelvin"]]),
+        allItems: fz.allItems,
+        benchmark: bm ? { result: bm, rankName } : null,
+      });
+      return getCoachMessages(context, EMPTY_MEMORY, knownItemNames, MATCH_REVIEW_MAX_MESSAGES);
+    };
+    // A quiet lane: no deaths, even at 6:00, even trades, keeping up on last hits.
+    const quiet: LaneReport | null = kelvin
+      ? {
+          ...kelvin,
+          deaths: [],
+          judgements: {
+            ...kelvin.judgements,
+            costlyDeaths: false,
+            atSixMinutes: "even",
+            trades: "even",
+            missedLastHits: false,
+            souls: "even",
+          },
+        }
+      : null;
+    const texts: string[] = [];
+    const bothModesOk = (["new", "veteran"] as PlayerMode[]).every((mode) => {
+      if (!quiet || !low || !high) return false;
+      const below = coachWith(quiet, mode, low, "Ritualist");
+      const above = coachWith(quiet, mode, high, null);
+      texts.push(...[below, above].map((o) => o.messages[0]?.text ?? ""));
+      return (
+        // A validator drop would leave a message out, so the exact list proves none was.
+        below.messages.map((m) => m.insight).join() === "typical_souls,lane_result" &&
+        above.messages.map((m) => m.insight).join() === "typical_souls,lane_result"
+      );
+    });
+    const kelvinOut = kelvin && low ? coachWith(kelvin, "new", low, "Ritualist") : null;
+    assert(
+      lowFact?.id === "typical_souls" &&
+        lowFact.result === "below" &&
+        lowFact.yourSouls === Math.round(Math.round(avg - 2 * std) / 50) * 50 &&
+        lowFact.typicalSouls === Math.round(avg / 50) * 50 &&
+        lowFact.rankName === "Ritualist" &&
+        highFact?.id === "typical_souls" &&
+        highFact.result === "above" &&
+        highFact.rankName === null &&
+        typicalBm !== null &&
+        typicalSoulsFact(typicalBm, "Kelvin", "Ritualist") === null &&
+        bothModesOk &&
+        texts.some((t) => t.includes("at Ritualist rank")) &&
+        texts.some((t) => t.includes("across all ranks")) &&
+        !!kelvinOut &&
+        !kelvinOut.messages.some((m) => m.insight === "typical_souls"),
+      "B8: the typical-souls line is said only above or below typical, with the report's and curve's souls to the nearest 50; it passes the validator in both audiences, comes before the lane result, and gives way to the causes (2-message cap)",
+      texts.join(" // "),
     );
   }
 

@@ -130,6 +130,21 @@ export function renderInsight(fact: CoachFact, mode: PlayerMode): string {
       return fact.result === "ahead"
         ? `At ${minutes(fact.laneEnd)} minutes you were ${fmtSouls(fact.soulGap)} souls ahead of your lane opponents. Use the lead: buy your next item and help a nearby lane.`
         : `At ${minutes(fact.laneEnd)} minutes you were ${fmtSouls(fact.soulGap)} souls behind your lane opponents. You can recover: farm the camps on your side of the map and avoid risky fights until your next item.`;
+    case "typical_souls": {
+      if (v) {
+        const who = fact.rankName
+          ? `${fact.rankName} ${fact.heroName}`
+          : `${fact.heroName} across all ranks`;
+        return fact.result === "below"
+          ? `${fmtSouls(fact.yourSouls)} souls at ${fact.laneEnd}; a typical ${who} has ${fmtSouls(fact.typicalSouls)}. Farm camps between waves.`
+          : `${fmtSouls(fact.yourSouls)} souls at ${fact.laneEnd} vs ${fmtSouls(fact.typicalSouls)} typical for a ${who}. Strong farm.`;
+      }
+      const rank = fact.rankName ? `at ${fact.rankName} rank` : "across all ranks";
+      const typical = `A typical ${fact.heroName} ${rank} has about ${fmtSouls(fact.typicalSouls)} souls at ${minutes(fact.laneEnd)} minutes.`;
+      return fact.result === "below"
+        ? `${typical} You had ${fmtSouls(fact.yourSouls)}. Between trooper waves, farm the small camps near your lane so no time goes to waste.`
+        : `${typical} You had ${fmtSouls(fact.yourSouls)}, well above typical. Your farming is strong: keep it going as the lanes open up.`;
+    }
     case "strong_lane":
       return v
         ? `Clean lane: ${fmtSouls(fact.soulGap)} souls up at ${fact.laneEnd}, no deaths. Push and take the Guardian.`
