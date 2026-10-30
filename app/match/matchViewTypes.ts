@@ -2,6 +2,7 @@
 // in MatchReviewClient; the panels are presentational (docs/match-review-use-cases.md).
 
 import type { ItemCategory } from "@/lib/items";
+import type { LaneBenchmark } from "@/lib/matchReview";
 
 export interface MatchHeroInfo {
   id: number;
@@ -49,3 +50,15 @@ export interface RecentMatchView {
   /** When it was played, e.g. "Oct 27, 21:40" (the viewer's time zone). */
   playedAt: string;
 }
+
+/** A rank bracket in the benchmark picker; tier null = all ranks. */
+export interface RankOption {
+  tier: number | null;
+  name: string;
+}
+
+/** The typical-player comparison (docs/match-review-use-cases.md §10), ready to show. */
+export type BenchmarkView =
+  | { status: "loading" }
+  | { status: "ok"; benchmark: LaneBenchmark }
+  | { status: "none"; message: string };

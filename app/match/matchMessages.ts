@@ -2,7 +2,7 @@
 // fail (docs/match-review-use-cases.md §5). Both records are exhaustive by type, so
 // a new error kind or no-review reason can't ship without wording (Fixture 23).
 
-import type { NoReviewReason } from "@/lib/matchReview";
+import type { NoBenchmarkReason, NoReviewReason } from "@/lib/matchReview";
 import type { MatchLoadError } from "./matchApi";
 
 /** Seconds → "about 25 minutes" / "about a minute". */
@@ -51,4 +51,9 @@ export const PLAYER_ID_MESSAGES: Readonly<Record<"empty" | "vanity" | "invalid",
     "Custom Steam links (steamcommunity.com/id/…) can't be looked up. Use your SteamID64 or friend code instead: Steam shows the friend code under Friends > Add a Friend.",
   invalid:
     "That doesn't look like a Steam ID. Paste a steamcommunity.com/profiles/… link, a 17-digit SteamID64 or your friend code.",
+};
+
+export const NO_BENCHMARK_MESSAGES: Readonly<Record<NoBenchmarkReason, string>> = {
+  unavailable: "The typical-player numbers couldn't be loaded. The lane review above is complete.",
+  not_enough_games: "Not enough games at this rank to compare yet. Try All ranks.",
 };

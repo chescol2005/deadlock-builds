@@ -4,10 +4,16 @@
 // (Fixture 23, R9). Every request goes through apiGet(), the one fetch call.
 // Responses verified: match metadata 2026-10-26 (404 "Match metadata not found.",
 // 503 "Steam is busy" with Retry-After); match history 2026-10-28 (a JSON array; a bad
-// account id is a 400 with a plain-text body).
+// account id is a 400 with a plain-text body); the performance curve 2026-10-29 (a JSON
+// array, no key needed, §10).
 
-import { parseMatchHistory, parseMatchMetadata } from "@/lib/matchReview";
-import type { MatchMetadata, RecentMatch } from "@/lib/matchReview";
+import {
+  parseMatchHistory,
+  parseMatchMetadata,
+  parsePerformanceCurve,
+  performanceCurveQuery,
+} from "@/lib/matchReview";
+import type { CurvePoint, MatchMetadata, RecentMatch } from "@/lib/matchReview";
 
 export const API_ORIGIN = "https://api.deadlock-api.com";
 export const MATCH_API_BASE = `${API_ORIGIN}/v1/matches`;
@@ -102,4 +108,22 @@ export async function fetchMatchHistory(
   if (!got.ok) return got;
   const matches = parseMatchHistory(got.json);
   return matches ? { ok: true, matches } : { ok: false, error: { kind: "unreadable" } };
+}
+
+/**
+ * The typical player's 9:00 point for this hero and rank tier (null = all ranks), or
+ * null when it can't be loaded or read: the lane report then shows without it (§10.4).
+ */
+export async function fetchPerformanceCurve(
+  heroId: number,
+  tier: number | null,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<CurvePoint | null> {
+  const got = await apiGet(
+    `/v1/analytics/player-performance-curve?${performanceCurveQuery(heroId, tier)}`,
+    apiKey,
+    signal,
+  );
+  return got.ok ? parsePerformanceCurve(got.json) : null;
 }

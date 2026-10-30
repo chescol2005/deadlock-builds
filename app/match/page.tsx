@@ -1,3 +1,4 @@
+import { getRankTiers } from "@/lib/analyticsStore";
 import { fetchHeroes } from "@/lib/heroApi";
 import { getItems } from "@/lib/itemStore";
 import { MatchReviewClient } from "./MatchReviewClient";
@@ -15,10 +16,12 @@ export default async function MatchPage({
 }: {
   searchParams: Promise<{ id?: string; hero?: string }>;
 }) {
-  const [{ id, hero }, heroList, allItems] = await Promise.all([
+  const [{ id, hero }, heroList, allItems, rankTiers] = await Promise.all([
     searchParams,
     fetchHeroes(),
     getItems(),
+    // Fail-open: without names the rank picker says "Rank 6".
+    getRankTiers(),
   ]);
   // Every hero, not only the selectable ones: a match can include any of them.
   const heroes: MatchPageHero[] = heroList.map((h) => ({
@@ -32,6 +35,7 @@ export default async function MatchPage({
     <MatchReviewClient
       heroes={heroes}
       allItems={allItems}
+      rankNames={rankTiers.map((t) => ({ tier: t.tier, name: t.name }))}
       initialMatchId={typeof id === "string" ? id : ""}
       initialHeroId={Number.isInteger(heroParam) && heroParam > 0 ? heroParam : null}
     />
