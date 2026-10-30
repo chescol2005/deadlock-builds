@@ -403,6 +403,16 @@ export function MatchReviewClient({
       },
       heroNames,
       allItems,
+      benchmark:
+        benchmarkView.status === "ok"
+          ? {
+              result: benchmarkView.benchmark,
+              rankName:
+                benchmarkTier === null
+                  ? null
+                  : (rankOptions.find((r) => r.tier === benchmarkTier)?.name ?? null),
+            }
+          : null,
     });
     return getCoachMessages(
       context,
@@ -410,7 +420,16 @@ export function MatchReviewClient({
       knownItemNames,
       MATCH_REVIEW_MAX_MESSAGES,
     ).messages.map((m) => ({ insight: m.insight, text: m.text }));
-  }, [review, simplified, heroById, heroNames, allItems]);
+  }, [
+    review,
+    simplified,
+    heroById,
+    heroNames,
+    allItems,
+    benchmarkView,
+    benchmarkTier,
+    rankOptions,
+  ]);
 
   const recentViews = useMemo<RecentMatchView[]>(
     () =>

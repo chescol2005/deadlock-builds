@@ -44,6 +44,7 @@ export const INSIGHT_RULES: Readonly<Record<InsightId, InsightRule>> = {
   missed_last_hits: { triggers: ["match_reviewed"], modes: BOTH },
   lane_result: { triggers: ["match_reviewed"], modes: BOTH },
   strong_lane: { triggers: ["match_reviewed"], modes: BOTH },
+  typical_souls: { triggers: ["match_reviewed"], modes: BOTH },
 };
 
 /** A match review shows at most this many messages (docs/match-review-use-cases.md §6). */
@@ -72,6 +73,8 @@ export const INSIGHT_PRIORITY: ReadonlyArray<InsightId> = [
   "fell_behind_early",
   "lost_trades",
   "missed_last_hits",
+  // After the causes, before the summary (approved MRB3, 2026-10-29).
+  "typical_souls",
   "lane_result",
   "strong_lane",
 ];

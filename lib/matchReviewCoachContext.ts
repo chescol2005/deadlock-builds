@@ -10,7 +10,7 @@ import type { Item } from "./items";
 import { getBoonThreshold } from "./boonSystem";
 import { heroRolesOf } from "./heroRoles";
 import { EARLY_CHECK_S, LANE_END_S, lastHitShare } from "./matchReview";
-import type { LanePlayer, LaneReport } from "./matchReview";
+import type { LaneBenchmark, LanePlayer, LaneReport } from "./matchReview";
 import type { CoachContext, CoachFact, CoachItem, PlayerMode } from "./coach";
 
 export interface MatchCoachInput {
@@ -22,6 +22,8 @@ export interface MatchCoachInput {
   heroNames: ReadonlyMap<number, string>;
   /** Every shop item: lane items' details, and names for the validator. */
   allItems: ReadonlyArray<Item>;
+  /** The typical-player comparison, once loaded (§10); absent = no benchmark line. */
+  benchmark?: { result: LaneBenchmark; rankName: string | null } | null;
 }
 
 /** Seconds → game clock: 331 → "5:31". */
@@ -127,6 +129,33 @@ export function laneFacts(report: LaneReport, heroNames: ReadonlyMap<number, str
   return facts;
 }
 
+/**
+ * The typical-player souls fact (§10.5): only above or below typical, and only when the
+ * rounded numbers still differ (rounding must not make "below" read as equal).
+ */
+export function typicalSoulsFact(
+  benchmark: LaneBenchmark,
+  heroName: string,
+  rankName: string | null,
+): CoachFact | null {
+  const souls = benchmark.stats.find((s) => s.stat === "souls");
+  if (!souls || (souls.judgement !== "above" && souls.judgement !== "below")) return null;
+  const yourSouls = roundAmount(souls.you);
+  const typicalSouls = roundAmount(souls.avg);
+  if (souls.judgement === "below" ? yourSouls >= typicalSouls : yourSouls <= typicalSouls) {
+    return null;
+  }
+  return {
+    id: "typical_souls",
+    heroName,
+    rankName,
+    result: souls.judgement,
+    yourSouls,
+    typicalSouls,
+    laneEnd: gameClock(LANE_END_S),
+  };
+}
+
 function toCoachItem(item: Item): CoachItem {
   return {
     id: item.id,
@@ -144,6 +173,11 @@ export function buildMatchCoachContext(input: MatchCoachInput): {
   const { report } = input;
   const byNumericId = new Map(input.allItems.map((i) => [i.numericId, i]));
   const souls = report.you.atLaneEnd.souls;
+  const facts = laneFacts(report, input.heroNames);
+  const typical = input.benchmark
+    ? typicalSoulsFact(input.benchmark.result, input.hero.name, input.benchmark.rankName)
+    : null;
+  if (typical) facts.push(typical);
   return {
     context: {
       playerMode: input.playerMode,
@@ -155,7 +189,7 @@ export function buildMatchCoachContext(input: MatchCoachInput): {
         .map((it) => byNumericId.get(it.numericId))
         .filter((i): i is Item => i !== undefined)
         .map(toCoachItem),
-      facts: laneFacts(report, input.heroNames),
+      facts,
       trigger: { type: "match_reviewed" },
     },
     knownItemNames: input.allItems.map((i) => i.name),

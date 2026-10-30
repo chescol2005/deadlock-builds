@@ -78,7 +78,20 @@ export type CoachFact =
   /** Your souls against the opponent average at lane end; never with strong_lane. */
   | { id: "lane_result"; result: LaneResult; soulGap: number; laneEnd: string }
   /** Ahead at lane end with no deaths. */
-  | { id: "strong_lane"; soulGap: number; laneEnd: string };
+  | { id: "strong_lane"; soulGap: number; laneEnd: string }
+  /**
+   * Your souls at lane end against a typical player on your hero (match review §10.5),
+   * only when above or below typical. Souls rounded to 50; rankName null = all ranks.
+   */
+  | {
+      id: "typical_souls";
+      heroName: string;
+      rankName: string | null;
+      result: "above" | "below";
+      yourSouls: number;
+      typicalSouls: number;
+      laneEnd: string;
+    };
 
 export type InsightId = CoachFact["id"];
 
