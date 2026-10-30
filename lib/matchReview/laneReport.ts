@@ -131,6 +131,7 @@ function toLanePlayer(p: MatchPlayer): LanePlayer | null {
     heroId: p.hero_id,
     playerSlot: p.player_slot,
     team: p.team,
+    rankBadge: p.rank_badge,
     snapshots,
     atLaneEnd: toSnapshot(end),
   };
