@@ -29,6 +29,11 @@ function parseStats(raw: UpgradeV2Raw): Record<string, number> {
  * without a base value to apply it to. Only the single-stat form is captured:
  * `scale_function_multi_stats` publishes `scaling_stats` with NO `stat_scale`,
  * so there is no coefficient to read and guessing one would be inventing data.
+ *
+ * `scale_function_healing_spirit_scale` publishes a `stat_scale` but no
+ * `specific_stat_scale_type`: it is spirit-power scaling (Healing Nova since the
+ * 2026-10-30 patch: 325 + 1.1 x spirit power; it scaled with boons before), the
+ * same reading `abilityCoefficients.ts` gives it for abilities.
  */
 function parseStatScaling(raw: UpgradeV2Raw, parsedStats: ItemStats): ItemStatScalings {
   const scalings: ItemStatScalings = {};
@@ -38,7 +43,9 @@ function parseStatScaling(raw: UpgradeV2Raw, parsedStats: ItemStats): ItemStatSc
     if (!(key in parsedStats)) continue; // no base value kept => nothing to scale
 
     const fn = entry.scale_function;
-    const scaleType = fn?.specific_stat_scale_type;
+    const scaleType =
+      fn?.specific_stat_scale_type ||
+      (fn?.class_name === "scale_function_healing_spirit_scale" ? "ETechPower" : undefined);
     const statScale = fn?.stat_scale;
     if (typeof scaleType !== "string" || scaleType.length === 0) continue;
     if (typeof statScale !== "number" || !Number.isFinite(statScale) || statScale === 0) continue;

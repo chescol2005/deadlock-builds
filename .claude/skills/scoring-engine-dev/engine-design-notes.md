@@ -436,6 +436,16 @@ Two traps when touching this:
 - **Only the single-stat form carries a coefficient.**
   `scale_function_multi_stats` publishes `scaling_stats` with NO `stat_scale`,
   so there is nothing to read and inventing one would be fabricating data.
+- **`scale_function_healing_spirit_scale` has no scale type** but is spirit-power
+  scaling, so `parseStatScaling` reads it as `ETechPower` (2026-10-31). Live: Healing
+  Nova (325 + 1.1 x spirit since the 2026-10-30 patch; boon scaling before), Healing
+  Rite (300 + 1.1), Radiant Regeneration `Regeneration` (4 + 0.025 live; 0.035 in the
+  pre-patch frozen copy). The untyped
+  `scale_function_healing_boon_scale` (Healbane, Lifestrike, Veil Walker, Headhunter,
+  Restorative Locket, Radiant Regeneration's per-cast heal) is still not read: the
+  boon coefficients there need checking against the wiki before they are applied.
+  No frozen baseline basket changed (Healing Rite and Radiant Regeneration are scaled
+  there too).
 
 **`SpiritPower` is a second API name for `TechPower`** — and the two modules
 disagreed. `lib/buildCalculations.ts`'s `SPIRIT_POWER_KEYS` listed only
@@ -1501,6 +1511,15 @@ raw value), so it only ever set where the curve bends.
     `HEADSHOT_IN_TRADE`, counted as hit-dependent.
   - Melee Lifesteal's value was always one heal; only its reason text said "per hit".
     `fitCategorySplit` values items on this path, so a refit picks up C3.
+- **Ambush bonuses (Shadow Weave, 2026-10-31).** The 2026-10-30 patch replaced its ambush
+  fire rate and melee damage with +50% `AmbushBonusWeaponDamage`, built up over 6 s of
+  stealth; `AmbushBonusTechPower` (+25) was there before and was never priced. Both now
+  count at `ambushShare`: `AMBUSH_OPEN_SHARE` (0.5, reasoned, not measured: share of uses
+  that open a trade with the full bonus) x `AmbushDuration` / trade (5 s of 10) x the trades
+  its cooldown is ready for (30 / 37), at most one ambush per trade; ≈ 0.2, so +50% ambush
+  ≈ +10% always-on weapon damage. Same share on the no-model path. Live Haze at boon 20:
+  gunDamage +10.5, spiritDamage +5.5, first-pick rank 98 of 156. The frozen copy is pre-
+  patch, so only its spirit part was new there; no baseline basket changed.
 
 **Was open (C4), resolved in Milestone G4:** the phase stat profile in
 `heroCategorySplit.json`, which sets the targets of antiHeal, sustain, utility, economy and

@@ -114,6 +114,8 @@ import type { PhaseItemsTable } from "../phaseItems";
 import { buyOrder } from "../starterBuild";
 import {
   abilityDps,
+  AMBUSH_OPEN_SHARE,
+  ambushShare,
   castsPerTrade,
   CONDITIONAL_DAMAGE_WEIGHT,
   damageValues,
@@ -144,7 +146,7 @@ import { deriveHeroDamageModel, runHeroBasket, withKitHeal, withOwnedGapHeal } f
 import { BOON_THRESHOLDS } from "../../boonSystem";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
-import { resolveScaledStats, toItemCandidate } from "../itemAdapter";
+import { HERO_DAMAGE_SCALE, resolveScaledStats, toItemCandidate } from "../itemAdapter";
 import { baseCategoryStage } from "../stages/baseCategoryStage";
 import { intentWeightStage } from "../stages/intentWeightStage";
 import type {
@@ -5610,6 +5612,128 @@ console.log("\n32. Planned big items: anchored plans (Milestone H)");
       (p) => p.item.itemId === "big",
     ) && basketPlans(greedyBuysBig, early(4800)).anchored.every((a) => a.anchor.itemId !== "big"),
     "a big item the greedy basket already buys is not tried again as an anchor",
+  );
+}
+
+console.log("\n33. 2026-10-30 patch: healing spirit scaling, Shadow Weave ambush");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const nova = (scaleFunction: Record<string, unknown>) =>
+    normalizeItem({
+      id: 2,
+      class_name: "upgrade_health_nova",
+      name: "Healing Nova",
+      type: "upgrade",
+      item_slot_type: "spirit",
+      item_tier: 2,
+      cost: 1600,
+      properties: { TotalHealthRegen: { value: "325", scale_function: scaleFunction } },
+    });
+
+  // a. Healing Nova since the patch: 325 + 1.1 x spirit power, published as
+  //    scale_function_healing_spirit_scale with no specific_stat_scale_type.
+  const spiritNova = nova({ class_name: "scale_function_healing_spirit_scale", stat_scale: 1.1 });
+  assert(
+    spiritNova.statScaling.TotalHealthRegen?.scaleType === "ETechPower" &&
+      near(resolveScaledStats(spiritNova, { spiritPower: 100 }).TotalHealthRegen, 435),
+    "normalizeItem: healing spirit scaling with no scale type is spirit-power scaling (325 + 1.1 x 100)",
+    JSON.stringify(spiritNova.statScaling),
+  );
+  assert(
+    toItemCandidate(spiritNova, { spiritPower: 100 }).categoryValues.sustain >
+      toItemCandidate(spiritNova, { spiritPower: 0 }).categoryValues.sustain,
+    "a spirit-scaled heal is worth more sustain at higher spirit power",
+  );
+
+  // b. Other untyped scale functions still capture nothing: healing boon
+  //    scaling (Healing Nova before the patch, Healbane) is not guessed at.
+  const boonNova = nova({ class_name: "scale_function_healing_boon_scale", stat_scale: 6 });
+  assert(
+    boonNova.statScaling.TotalHealthRegen === undefined,
+    "normalizeItem: an untyped healing boon scale is left unscaled",
+    JSON.stringify(boonNova.statScaling),
+  );
+  const typedNova = nova({
+    class_name: "scale_function_healing_spirit_scale",
+    specific_stat_scale_type: "EHealingOutput",
+    stat_scale: 1.1,
+  });
+  assert(
+    typedNova.statScaling.TotalHealthRegen?.scaleType === "EHealingOutput",
+    "normalizeItem: a published scale type wins over the healing-class reading",
+    JSON.stringify(typedNova.statScaling),
+  );
+
+  // c. Ambush share at Shadow Weave's live numbers: 5 s of a 10 s trade, ready
+  //    for 30 / 37 of trades, half the uses open with the full bonus.
+  const weave = { AbilityCooldown: 37, AbilityDuration: 13, AmbushDuration: 5 };
+  const share = ambushShare(weave);
+  assert(
+    near(share, AMBUSH_OPEN_SHARE * 0.5 * (TRADE_GAP_SECONDS / 37)),
+    "ambushShare: open share x ambush window x trades its cooldown is ready for",
+    `Got ${share}`,
+  );
+  assert(
+    near(ambushShare({ AbilityCooldown: 5, AmbushDuration: 5 }), AMBUSH_OPEN_SHARE * 0.5) &&
+      near(ambushShare({ AbilityCooldown: 37 }), share * (CONDITIONAL_DAMAGE_WEIGHT / 0.5)),
+    "ambushShare: at most one ambush per trade; no published duration counts as conditional",
+  );
+
+  // d. Hero mode: +50% ambush weapon damage is 50 x share of always-on weapon
+  //    damage on an all-gun hero, and ambush spirit power is worth less than the
+  //    same always-on spirit power.
+  const gun = { perShot: 10, shotsPerSecond: 5, clip: 20, reload: 2, overhead: 0 };
+  const allGun: HeroDamageModel = { gun, accuracy: 1, abilities: [], spiritPower: 0 };
+  const ambushGun = damageValues({ ...weave, AmbushBonusWeaponDamage: 50 }, allGun).gunDamage;
+  assert(
+    ambushGun > 0 &&
+      near(ambushGun, damageValues({ BaseAttackDamagePercent: 50 * share }, allGun).gunDamage) &&
+      ambushGun < damageValues({ BaseAttackDamagePercent: 50 }, allGun).gunDamage,
+    "damageValues: ambush weapon damage counts at the ambush share of always-on weapon damage",
+    `Got ${ambushGun}`,
+  );
+  const caster: HeroDamageModel = {
+    gun,
+    accuracy: 1,
+    abilities: [{ baseDamage: 100, spiritScaling: 1, cooldown: 10 }],
+    spiritPower: 0,
+  };
+  const ambushSpirit = damageValues({ ...weave, AmbushBonusTechPower: 25 }, caster).spiritDamage;
+  assert(
+    ambushSpirit > 0 && ambushSpirit < damageValues({ TechPower: 25 }, caster).spiritDamage,
+    "damageValues: ambush spirit power is worth something, but less than always-on spirit power",
+    `Got ${ambushSpirit}`,
+  );
+
+  // e. No hero model (heuristic path): the same share, not the 0.4 weight.
+  const weaveItem: Item = {
+    id: "shadow_weave",
+    numericId: 3301,
+    name: "Shadow Weave",
+    category: "gun",
+    tier: 3,
+    cost: 3200,
+    tags: [],
+    stats: { ...weave, AmbushBonusWeaponDamage: 50, AmbushBonusTechPower: 25 },
+    statScaling: {},
+  };
+  const heuristic = toItemCandidate(weaveItem).categoryValues;
+  assert(
+    near(heuristic.gunDamage, 50 * share) && near(heuristic.spiritDamage, 25 * share),
+    "heuristic path: ambush bonuses priced at the ambush share",
+    `gun=${heuristic.gunDamage}, spirit=${heuristic.spiritDamage}`,
+  );
+
+  // f. Hero mode counts the ambush keys once: damageValues only, never the
+  //    heuristic weight on top.
+  const heroWeave = toItemCandidate(
+    { ...weaveItem, stats: { ...weave, AmbushBonusWeaponDamage: 50 } },
+    { heroDamage: allGun },
+  ).categoryValues.gunDamage;
+  assert(
+    near(heroWeave, ambushGun * HERO_DAMAGE_SCALE),
+    "hero mode: ambush weapon damage is priced once, through damageValues",
+    `Got ${heroWeave}, expected ${ambushGun * HERO_DAMAGE_SCALE}`,
   );
 }
 

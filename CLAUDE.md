@@ -742,6 +742,9 @@ day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
   charges (R2c) and kit self-heal (G3), instead of the per-phase prior.
 - **Unmeasured healing constants.** `RECOVERY_WEIGHT`, `GAP_FARM_SHARE` and
   `SITUATIONAL_HEAL_SHARE` are reasoned, not fitted (G2a / G2b).
+- **Unmeasured ambush share.** `AMBUSH_OPEN_SHARE` (Shadow Weave, 2026-10-31) is reasoned.
+- **Post-patch refit (2026-10-30 patch).** Frozen inputs and the committed tables predate
+  it. After 1–2 weeks of matches: fit-pairs, fit-category-split, capture-inputs, baseline.
 - **Unpriced healing.** Parry and kill heals have no measured rate
   (`UNPRICED_HEALING_KEYS`). Heals against creeps between trades are not modelled.
 - **Item tags.** `Item.tags` are slot-derived and only feed the unwired staged pipeline.

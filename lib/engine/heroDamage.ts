@@ -124,6 +124,25 @@ export const TRADE_SECONDS = 10;
 export const MAX_CASTS_PER_TRADE = 2;
 /** Seconds between trades: a cooldown longer than this misses some trades. */
 export const TRADE_GAP_SECONDS = 30;
+/**
+ * Share of a stealth item's uses that open a trade with the full ambush bonus
+ * (Shadow Weave, 2026-10-30 patch: the bonus builds up over 6 s of stealth, so
+ * a short or spotted stealth, or one used to escape, gets little or none).
+ * Reasoned, not measured.
+ */
+export const AMBUSH_OPEN_SHARE = 0.5;
+
+/**
+ * Share of a trade an ambush bonus covers: the opening shots after stealth, for
+ * `AmbushDuration` seconds (Shadow Weave 5 s), at most once per trade, ready for
+ * the trades its cooldown allows, times AMBUSH_OPEN_SHARE. With no published
+ * duration it counts as any other conditional stat.
+ */
+export function ambushShare(stats: ItemStats): number {
+  const duration = num(stats.AmbushDuration);
+  const window = duration > 0 ? Math.min(1, duration / TRADE_SECONDS) : CONDITIONAL_DAMAGE_WEIGHT;
+  return AMBUSH_OPEN_SHARE * window * Math.min(1, castsPerTrade(num(stats.AbilityCooldown)));
+}
 /** Chance a cooldown's "next headshot" bonus lands within a trade. */
 export const HEADSHOT_IN_TRADE = 0.7;
 
@@ -250,8 +269,10 @@ export const HERO_RELATIVE_GUN_KEYS: ReadonlySet<string> = new Set([
   "HeadShotBonusDamage",
   "BaseAttackDamagePercentAtMaxDuration",
   "ProcBaseAttackDamagePercent",
+  "AmbushBonusWeaponDamage",
 ]);
 export const HERO_RELATIVE_SPIRIT_KEYS: ReadonlySet<string> = new Set([
+  "AmbushBonusTechPower",
   "TechPower",
   "TechPowerPercent",
   "SpiritPower",
@@ -296,9 +317,12 @@ export function damageValues(
   // hero deals bonus weapon damage"), priced below. It was read as +45% weapon
   // damage before 2026-10-24.
   const flatHeadshot = s("AbilityCooldown") > 0 ? s("HeadShotBonusDamage") : 0;
+  // Shadow Weave's ambush bonuses only cover the opening seconds out of stealth.
+  const ambush = ambushShare(stats);
   const mods: GunMods = {
     damagePercent:
       s("BaseAttackDamagePercent") +
+      ambush * s("AmbushBonusWeaponDamage") +
       c *
         (s("CloseRangeBonusWeaponPower") +
           s("LongRangeBonusWeaponPower") +
@@ -327,6 +351,7 @@ export function damageValues(
     s("SpiritPower") +
     s("BonusSpirit") +
     c * s("ImbuedTechPower") +
+    ambush * s("AmbushBonusTechPower") +
     (sp * s("TechPowerPercent")) / 100;
   const spAfter = sp + deltaSp;
   const abilityAfter = abilityDps(model.abilities, spAfter);

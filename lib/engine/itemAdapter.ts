@@ -18,6 +18,7 @@
 //   verified is expected and safe.
 
 import {
+  ambushShare,
   castsPerTrade,
   chargedAbilityDps,
   TRADE_SECONDS,
@@ -118,6 +119,10 @@ const STAT_KEY_TO_SCORE: Readonly<Record<string, StatMapping>> = {
   // MaxHealthDamage (Mystic Reverb): unmapped on purpose, so inert everywhere.
   // It is in no tooltip and not on the wiki (item scoring review C2).
   MagicIncreasePerStack: { category: "spiritDamage", weight: WEIGHT_CONDITIONAL }, // Escalating Exposure ramps per stack
+  // Shadow Weave: only the opening seconds out of stealth; priced at
+  // heroDamage.ambushShare in deriveCategoryValues, the weight is for shares.
+  AmbushBonusTechPower: { category: "spiritDamage", weight: WEIGHT_CONDITIONAL },
+  AmbushBonusWeaponDamage: { category: "gunDamage", weight: WEIGHT_CONDITIONAL },
 
   // ── gunDamage ──
   WeaponPower: { category: "gunDamage", weight: WEIGHT_BASELINE }, // weapon damage % — CLAUDE.md
@@ -598,6 +603,10 @@ function deriveCategoryValues(
     }
     if (key === "BonusFireRate" && timedItem && !innate?.has(key)) {
       values[mapping.category] += rawValue * WEIGHT_CONDITIONAL;
+      continue;
+    }
+    if (key === "AmbushBonusWeaponDamage" || key === "AmbushBonusTechPower") {
+      values[mapping.category] += rawValue * ambushShare(stats);
       continue;
     }
 
