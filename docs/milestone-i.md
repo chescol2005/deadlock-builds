@@ -6,7 +6,7 @@ expectation needs to change.
 
 **Scope:** `phaseItemTerm` in `lib/engine/basketSelect.ts` (how much "players on this
 hero buy it now" is worth), the starter build and `/build` hero basket that use it, their
-fixtures and baselines. Follows Milestone H (`docs/milestone-h.md` §7), which left real
+fixtures and baselines. "Today" is measured after PR #139 (2026-10-30 patch pricing). Follows Milestone H (`docs/milestone-h.md` §7), which left real
 early rushes at 1 / 24 and named the value model as the cause.
 
 ## 1. The problem
@@ -91,7 +91,7 @@ Rejected alternatives:
 | P1  | Real early rushes held at the early phase                                                  | 1 / 24  | ≥ 12 / 24 |
 | P2  | Heroes within 15 points of real early share in 3,200+ items (both directions)              | 22 / 44 | ≥ 33 / 44 |
 | P3  | The reference T1 known gaps (Seven, Lady Geist, Wraith) pass, and leave the known-gap list | 0 / 3   | ≥ 2 / 3   |
-| P4  | Late tier-4 in the real top 3, held by the late phase                                      | 26 / 52 | ≥ 32 / 52 |
+| P4  | Late tier-4 in the real top 3, held by the late phase                                      | 28 / 52 | ≥ 32 / 52 |
 | P5  | Mid 6,400+ items (≥ 20% of players), held by the mid phase                                 | 2 / 10  | ≥ 4 / 10  |
 
 ### 4.2 Guards (pass today; must still pass)
