@@ -59,6 +59,10 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
   "T1:Seven",
   "T1:Lady Geist",
   "T1:Wraith",
+  // 2026-10-30 patch (user-accepted 2026-10-31): live item data is post-patch,
+  // the real-play split it is measured against was fitted on 2026-10-25. Warden's
+  // mid went real 24/42/35, engine 38/50/13, d=0.44. Remove at the post-patch refit.
+  "M1:Warden:mid",
 ]);
 
 /**
@@ -80,8 +84,12 @@ const MID_OVERLAP_BASELINE = 0.077; // history: 0.096 refit -> 0.076 review C2/C
  */
 const LIVE_NOISE = 0.01;
 
-/** Mean M1 distance (L1) to real play across the 24 hero x phase keys (§2.2 gate). */
-const MEAN_L1_MAX = 0.12;
+/**
+ * Mean M1 distance (L1) to real play across the 24 hero x phase keys (§2.2 gate).
+ * 0.12 until the 2026-10-30 patch moved it to 0.129 against pre-patch tables
+ * (user-accepted 2026-10-31); restore 0.12 at the post-patch refit.
+ */
+const MEAN_L1_MAX = 0.13;
 
 /** O1: early picks that must be among the hero's real top 10 early buys. */
 const O1_MIN_HITS = 2;
@@ -91,7 +99,9 @@ const O1_MIN_HITS = 2;
  */
 // Rebased on the post-patch tables (§2.1): 36/53 = 0.679. Was 0.69 (37/53, 2026-10-24).
 // Raised to 40/49 = 0.816 by the G4 profile refit in fight-value units (2026-10-25).
-const MID_REAL_TOP_BASELINE = 0.816; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4
+// Lowered to 39/49 = 0.796 by the 2026-10-30 patch, against pre-patch tables
+// (user-accepted 2026-10-31); raise it back at the post-patch refit.
+const MID_REAL_TOP_BASELINE = 0.796; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch
 
 /**
  * Milestone H (docs/milestone-h.md §4.1): saving up for big items, on ALL heroes.

@@ -101,6 +101,11 @@ export const STAT_PROPERTY_LABELS: Record<string, string> = {
   TickRate: "Tick Rate",
 
   // ─── Lower-frequency but player-facing keys ───────────────────────────────
+  // Shadow Weave (2026-10-30 patch): bonuses for the first seconds out of stealth.
+  AmbushBonusTechPower: "Ambush Spirit Power",
+  AmbushBonusWeaponDamage: "Ambush Weapon Damage",
+  AmbushBuildUpDuration: "Ambush Build-Up Time",
+  AmbushDuration: "Ambush Duration",
   BonusAbilityCharges: "Ability Charges",
   BonusGoldPerMinute: "Bonus Souls per Minute",
   BonusSoulsPct: "Bonus Souls",
