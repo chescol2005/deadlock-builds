@@ -14,6 +14,8 @@ export const BIG_COST = 6400;
 export const BIG_BUY_RATE = 0.2;
 /** T1 tolerance: engine vs real early share of souls in 3,200+ items. */
 export const T1_TOLERANCE = 0.15;
+/** A false rush: an early 3,200+ pick that fewer than this share of the hero's players buy early. */
+export const FALSE_RUSH_RATE = 0.1;
 
 export interface BigItemHero {
   name: string;
@@ -37,6 +39,8 @@ export interface BigItemMeasures {
   lateTopBig: CountCheck;
   /** P5: 6,400+ items bought in mid by >= BIG_BUY_RATE, held by the mid phase. */
   midBig: CountCheck;
+  /** P6 (Milestone I guard): early 3,200+ picks bought early by < FALSE_RUSH_RATE of players. */
+  falseRushes: string[];
 }
 
 /** What the player holds after phase `upto`: picks minus components an upgrade consumed. */
@@ -85,6 +89,7 @@ export function measureBigItems(
     earlyShare: empty(),
     lateTopBig: empty(),
     midBig: empty(),
+    falseRushes: [],
   };
   const count = (c: CountCheck, hero: string, ids: string[], held: ReadonlySet<string>) => {
     for (const id of ids) {
@@ -108,6 +113,11 @@ export function measureBigItems(
     count(out.earlyRush, h.name, atLeast(h.rates.early, RUSH_COST), ids(0));
     count(out.midBig, h.name, atLeast(h.rates.mid, BIG_COST), ids(1));
     count(out.lateTopBig, h.name, lateTop3, ids(2));
+    for (const p of h.build.phases[0].basket.picks) {
+      if (p.item.cost >= RUSH_COST && (h.rates.early[p.item.itemId] ?? 0) < FALSE_RUSH_RATE) {
+        out.falseRushes.push(`${h.name}: ${nameOf(p.item.itemId)}`);
+      }
+    }
     const share = earlyBigShares(h, costOf);
     out.earlyShare.total++;
     if (Math.abs(share.engine - share.real) <= T1_TOLERANCE) out.earlyShare.hit++;
