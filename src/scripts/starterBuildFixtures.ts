@@ -10,7 +10,13 @@
 // Live network: reads the same API data the planner does, so results move with
 // patches. Node-only (scripts).
 
-import { T1_TOLERANCE, measureBigItems, type BigItemHero, type CountCheck } from "./bigItemChecks";
+import {
+  FALSE_RUSH_RATE,
+  T1_TOLERANCE,
+  measureBigItems,
+  type BigItemHero,
+  type CountCheck,
+} from "./bigItemChecks";
 import type { Item } from "@/lib/items";
 import { MAX_ACTIVE_ITEMS } from "@/lib/buildUtils";
 import { componentClosure, heroPairLift } from "@/lib/engine/pairLift";
@@ -111,6 +117,8 @@ const MID_REAL_TOP_BASELINE = 0.796; // baseline history: 0.679 refit -> 0.731 r
  * so progress is locked in. P3 is the reference heroes' T1 keys in KNOWN_LEAN_GAPS.
  */
 const BIG_ITEM_FLOORS = { P1: 1, P2: 22, P4: 26, P5: 2 } as const; // H2 anchored plans (2026-10-28); was P1 0, P4 21, P5 1
+/** P6 ceiling: false rushes measured before Milestone I (2026-10-31); a ratchet, never raised. */
+const FALSE_RUSH_CEILING = 0;
 const BIG_ITEM_TARGETS = { P1: 12, P2: 33, P4: 32, P5: 4 } as const;
 const KNOWN_BIG_ITEM_GAPS: ReadonlySet<keyof typeof BIG_ITEM_TARGETS> = new Set([
   "P1",
@@ -999,5 +1007,12 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
         assert(false, `H ${id} target missed and not in KNOWN_BIG_ITEM_GAPS: ${label}`, detail);
       }
     }
+    // P6 (Milestone I guard, docs/milestone-i.md §4.2): rushing must come only where this
+    // hero's players rush. Early 3,200+ picks that few of them buy early must not rise.
+    assert(
+      m.falseRushes.length <= FALSE_RUSH_CEILING,
+      `I P6 false rushes (early 3,200+ picks bought early by < ${FALSE_RUSH_RATE * 100}% of the hero's players) ${m.falseRushes.length} <= ${FALSE_RUSH_CEILING}`,
+      m.falseRushes.join(" | ") || undefined,
+    );
   }
 }
