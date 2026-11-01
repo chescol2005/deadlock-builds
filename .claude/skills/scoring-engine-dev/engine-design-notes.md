@@ -1922,6 +1922,22 @@ rule and re-baselined M1 (mean ≤ 0.14) and O2 (≥ 0.731), with `M1:Seven:earl
 lean gap. The follow-up is to fit those tables for rushers and non-rushers separately,
 then restore the old bars.
 
+**Done in Milestone J (2026-10-31, `docs/milestone-j.md`).** `item-stats` can't make the
+split: `include_item_ids` matches a purchase at any time in the match. `item-flow-stats`
+with `locked_item_ids` + `locked_columns=0` gives exactly the players who bought the item
+in the first 9 minutes (its early column is fixed at 0–9 min, equal to `item-stats`
+`max_bought_at_s=539`); non-rushers are the unfiltered call minus the locked one, node by
+node. `npm run fit-rush-groups` writes `src/scripts/data/heroRushGroups.json`, which only
+Fixture 13 reads. Results:
+
+- **M1 was averaging.** Against the same-choice group the mean is 0.127 (≤ 0.13 restored);
+  Seven's early distance falls from 0.30 to 0.20.
+- **O2 was not.** Against Lady Geist's rushers the mid overlap falls from 4 / 7 to 2 / 7.
+  Rushing Geists buy Healing Booster, Spirit Resilience and Berserker in mid. The engine's
+  mid plan after a rush is a real gap; O2's baseline is 0.692.
+- **Keep the long tail.** At a 2% item cut-off the dropped tail moved the M1 mean to
+  0.132; the table keeps items bought by ≥ 0.5% of players.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical
