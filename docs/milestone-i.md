@@ -123,7 +123,9 @@ real mid top 10. After a rush, the build buys in mid the basics it skipped early
 mid top 10 is dominated by players who bought those basics early. Shipped with: M1 mean
 ≤ 0.14 (was 0.13), O2 ≥ 0.731 (was 0.796), and `M1:Seven:early` listed as a known lean
 gap. Follow-up: measure M1 and O2 against players who made the same rush choice, then
-restore the old bars.
+restore the old bars. **Done in Milestone J (`docs/milestone-j.md`):** M1 mean ≤ 0.13 is
+restored and `M1:Seven:early` removed. O2 against the rushers is 0.692, lower: its drop
+was a real Lady Geist mid-build gap, not the averaging effect described here.
 
 ### 4.3 Explainability
 
@@ -195,4 +197,5 @@ late):
   one build skips) and P5 2 / 10. Both stay in `KNOWN_BIG_ITEM_GAPS`, with floors as a
   ratchet.
 - **Follow-up:** fit M1 and O2's tables for rushers and non-rushers separately, then
-  restore M1 mean ≤ 0.13 and O2 ≥ 0.796 and remove `M1:Seven:early`.
+  restore M1 mean ≤ 0.13 and O2 ≥ 0.796 and remove `M1:Seven:early`. Done in Milestone J
+  for M1; O2 turned out to be a real gap (0.692 against the rushers).
