@@ -1680,8 +1680,10 @@ assumptions:
 
 - **Heal amp (G3-5).** `HealAmpCastPercent` / `HealAmpRegenPercent` multiply
   `ampableHealHp`: kit heal plus the owned items' in-trade lifesteal
-  (`ownedTradeHealHp`). Item regen is left out (wiki Healing_Booster). The two keys are
-  one stat, so the larger is used once.
+  (`ownedTradeHealHp`). The two keys are one stat, so the larger is used once.
+  **Corrected in Milestone K:** G3 left all item regen out, citing the wiki, but the wiki
+  excludes only constant regen. Owned temporary heals count too (see "Heal amp counts
+  owned temporary heals").
 - **Sustain need (G3-3).** `kitSustainNeed` gives neutral at 0 and up to +50% at 20% of max
   HP per trade. It is used only where no measured profile exists. Across the 42 parseable
   profiled heroes, kit heal rank-correlates with the measured sustain share (Spearman 0.40 early, 0.38 mid, 0.31 late). Drifter and Solomon have no parseable damage model.
@@ -1934,9 +1936,53 @@ Fixture 13 reads. Results:
   Seven's early distance falls from 0.30 to 0.20.
 - **O2 was not.** Against Lady Geist's rushers the mid overlap falls from 4 / 7 to 2 / 7.
   Rushing Geists buy Healing Booster, Spirit Resilience and Berserker in mid. The engine's
-  mid plan after a rush is a real gap; O2's baseline is 0.692.
+  mid plan after a rush is a real gap; O2's baseline is 0.692. Healing Booster was fixed
+  in Milestone K (next section); Spirit Resilience and Berserker remain.
 - **Keep the long tail.** At a 2% item cut-off the dropped tail moved the M1 mean to
   0.132; the table keeps items bought by ≥ 0.5% of players.
+
+## Heal amp counts owned temporary heals (Milestone K)
+
+**The gap.** After a Radiant Regeneration rush, Healing Booster ranked 150th of 151 in
+Lady Geist's mid basket (worth 1.5), while 69% of the Geists who rush buy it in mid. Heal
+amp multiplied only her kit heal (Life Drain, ~81 HP per trade) and owned lifesteal, so
+the item fell under the relevance gate and `phaseItemTerm` never applied.
+
+**The mechanic** (deadlock.wiki/Healing_Booster, updated 2026-10-30; data-verifier,
+2026-11-01). Amp "affects Health Regen only if it's a temporary effect" and "does not
+affect constant regen acquired from most items". The amplified-items list includes Radiant
+and Mystic Regeneration, Healing Rite, Healing Nova, Restorative Shot, Headhunter and
+Lifestrike, plus bullet and spirit lifesteal.
+
+**The change.**
+
+- `tradeHealHp(e, stats, m)` gives the HP a heal estimate restores inside one trade, the
+  share before any recovery tail. `estimateFightValue`'s heal cases use it, so the two can't
+  drift.
+- `ownedTradeHealHp` adds it for every owned item's heal estimates.
+- The quantity is the estimator's, at `EFFECT_CONFIDENCE`, the same HP the item is valued
+  on.
+- **Left out:**
+  - flat regen (`BonusHealthRegen`, `OutOfCombatHealthRegen`);
+  - enemy heal cuts;
+  - Siphon Bullets (`healPerGunProc`): stolen max health, not named on the wiki list,
+    and its model fields (landed shots, enemy health) aren't in the gap-heal model
+    (scoring-auditor).
+- **Accepted:** Radiant and Mystic Regeneration's 7 s regeneration is a `healPerProc` total,
+  as the items are valued, not split into in-trade and tail.
+
+**Result** (docs/milestone-k.md):
+
+- Healing Booster is Lady Geist's second mid pick;
+- O2 0.692 → 0.712, M3 0.077 → 0.072, M1 mean 0.127 → 0.125;
+- 4 of 72 baselines changed (Lady Geist x3, and Wraith's starter, which now takes Healing
+  Booster late instead of Extra Stamina).
+
+**Measured and dropped:** scaling the mid popularity bonus by price
+(`PHASE_ITEM_PRICE_EXPONENT.mid`). Against the rush groups it failed M1, M3 or P4 at
+every exponent that lifted O2, and on top of the heal fix it added nothing to O2 while
+changing 36 baselines. Spirit Resilience and Berserker (3,200 souls) stay out of Lady
+Geist's mid build: they lose per soul to 1,600 items.
 
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 

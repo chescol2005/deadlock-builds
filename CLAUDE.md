@@ -712,31 +712,32 @@ build; the basket's soul budget is `boonSouls − cost of owned items`.
 
 ## Milestone History
 
-| Milestone | Status    | What it built                                                                                                                                                                               |
-| --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                                                           |
-| M2        | ✅ Closed | Build Planner UI                                                                                                                                                                            |
-| M3        | ✅ Closed | URL persistence + share links                                                                                                                                                               |
-| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                                                             |
-| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                                                                    |
-| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                                                                      |
-| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                                                                       |
-| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, `lib/engine/` reconciliation, fetch-waterfall parallelization                                                                                        |
-| B         | ✅ Closed | State/component health: derived `assignmentMap`, `lib/buildUtils.ts`, `CategoryManager` split into 8 files                                                                                  |
-| C         | ✅ Closed | New player UX: shared Tooltip/AudienceTabs, simplified/advanced toggle, difficulty/archetype tags, Fixture 9                                                                                |
-| D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                                                                                  |
-| E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` — see engine-design-notes.md                                                                                            |
-| F         | ✅ Closed | Measured item-pair term (`pairTerm`) + synergy audit; starter build; item scoring review (`docs/item-scoring-review.md`, R1–R4: baselines, value-scale fixes, `scoreItems` retired)         |
-| G         | ✅ Closed | Kit and sustain enrichment: healing between trades, unpriced healing keys + Siphon Bullets, kit self-heal + heal amp, profile refit in fight-value units (`docs/milestone-g.md`)            |
-| M6        | ✅ Closed | Build coach: hero role table (checked against data), coach core with approved template wording, context builder, CoachPanel in `/build` (`docs/milestone-m6.md`)                            |
-| M7        | ⏸ Queued  | Beginner / Aggressive / Safe starter templates with coach annotations (engine work, moved out of M6)                                                                                        |
-| M8        | ⏸ Queued  | Skill-path planner from match data, on the existing grid (moved out of M6)                                                                                                                  |
-| MR        | ✅ Closed | Match review (`/match`): lane facts from match metadata, six coach lane insights, the page with an optional deadlock-api key (`docs/match-review-use-cases.md`, PRs #123–#127)              |
-| MRB       | ✅ Closed | Match review benchmarks: you against a typical player on your hero at 9:00, rank picker defaulting to your starting rank, coach souls line (§10, PRs #134–#138)                             |
-| H         | ✅ Closed | Planned big items: anchored plans in the basket (save up for a big item when the plan is worth more), "worth saving up for" reason; lookahead tried and rejected (`docs/milestone-h.md`)    |
-| I         | ✅ Closed | Rush-item value: the population term scaled by price, so the build rushes where most of a hero's players do (43/44) and holds 37/52 real late tier-4 items (`docs/milestone-i.md`)          |
-| J         | ✅ Closed | Rush-aware fidelity guards: M1 / O2 compare each build with the players who made its own rush choice; M1 mean ≤ 0.13 restored, O2 0.692 (a real Lady Geist mid gap) (`docs/milestone-j.md`) |
-| MR5       | ⏸ Queued  | Optional Anthropic key: a model rewords the lane facts in the browser; needs per-field number checks in the validator first                                                                 |
+| Milestone | Status    | What it built                                                                                                                                                                                    |
+| --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| M1        | ✅ Closed | Hero Explorer MVP                                                                                                                                                                                |
+| M2        | ✅ Closed | Build Planner UI                                                                                                                                                                                 |
+| M3        | ✅ Closed | URL persistence + share links                                                                                                                                                                    |
+| M4        | ✅ Closed | Real item data + scoring engine                                                                                                                                                                  |
+| M5a       | ✅ Closed | Game plan structure, phases, active grid                                                                                                                                                         |
+| M5b       | ✅ Closed | Hero stats, boon system, ability panel                                                                                                                                                           |
+| M5c       | ✅ Closed | Farming guide page (`/guide/farming`)                                                                                                                                                            |
+| A         | ✅ Closed | Ship-integrity fixes: CLAUDE.md drift, `lib/engine/` reconciliation, fetch-waterfall parallelization                                                                                             |
+| B         | ✅ Closed | State/component health: derived `assignmentMap`, `lib/buildUtils.ts`, `CategoryManager` split into 8 files                                                                                       |
+| C         | ✅ Closed | New player UX: shared Tooltip/AudienceTabs, simplified/advanced toggle, difficulty/archetype tags, Fixture 9                                                                                     |
+| D         | ✅ Closed | Guides: boons, itemization, lanes; shared `Minimap`/`PhaseTimeline`; data-verifier cadence                                                                                                       |
+| E         | ✅ Closed | Hero-aware basket scoring in `lib/engine/` + `HeroBasketSuggestion` — see engine-design-notes.md                                                                                                 |
+| F         | ✅ Closed | Measured item-pair term (`pairTerm`) + synergy audit; starter build; item scoring review (`docs/item-scoring-review.md`, R1–R4: baselines, value-scale fixes, `scoreItems` retired)              |
+| G         | ✅ Closed | Kit and sustain enrichment: healing between trades, unpriced healing keys + Siphon Bullets, kit self-heal + heal amp, profile refit in fight-value units (`docs/milestone-g.md`)                 |
+| M6        | ✅ Closed | Build coach: hero role table (checked against data), coach core with approved template wording, context builder, CoachPanel in `/build` (`docs/milestone-m6.md`)                                 |
+| M7        | ⏸ Queued  | Beginner / Aggressive / Safe starter templates with coach annotations (engine work, moved out of M6)                                                                                             |
+| M8        | ⏸ Queued  | Skill-path planner from match data, on the existing grid (moved out of M6)                                                                                                                       |
+| MR        | ✅ Closed | Match review (`/match`): lane facts from match metadata, six coach lane insights, the page with an optional deadlock-api key (`docs/match-review-use-cases.md`, PRs #123–#127)                   |
+| MRB       | ✅ Closed | Match review benchmarks: you against a typical player on your hero at 9:00, rank picker defaulting to your starting rank, coach souls line (§10, PRs #134–#138)                                  |
+| H         | ✅ Closed | Planned big items: anchored plans in the basket (save up for a big item when the plan is worth more), "worth saving up for" reason; lookahead tried and rejected (`docs/milestone-h.md`)         |
+| I         | ✅ Closed | Rush-item value: the population term scaled by price, so the build rushes where most of a hero's players do (43/44) and holds 37/52 real late tier-4 items (`docs/milestone-i.md`)               |
+| J         | ✅ Closed | Rush-aware fidelity guards: M1 / O2 compare each build with the players who made its own rush choice; M1 mean ≤ 0.13 restored, O2 0.692 (a real Lady Geist mid gap) (`docs/milestone-j.md`)      |
+| K         | ✅ Closed | Lady Geist's mid build after a rush: heal amp counts owned temporary heals (wiki: only constant regen is excluded), Healing Booster in her mid build; O2 0.712, M3 0.072 (`docs/milestone-k.md`) |
+| MR5       | ⏸ Queued  | Optional Anthropic key: a model rewords the lane facts in the browser; needs per-field number checks in the validator first                                                                      |
 
 ### After Milestones F and G: open follow-ups
 
@@ -744,10 +745,10 @@ Milestone F closed on 2026-10-25 with the item scoring review (PRs #101–#107; 
 results and accepted gaps in `docs/item-scoring-review.md`). Milestone G closed the same
 day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
 
-- **Mid build after a rush (Lady Geist).** Milestone J showed O2's drop is a real gap:
-  Lady Geists who rush buy Healing Booster, Spirit Resilience, Berserker and Extra Stamina
-  in mid; the engine buys Enduring Speed, Spirit Lifesteal, Arcane Surge and Compress
-  Cooldown (`docs/milestone-j.md` §3.1). Engine work; raise O2 from 0.692 with it.
+- **3,200-soul mid items after a rush (Lady Geist).** Milestone K put Healing Booster in
+  her mid build (O2 0.712). Spirit Resilience (57% of rushers) and Berserker (47%) still
+  lose per soul to 1,600 items; a price-scaled mid bonus was measured and dropped
+  (`docs/milestone-k.md` §3). Look at the mid shop budget next.
 - **T1 against the rush groups.** T1 (early souls in 3,200+ items) still compares with the
   all-player average; `T1:Seven` / `T1:Lady Geist` / `T1:Wraith` stay known gaps. The
   majority rule covers the same question; a group-aware T1 could replace them.
@@ -827,7 +828,8 @@ binding resource · Phase-aware split and measured stat profile · Hero-relative
 and soft saturation · One value scale (heroDamage.ts, heroFight.ts) · Spend like real
 players (shop budgets, laning tempo, buy order) · What players on this hero buy
 (phaseItems.ts, phaseItemTerm) · Planned big items (basketPlans, Milestone H) · Rush-item
-value: cost-scaled phase items (Milestone I).
+value: cost-scaled phase items (Milestone I) · Heal amp counts owned temporary heals
+(Milestone K).
 
 The five rules that bite most often (details in the notes):
 
