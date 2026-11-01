@@ -25,7 +25,11 @@
 import type { ItemStats } from "../items";
 import type { ScoreCategory } from "./types";
 import type { EffectEstimate } from "./effectEstimator";
-import { DEFAULT_PROC_COOLDOWN_S, REFERENCE_ENEMY_HEALTH } from "./effectEstimator";
+import {
+  DEFAULT_PROC_COOLDOWN_S,
+  estimateEffectValues,
+  REFERENCE_ENEMY_HEALTH,
+} from "./effectEstimator";
 import {
   castsPerTrade,
   HEADSHOT_IN_TRADE,
@@ -60,9 +64,11 @@ export interface HeroFightModel {
   landedShotsPerSecond?: number;
   /**
    * HP per trade that heal amplification multiplies (Milestone G3-5): the
-   * hero's kit heals plus the owned items' lifesteal. Item regen is left out:
-   * deadlock.wiki Healing_Booster says amp "does not affect constant regen
-   * acquired from most items". Omitted = 0 (amp then prices at 0).
+   * hero's kit heals plus the owned items' lifesteal and temporary heals
+   * (Milestone K). Flat regen is left out: deadlock.wiki Healing_Booster says
+   * amp "does not affect constant regen acquired from most items", but lists
+   * Radiant / Mystic Regeneration, Healing Rite and Healing Nova as amplified
+   * (data-verifier, 2026-11-01). Omitted = 0 (amp then prices at 0).
    */
   ampableHealHp?: number;
   /**
@@ -176,7 +182,14 @@ export function gapHealHp(
   );
 }
 
-/** HP the owned items' lifesteal heals in one trade (what heal amp multiplies). */
+/**
+ * HP the owned items heal in one trade (what heal amp multiplies): lifesteal,
+ * plus the temporary heals the effect estimator prices (per cast, per proc,
+ * timed regeneration, burst heals; `tradeHealHp`). Flat regen stats are not
+ * included (Milestone K, docs/milestone-k.md K-1 / K-2). Siphon Bullets
+ * (`healPerGunProc`) is left out too: its heal is stolen max health, which amp
+ * cannot add to, and the wiki's amplified-items list does not name it.
+ */
 export function ownedTradeHealHp(
   owned: ReadonlyArray<{ stats: ItemStats; innateStats?: ReadonlyArray<string> }>,
   m: HeroFightModel,
@@ -186,6 +199,11 @@ export function ownedTradeHealHp(
     const innate = item.innateStats ? new Set(item.innateStats) : undefined;
     const ls = lifestealShares(item.stats, innate);
     total += (ls.bullet * m.gunDps + ls.spirit * m.abilityDps) * FIGHT_SECONDS;
+    for (const e of estimateEffectValues(item.stats)) {
+      if (e.unit === "healPerGunProc") continue;
+      const healed = tradeHealHp(e, item.stats, m);
+      if (healed !== null && Number.isFinite(healed) && healed > 0) total += healed;
+    }
   }
   return total;
 }
@@ -386,6 +404,72 @@ const REFERENCE_SOULS_PER_MINUTE = 800;
 /** Damaging abilities a hero has (an ability reset doubles one of them). */
 const ABILITIES_PER_HERO = 4;
 
+/** Effect-estimate units that heal the hero (`healCutPercent` cuts the enemy's). */
+const HEAL_UNITS: ReadonlySet<NonNullable<EffectEstimate["unit"]>> = new Set([
+  "heal",
+  "healPerSecond",
+  "healPerMeleeHit",
+  "healPerProc",
+  "healPerGunProc",
+  "healPercentPerHeadshot",
+]);
+
+/**
+ * HP a heal estimate restores inside one trade, averaged over the trades it is
+ * ready for; null for units that do not heal the hero. A heal's tail that ticks
+ * after the trade (recovery) is not included: `estimateFightValue` prices it
+ * separately, and heal amp's base is HP per trade (Milestone K). The quantity is
+ * the estimator's, already discounted by EFFECT_CONFIDENCE, so heal amp multiplies
+ * the same HP the item itself is valued on.
+ */
+export function tradeHealHp(e: EffectEstimate, stats: ItemStats, m: HeroFightModel): number | null {
+  if (!e.unit || !HEAL_UNITS.has(e.unit) || e.quantity === undefined) return null;
+  const q = e.quantity;
+  const hp = m.maxHealth;
+  const dps = m.gunDps + m.abilityDps;
+  if (!(hp > 0) || !(dps > 0)) return null;
+  const cooldown = num(stats.AbilityCooldown);
+  const duration = num(stats.AbilityDuration);
+  const ready = cooldown > 0 ? Math.min(1, TRADE_GAP_SECONDS / cooldown) : 1;
+  const lasts = duration > 0 ? Math.min(1, duration / FIGHT_SECONDS) : 1;
+  switch (e.unit) {
+    case "heal": {
+      // A heal over RegenDuration: the share that lands inside the trade.
+      const regen = num(stats.RegenDuration);
+      const landed = regen > 0 ? Math.min(1, FIGHT_SECONDS / regen) : 1;
+      return q * landed * ready;
+    }
+    case "healPerSecond":
+      return q * FIGHT_SECONDS * lasts * ready;
+    case "healPerMeleeHit": {
+      // Cooldown-gated ("your next melee attack heals"): at most one heal per
+      // cooldown, and only when a melee lands.
+      const heals = Math.min(
+        MELEE_HITS_PER_TRADE,
+        cooldown > 0 ? castsPerTrade(cooldown) : MELEE_HITS_PER_TRADE,
+      );
+      return q * heals * MELEE_LANDS;
+    }
+    case "healPerProc":
+      // Cooldown-gated: castsPerTrade counts procs (and misses for long cooldowns).
+      return q * castsPerTrade(cooldown);
+    case "healPerGunProc": {
+      // Siphon Bullets: once per ProcCooldown while shooting a hero (or less if
+      // the hero lands fewer shots), scaled by the gun share like Headhunter.
+      const cd = num(stats.ProcCooldown);
+      const every = cd > 0 ? cd : DEFAULT_PROC_COOLDOWN_S;
+      const rate = Math.min(1 / every, m.landedShotsPerSecond ?? 1 / every);
+      const healPerSteal = (q / 100) * (m.enemyHealth ?? REFERENCE_ENEMY_HEALTH);
+      return healPerSteal * rate * FIGHT_SECONDS * (m.gunDps / dps);
+    }
+    case "healPercentPerHeadshot":
+      // A headshot needs the gun: scaled by this hero's gun share of damage.
+      return (q / 100) * hp * castsPerTrade(cooldown) * HEADSHOT_IN_TRADE * (m.gunDps / dps);
+    default:
+      return null;
+  }
+}
+
 /**
  * A non-damage effect estimate (effectEstimator `unit` + `quantity`) in % of
  * this hero's fight value. Null for units this does not convert (damage units
@@ -413,10 +497,12 @@ export function estimateFightValue(
       // A heal over time longer than the trade finishes in the gap (recovery).
       // Only the part that ticks before the next trade (TRADE_GAP_SECONDS) counts.
       const regen = num(stats.RegenDuration);
-      const landed = regen > 0 ? Math.min(1, FIGHT_SECONDS / regen) : 1;
       const tail =
         regen > FIGHT_SECONDS ? Math.min(regen - FIGHT_SECONDS, TRADE_GAP_SECONDS) / regen : 0;
-      return ((q / hp) * 100 * landed + recoveryValue(q * tail, hp, m.ownedGapHeal)) * ready;
+      return (
+        ((tradeHealHp(e, stats, m) ?? 0) / hp) * 100 +
+        recoveryValue(q * tail, hp, m.ownedGapHeal) * ready
+      );
     }
     case "healPerSecond": {
       const afterTrade =
@@ -424,35 +510,15 @@ export function estimateFightValue(
           ? Math.min(duration, FIGHT_SECONDS + TRADE_GAP_SECONDS) - FIGHT_SECONDS
           : 0;
       return (
-        (((q * FIGHT_SECONDS * lasts) / hp) * 100 +
-          recoveryValue(q * afterTrade, hp, m.ownedGapHeal)) *
-        ready
+        ((tradeHealHp(e, stats, m) ?? 0) / hp) * 100 +
+        recoveryValue(q * afterTrade, hp, m.ownedGapHeal) * ready
       );
     }
-    case "healPerMeleeHit": {
-      // Cooldown-gated ("your next melee attack heals"): at most one heal per
-      // cooldown, and only when a melee lands.
-      const heals = Math.min(
-        MELEE_HITS_PER_TRADE,
-        cooldown > 0 ? castsPerTrade(cooldown) : MELEE_HITS_PER_TRADE,
-      );
-      return ((q * heals * MELEE_LANDS) / hp) * 100;
-    }
+    case "healPerMeleeHit":
     case "healPerProc":
-      // Cooldown-gated: castsPerTrade counts procs (and misses for long cooldowns).
-      return (q / hp) * 100 * castsPerTrade(cooldown);
-    case "healPerGunProc": {
-      // Siphon Bullets: once per ProcCooldown while shooting a hero (or less if
-      // the hero lands fewer shots), scaled by the gun share like Headhunter.
-      const cd = num(stats.ProcCooldown);
-      const every = cd > 0 ? cd : DEFAULT_PROC_COOLDOWN_S;
-      const rate = Math.min(1 / every, m.landedShotsPerSecond ?? 1 / every);
-      const healPerSteal = (q / 100) * (m.enemyHealth ?? REFERENCE_ENEMY_HEALTH);
-      return ((healPerSteal * rate * FIGHT_SECONDS) / hp) * 100 * (m.gunDps / dps);
-    }
+    case "healPerGunProc":
     case "healPercentPerHeadshot":
-      // A headshot needs the gun: scaled by this hero's gun share of damage.
-      return q * castsPerTrade(cooldown) * HEADSHOT_IN_TRADE * (m.gunDps / dps);
+      return ((tradeHealHp(e, stats, m) ?? 0) / hp) * 100;
     case "health":
       return (q / hp) * 100;
     case "ccSeconds":

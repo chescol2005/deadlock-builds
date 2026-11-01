@@ -143,6 +143,7 @@ import {
   RECOVERY_WEIGHT,
   ownedTradeHealHp,
   recoveryValue,
+  tradeHealHp,
 } from "../heroFight";
 import { normalizeItem } from "../../itemNormalizer";
 import { deriveHeroDamageModel, runHeroBasket, withKitHeal, withOwnedGapHeal } from "../heroBasket";
@@ -5228,6 +5229,39 @@ console.log("\n30. A hero's own self-healing (Milestone G3, docs/milestone-g.md 
       near(fightValues(booster, { ...fm, ampableHealHp: 300 }).sustain ?? 0, 6) &&
       ownedTradeHealHp([{ stats: { BulletLifestealPercent: 10 } }], fm) === 0.1 * 30 * 10,
     "G3-5: heal amp = amp x (kit + owned lifesteal) healing; a hero with no healing gets 0",
+  );
+
+  // K-1 / K-2 (docs/milestone-k.md): heal amp also multiplies the owned items'
+  // temporary heals (Radiant Regeneration's heal per cast, at the estimator's
+  // EFFECT_CONFIDENCE like its own value), in-trade part only
+  // (Healing Rite's 20 s heal-over-time counts what lands in the trade), but never
+  // flat regen, an enemy heal cut or Siphon Bullets' stolen max health.
+  const perCast = { HealingPerCast: 40, AbilityCooldown: 6 };
+  const rite = { TotalHealthRegen: 300, RegenDuration: 20, AbilityCooldown: 70 };
+  const flatRegen = { BonusHealthRegen: 5, OutOfCombatHealthRegen: 3 };
+  const healCut = { HealAmpReceivePenaltyPercent: -35, HealAmpRegenPenaltyPercent: -35 };
+  const siphon = { StealPerHit: 1, HealthStealPctHero: 3, ProcCooldown: 2 };
+  const riteHp = ownedTradeHealHp([{ stats: rite }], fm);
+  const ampWith = (owned: ReadonlyArray<{ stats: Record<string, number> }>) =>
+    fightValues(booster, { ...fm, ampableHealHp: ownedTradeHealHp(owned, fm) }).sustain ?? 0;
+  assert(
+    near(ownedTradeHealHp([{ stats: perCast }], fm), 40 * EFFECT_CONFIDENCE * castsPerTrade(6)) &&
+      riteHp > 0 &&
+      riteHp < 300 &&
+      ownedTradeHealHp([{ stats: flatRegen }, { stats: healCut }, { stats: siphon }], fm) === 0 &&
+      ownedTradeHealHp([], fm) === 0 &&
+      ampWith([{ stats: perCast }]) > 0 &&
+      ampWith([{ stats: flatRegen }]) === 0 &&
+      // K-3: the amp base never raises a heal item's own value.
+      fightValues({ BulletLifestealPercent: 10 }, { ...fm, ampableHealHp: 300 }).sustain ===
+        fightValues({ BulletLifestealPercent: 10 }, fm).sustain &&
+      tradeHealHp(
+        { category: "bonusHealth", value: 1, basis: "", unit: "health", quantity: 100 },
+        {},
+        fm,
+      ) === null,
+    "K-1/K-2: heal amp multiplies owned per-cast and timed heals (in-trade part), never flat regen, heal cuts or Siphon; never a heal item's own value",
+    `per cast ${ownedTradeHealHp([{ stats: perCast }], fm).toFixed(1)}, Healing Rite ${riteHp.toFixed(1)}`,
   );
 
   // Through the real pipeline on frozen Abrams (a self-healer):

@@ -95,7 +95,10 @@ export interface HeroDamageModel {
     ownedGapHeal?: number;
     /** HP the hero's own kit heals it per trade (kitHeal.ts, Milestone G3). */
     kitHealHp?: number;
-    /** HP the owned items' lifesteal heals per trade (heroFight.ownedTradeHealHp). */
+    /**
+     * HP the owned items heal per trade, lifesteal plus temporary heals
+     * (heroFight.ownedTradeHealHp, Milestone K): what heal amp multiplies.
+     */
     ownedTradeHealHp?: number;
   };
 }
