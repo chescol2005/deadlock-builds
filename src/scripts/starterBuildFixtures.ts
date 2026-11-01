@@ -93,8 +93,9 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
 // Raised once, 0.076 -> 0.0781 (Milestone G3, user-approved 2026-10-25): heal amp put
 // Healing Booster in Abrams' and Lady Geist's mid phase, as real players buy it;
 // measured overlap 0.08802 (docs/starter-build-use-cases.md M3). Lowered to 0.077
-// by the G4 profile refit in fight-value units (2026-10-25).
-const MID_OVERLAP_BASELINE = 0.077; // history: 0.096 refit -> 0.076 review C2/C3 -> 0.0781 G3 -> 0.077 G4
+// by the G4 profile refit in fight-value units (2026-10-25). Lowered to 0.072 by
+// Milestone K (heal amp counts owned temporary heals, docs/milestone-k.md §4.2).
+const MID_OVERLAP_BASELINE = 0.072; // history: 0.096 refit -> 0.076 review C2/C3 -> 0.0781 G3 -> 0.077 G4 -> 0.072 Milestone K
 
 /**
  * Noise band for the live ratchets (M3, O2): a refit of the measured tables alone
@@ -128,7 +129,10 @@ const O1_MIN_HITS = 2;
 // build's own rush choice: 36/52 = 0.692. Not an averaging effect: Lady Geists who rush
 // buy Healing Booster, Spirit Resilience and Berserker in mid, the engine doesn't
 // (docs/milestone-j.md §3.1, an engine follow-up).
-const MID_REAL_TOP_BASELINE = 0.692; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch -> 0.731 Milestone I -> 0.692 Milestone J (rush groups)
+// Raised to 37/52 = 0.712 by Milestone K: heal amp now counts Radiant Regeneration's
+// heals, so Healing Booster joins Lady Geist's mid build (docs/milestone-k.md §4.2).
+// Spirit Resilience and Berserker stay a known gap (§5 question 2).
+const MID_REAL_TOP_BASELINE = 0.712; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch -> 0.731 Milestone I -> 0.692 Milestone J (rush groups) -> 0.712 Milestone K
 
 /**
  * Milestone H (docs/milestone-h.md §4.1): saving up for big items, on ALL heroes.
@@ -1017,6 +1021,19 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     assert(
       share <= MID_REAL_TOP_BASELINE + 0.05,
       `O2 share ${share.toFixed(3)} has not risen well above the baseline (raise MID_REAL_TOP_BASELINE to lock it in)`,
+    );
+  }
+
+  // K-L1 (Milestone K, docs/milestone-k.md §4.2): after rushing Radiant Regeneration,
+  // Lady Geist's mid phase holds Healing Booster, as 69% of the Geists who rush do.
+  // Heal amp multiplies the rush item's own heals.
+  {
+    const geist = builds.get("Lady Geist");
+    const mid = geist ? geist.phases[1].items.map((i) => i.id) : [];
+    assert(
+      mid.includes("upgrade_healing_booster"),
+      "K-L1: Lady Geist's starter mid phase holds Healing Booster",
+      `mid: ${mid.join(", ")}`,
     );
   }
 

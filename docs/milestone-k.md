@@ -135,3 +135,24 @@ Each carries a recommendation; approving the doc as written accepts them.
 | K0  | This doc (sign-off)                                                                                       | docs   |
 | K1  | Heal amp counts owned temporary heals; engine fixture; K-L1; O2 → 0.712, M3 → 0.072; 4 baselines accepted | engine |
 | K2  | Close: engine design notes (correct the G3 note), CLAUDE.md follow-ups, session record                    | docs   |
+
+## 7. Results
+
+### K1: heal amp counts owned temporary heals (2026-11-01)
+
+- **The change:** `tradeHealHp` (heroFight.ts) gives the HP a heal estimate restores
+  inside one trade; `estimateFightValue`'s heal cases use it (no behaviour change on its
+  own: 72 baselines unchanged). `ownedTradeHealHp` adds it for every owned item's heal
+  estimates, so heal amp multiplies them. Flat regen and heal cuts stay out.
+- **The estimate's discount carries over.** The effect estimator halves every estimated
+  effect (`EFFECT_CONFIDENCE`), so heal amp multiplies the same HP the item itself is
+  valued on, not the raw tooltip number.
+- **Live:** K-L1 passes (Healing Booster is Lady Geist's second mid pick). O2 37 / 52 =
+  0.712 (new baseline), M3 0.072 (new baseline), M1 mean 0.125.
+- **Engine fixture K-1 / K-2:** per-cast and timed heals counted (in-trade part only);
+  flat regen, heal cuts and no owned items give 0.
+- **Left out after review:** Siphon Bullets. Its heal is stolen max health, which amp can't
+  add to, and the wiki's amplified-items list doesn't name it (`scoring-auditor`).
+- **Accepted:** Radiant and Mystic Regeneration's timed regeneration counts its full 7 s
+  per proc, as the items themselves are valued, so it is not split into in-trade and tail.
+- **Baselines:** the 4 changes in §3, accepted.
