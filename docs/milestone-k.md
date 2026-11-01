@@ -1,6 +1,6 @@
 # Milestone K: Lady Geist's mid build after a rush
 
-**Status:** use cases (K0), awaiting sign-off. Per "Testing Expectations", no engine or
+**Status:** approved 2026-11-01, with every recommendation in §5 accepted as written. Per "Testing Expectations", no engine or
 fixture change until these criteria are approved; change this doc first if an expectation
 needs to change.
 
