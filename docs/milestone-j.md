@@ -157,4 +157,19 @@ Each carries a recommendation; approving the doc as written accepts them.
 
 ## 7. Results
 
-To be filled in by J1.
+### J1: rush-group table and guards (2026-10-31)
+
+- **The table:** `npm run fit-rush-groups` wrote all 44 heroes (214 KB). It keeps items
+  bought in a column by at least 0.5% of the hero's players. At 2% the dropped tail moved
+  the M1 mean to 0.132, so the cut-off was lowered until it matched J0's measurement on
+  every node.
+- **The groups:** Seven and Lady Geist compare with their rushers (10,811 of 28,287 and
+  8,165 of 17,752 matches). The other six compare with non-rushers, 89–99% of their
+  players.
+- **M1:** mean 0.127 ≤ 0.13, restored. `M1:Seven:early` passes (d = 0.20) and is removed
+  from `KNOWN_LEAN_GAPS`. `M1:Warden:mid` stays listed (d = 0.42).
+- **O2:** 36 / 52 = 0.692 against the group, the new baseline (§5 question 1).
+- **G1 / G2:** pass. G2 also checks that the table's rush item is the majority rule's
+  item on the committed buy rates, so a `fit-category-split` refit without a
+  `fit-rush-groups` rerun fails.
+- **Unchanged:** every other fixture and every baseline basket (no engine code changed).

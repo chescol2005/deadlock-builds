@@ -87,6 +87,22 @@ export function earlyBigShares(
 const byRate = (a: [string, number], b: [string, number]) =>
   b[1] - a[1] || a[0].localeCompare(b[0]);
 
+/**
+ * The hero's top early rush item and its buy rate: the 3,200+ item most bought in the
+ * first 10 minutes (ties by id). The majority rule's item, and the item Milestone J's
+ * rush groups split on. Null when the hero's players buy none early.
+ */
+export function topRushItem(
+  earlyRates: Readonly<Record<string, number>>,
+  costOf: (id: string) => number | undefined,
+): [string, number] | null {
+  return (
+    Object.entries(earlyRates)
+      .filter(([id]) => (costOf(id) ?? 0) >= RUSH_COST)
+      .sort(byRate)[0] ?? null
+  );
+}
+
 export function measureBigItems(
   heroes: ReadonlyArray<BigItemHero>,
   items: ReadonlyArray<Item>,
@@ -125,9 +141,7 @@ export function measureBigItems(
     count(out.earlyRush, h.name, atLeast(h.rates.early, RUSH_COST), ids(0));
     count(out.midBig, h.name, atLeast(h.rates.mid, BIG_COST), ids(1));
     count(out.lateTopBig, h.name, lateTop3, ids(2));
-    const topRush = Object.entries(h.rates.early)
-      .filter(([id]) => (costOf(id) ?? 0) >= RUSH_COST)
-      .sort(byRate)[0];
+    const topRush = topRushItem(h.rates.early, costOf);
     const majorityRushes = (topRush?.[1] ?? 0) >= MAJORITY_RUSH_RATE;
     const rushed = h.build.phases[0].basket.picks.some((p) => p.item.cost >= RUSH_COST);
     out.rushDecision.total++;
