@@ -1,6 +1,7 @@
 # Milestone I: rush-item value
 
-**Status:** APPROVED 2026-10-31, with every recommendation in §6 accepted as written.
+**Status:** CLOSED 2026-10-31 (PRs #140–#143). Approved the same day, with every
+recommendation in §6 accepted as written.
 **Amended 2026-10-31 (user decision after the I2 sweep, §7):** P2 and P3 are replaced by
 the majority rule (§4.1), and the M1 mean and O2 guards are re-baselined with the reason
 recorded (§4.2). Per "Testing Expectations", no
@@ -187,3 +188,11 @@ late):
 - **Shipped: 1 / 0 / 0.75** (user decision 2026-10-31). It has the best majority-rule
   agreement, and late big items pass their target (37 / 52 ≥ 32). Mid stays flat, since
   mid scaling only lowered O2.
+
+### Close (I3)
+
+- **Open at close:** P1 9 / 24 (rushes bought by 20–50% of players are minority choices
+  one build skips) and P5 2 / 10. Both stay in `KNOWN_BIG_ITEM_GAPS`, with floors as a
+  ratchet.
+- **Follow-up:** fit M1 and O2's tables for rushers and non-rushers separately, then
+  restore M1 mean ≤ 0.13 and O2 ≥ 0.796 and remove `M1:Seven:early`.
