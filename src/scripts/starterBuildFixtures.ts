@@ -14,6 +14,7 @@ import {
   FALSE_RUSH_RATE,
   T1_TOLERANCE,
   measureBigItems,
+  topRushItem,
   type BigItemHero,
   type CountCheck,
 } from "./bigItemChecks";
@@ -34,6 +35,16 @@ import { SCORE_CATEGORIES } from "@/lib/engine/types";
 import { deserializeBuild, getItemAssignments, serializeBuild } from "@/lib/buildSerializer";
 import type { BuildState } from "@/lib/buildSerializer";
 import type { LiveBasketData, LiveHeroKit } from "./basketData";
+import {
+  groupShares,
+  groupTopIds,
+  rushGroupsProblem,
+  sameChoiceGroup,
+  type HeroRushGroups,
+  type RushGroup,
+  type RushGroupsTable,
+} from "./rushGroups";
+import rushGroupsTableJson from "./data/heroRushGroups.json";
 
 type Assert = (condition: boolean, label: string, detail?: string) => void;
 
@@ -67,10 +78,6 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
   "T1:Seven",
   "T1:Lady Geist",
   "T1:Wraith",
-  // Milestone I (user decision 2026-10-31): Seven now rushes Cultist Sacrifice like 55% of
-  // its players, so its early split is 57% gun against the all-player average's 45%
-  // (d=0.30). Remove once M1 compares with players who made the same rush choice.
-  "M1:Seven:early",
   // 2026-10-30 patch (user-accepted 2026-10-31): live item data is post-patch,
   // the real-play split it is measured against was fitted on 2026-10-25. Warden's
   // mid went real 24/42/35, engine 38/50/13, d=0.44. Remove at the post-patch refit.
@@ -100,11 +107,11 @@ const LIVE_NOISE = 0.01;
  * Mean M1 distance (L1) to real play across the 24 hero x phase keys (§2.2 gate).
  * 0.12 until the 2026-10-30 patch moved it to 0.129 against pre-patch tables
  * (user-accepted 2026-10-31); restore 0.12 at the post-patch refit.
- * 0.14 since Milestone I's rushes (0.139, user decision 2026-10-31): a rushing build is
- * lumpier than the all-player average split (docs/milestone-i.md §4.2). Restore once M1
- * compares a build with players who made the same rush choice.
+ * 0.14 for Milestone I's rushes (0.139, user decision 2026-10-31), then 0.13 again
+ * since Milestone J: early and mid compare with the players who made the build's own
+ * rush choice (0.127, docs/milestone-j.md §3).
  */
-const MEAN_L1_MAX = 0.14;
+const MEAN_L1_MAX = 0.13;
 
 /** O1: early picks that must be among the hero's real top 10 early buys. */
 const O1_MIN_HITS = 2;
@@ -116,10 +123,12 @@ const O1_MIN_HITS = 2;
 // Raised to 40/49 = 0.816 by the G4 profile refit in fight-value units (2026-10-25).
 // Lowered to 39/49 = 0.796 by the 2026-10-30 patch, against pre-patch tables
 // (user-accepted 2026-10-31); raise it back at the post-patch refit.
-// Lowered to 38/52 = 0.731 by Milestone I's rushes (user decision 2026-10-31): after a
-// rush the mid phase buys the basics it skipped early, which the all-player mid top 10
-// doesn't list (docs/milestone-i.md §4.2). Raise it with rush-aware mid data.
-const MID_REAL_TOP_BASELINE = 0.731; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch -> 0.731 Milestone I
+// Lowered to 38/52 = 0.731 by Milestone I's rushes (user decision 2026-10-31).
+// Milestone J (approved 2026-10-31) measures it against the players who made the
+// build's own rush choice: 36/52 = 0.692. Not an averaging effect: Lady Geists who rush
+// buy Healing Booster, Spirit Resilience and Berserker in mid, the engine doesn't
+// (docs/milestone-j.md §3.1, an engine follow-up).
+const MID_REAL_TOP_BASELINE = 0.692; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch -> 0.731 Milestone I -> 0.692 Milestone J (rush groups)
 
 /**
  * Milestone H (docs/milestone-h.md §4.1): saving up for big items, on ALL heroes.
@@ -710,6 +719,88 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     );
   }
 
+  // Milestone J (docs/milestone-j.md §4): M1 and O2 compare each build with the players
+  // who made its own early choice about the hero's rush item (src/scripts/rushGroups.ts).
+  const rushGroups = rushGroupsTableJson as unknown as RushGroupsTable;
+  // G1 (offline): rushers when the early phase holds the rush item, the rest (all minus
+  // rushers, item by item) when it doesn't, all players when the hero has no rush item.
+  {
+    const entry: HeroRushGroups = {
+      rushItem: "rush",
+      all: { matches: 10, early: { rush: 4, basic: 9 }, mid: { next: 5 } },
+      rushers: { matches: 4, early: { rush: 4, basic: 3 }, mid: { next: 1 } },
+    };
+    const rushers = sameChoiceGroup(entry, ["basic", "rush"]);
+    assert(
+      rushers.label === "rushers" && rushers.counts.matches === 4,
+      "G1 a build holding the rush item early compares with the rushers",
+    );
+    const rest = sameChoiceGroup(entry, ["basic"]);
+    assert(
+      rest.label === "non-rushers" &&
+        rest.counts.matches === 6 &&
+        rest.counts.early.rush === 0 &&
+        rest.counts.early.basic === 6 &&
+        rest.counts.mid.next === 4,
+      "G1 a build without it compares with all players minus the rushers, item by item",
+      JSON.stringify(rest.counts),
+    );
+    const none = sameChoiceGroup({ rushItem: null, all: entry.all }, ["rush"]);
+    assert(
+      none.label === "all players" && none.counts === entry.all,
+      "G1 a hero with no rush item compares with all players",
+    );
+    const tooMany = { ...entry, rushers: { ...entry.all, early: { rush: 5 } } };
+    assert(
+      rushGroupsProblem(entry) === null && rushGroupsProblem(tooMany) !== null,
+      "G1 the integrity check accepts a subset and rejects rushers above all players",
+    );
+    const top = groupTopIds({ b: 3, a: 3, c: 1 }, 2);
+    const split = groupShares(
+      { x: 2 },
+      new Map([["x", { cost: 800, category: "spirit" } as Item]]),
+    );
+    assert(
+      [...top].join(",") === "a,b" && split?.spirit === 1,
+      "G1 top items tie by id; shares are souls by category",
+    );
+  }
+  const groupFor = (name: string, b: StarterBuild): RushGroup | null => {
+    const kit = kits.get(name);
+    const entry = kit ? rushGroups.heroes[String(kit.hero.id)] : undefined;
+    return entry
+      ? sameChoiceGroup(
+          entry,
+          b.phases[0].items.map((i) => i.id),
+        )
+      : null;
+  };
+  // G2 (live): every reference hero is in the table, its rushers are a subset of all
+  // players, and its rush item is the majority rule's item on the committed buy rates
+  // (a stale table after a fit-category-split refit fails here: rerun fit-rush-groups).
+  for (const name of REFERENCE_HEROES) {
+    const kit = kits.get(name);
+    const entry = kit ? rushGroups.heroes[String(kit.hero.id)] : undefined;
+    const rates = kit ? heroPhaseItems(d.phaseItemsTable, kit.hero.id) : null;
+    const expected = rates
+      ? (topRushItem(rates.early, (id) => itemById.get(id)?.cost)?.[0] ?? null)
+      : null;
+    const problem = entry ? rushGroupsProblem(entry) : "missing from heroRushGroups.json";
+    assert(
+      entry !== undefined && problem === null && entry.rushItem === expected,
+      `G2 rush groups are sound and current: ${name}`,
+      problem ??
+        `table rush item ${entry?.rushItem ?? "none"}, committed rates ${expected ?? "none"}`,
+    );
+    const b = builds.get(name);
+    const g = b ? groupFor(name, b) : null;
+    if (g && entry) {
+      console.log(
+        `  ℹ ${name}: compared with ${g.label} (${g.counts.matches} of ${entry.all.matches}), rush item ${entry.rushItem ? (itemById.get(entry.rushItem)?.name ?? entry.rushItem) : "none"}`,
+      );
+    }
+  }
+
   // M1 — phase fidelity (doc §4.3, replaces L1–L3): each reference hero's
   // early / mid / late shop split is within L1 0.30 of Oracle+ play. Early and
   // mid compare the items that phase ADDS with what players BUY in 0–10 / 10–20
@@ -730,9 +821,17 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
   for (const name of REFERENCE_HEROES) {
     const b = builds.get(name);
     const kit = kits.get(name);
-    const real = kit ? heroPhaseSplits(d.categorySplitTable, kit.hero.id) : null;
-    assert(real !== null, `M1 setup: measured phase splits exist for ${name}`);
-    if (!b || !real) continue;
+    const final = kit ? heroPhaseSplits(d.categorySplitTable, kit.hero.id) : null;
+    assert(final !== null, `M1 setup: measured phase splits exist for ${name}`);
+    const group = b ? groupFor(name, b) : null;
+    if (!b || !final || !group) continue;
+    // Milestone J: early and mid compare with what the players who made the build's
+    // own rush choice bought (0–9 / 9–20 min); late with the final inventory, as before.
+    const early = groupShares(group.counts.early, itemById);
+    const mid = groupShares(group.counts.mid, itemById);
+    assert(early !== null && mid !== null, `M1 setup: ${group.label} bought items: ${name}`);
+    if (!early || !mid) continue;
+    const real = { early, mid, late: final.late };
     const engine = {
       early: sharesOf(b.phases[0].items),
       mid: sharesOf(b.phases[1].items),
@@ -741,10 +840,11 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     for (const phase of ["early", "mid", "late"] as const) {
       const dist = l1(engine[phase], real[phase]);
       m1Distances.push(dist);
+      const who = phase === "late" ? "real final" : `real ${group.label}`;
       ratchet(
         `M1:${name}:${phase}`,
         dist <= M1_TOLERANCE,
-        `${phase} real ${fmtSplit(real[phase])} engine ${fmtSplit(engine[phase])} d=${dist.toFixed(2)} (need <= ${M1_TOLERANCE})`,
+        `${phase} ${who} ${fmtSplit(real[phase])} engine ${fmtSplit(engine[phase])} d=${dist.toFixed(2)} (need <= ${M1_TOLERANCE})`,
       );
     }
   }
@@ -854,9 +954,13 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
       hits >= O1_MIN_HITS,
       `${hits} of ${b.phases[0].items.length} early picks in the real top 10 (need >= ${O1_MIN_HITS})`,
     );
-    const midTop = topIds(rates.mid, 10);
-    midHits += b.phases[1].items.filter((i) => midTop.has(i.id)).length;
-    midPicks += b.phases[1].items.length;
+    // O2 (Milestone J): the mid top 10 of the players who made the build's rush choice.
+    const group = groupFor(name, b);
+    if (group) {
+      const midTop = groupTopIds(group.counts.mid, 10);
+      midHits += b.phases[1].items.filter((i) => midTop.has(i.id)).length;
+      midPicks += b.phases[1].items.length;
+    }
     // T1 — tempo: the early share of souls in 3,200+ items is within 15 points
     // of real play (Σ buy rate × cost over the hero's early purchases).
     let realBig = 0;
