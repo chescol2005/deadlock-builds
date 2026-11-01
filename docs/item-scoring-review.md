@@ -183,6 +183,12 @@ model at the phase checkpoint.
   own value model the rush plan is worth less (Seven early: basics 361, Cultist Sacrifice
   plan 295). The open cause is the value model, not the search
   (`docs/milestone-h.md` §7).
+- **Milestone I (2026-10-31): resolved.** The value model's flaw was the population term's
+  flat per-item bonus. Scaling it by price makes the build rush exactly where most of a
+  hero's players do: 43 / 44 heroes, among them Seven, Lady Geist and Wraith's T1 case.
+  Wraith's 24% is a minority choice the build skips. T1 itself compares one build with
+  a blend of rushers and non-rushers, so it was retired for the majority rule
+  (`docs/milestone-i.md` §4.1, §7).
 
 **C6: live sweep** (all 44 heroes × boon 5 / 10 / 16 / 22 / 29, empty build, against
 each hero's real per-phase buy rates). Accepted gaps, with reasons:
@@ -197,7 +203,8 @@ each hero's real per-phase buy rates). Accepted gaps, with reasons:
   cause as C5. A shared follow-up with C5: rank or reserve for planned big items.
   **Milestone H (2026-10-28):** partly resolved. Anchored plans raised late top-3 tier-4
   items held from 21 to 26 / 52 (Haze gains Siphon Bullets, Wraith Ricochet); the rest
-  are re-accepted with C5's cause.
+  are re-accepted with C5's cause. **Milestone I (2026-10-31):** resolved past its
+  target, at 37 / 52 (target 32).
 - **Cheap items picked at boon 29 with an empty build** (Spirit Strike, Extra Health,
   Monster Rounds, Battle Vest...): an artifact of the test case. Nobody reaches 30,000
   souls owning nothing, and real players bought those items early. The starter build's

@@ -1834,7 +1834,8 @@ picks were in the hero's real top 10.
   of 8 early builds. The bonus is relevance-gated (`coversNeed`): popularity never buys
   an item covering under 2% of a slot. The penalty needs no gate and is capped at half the
   item's own coverage gain (`PHASE_ITEM_PENALTY_MAX_SHARE`), so it never pushes a useful
-  item to ≤ 0. It is strong (up to 1.8 slots at a 100% buy rate) and it is population
+  item to ≤ 0. It is strong (up to 1.8 slots at a 100% buy rate for an average-priced
+  item, more for a pricier one since Milestone I: see "Rush-item value" below) and it is population
   data: `HeroBasketSuggestion` never makes it the headline reason in the simplified view.
   An empty phase in the table is "no signal", not "nobody buys anything".
 - **Trade-off:** picks partly follow the current meta. That is what a new player starting
@@ -1880,8 +1881,46 @@ A greedy value-per-soul pick can never save up: a 3,200-soul item worth more tha
 - Whole-build lookahead (score each early plan by what is held at early + mid + late):
   gains of 0–7%, about 10 of 13 swaps false rushes, M1 / O2 broken even at a 5% margin.
 
-The open cause is the value model: it rates a few cheap basics close to one rush item, and
-has no signal for WHICH big item a hero's players rush. Fix that, not the search.
+The open cause was the value model, not the search. Milestone I found the exact cause and
+fixed it: see the next section.
+
+## Rush-item value: cost-scaled phase items (Milestone I)
+
+**The cause Milestone H left open.** On coverage alone a rush item is valued fairly: per
+1,000 souls, Seven's Cultist Sacrifice earns 14.8 and Monster Rounds 13.6. `phaseItemTerm`
+was a flat bonus per item (Monster Rounds +113, Cultist Sacrifice +67 at 55%). Ranked
+per soul, that favoured 800-soul basics 4:1, and a plan of four basics collected four
+bonuses. Every rush plan lost by 7–40% (`docs/milestone-i.md` §2).
+
+**The fix.** The positive bonus is multiplied by `phaseItemPriceFactor`:
+
+- **The factor:** `(effective price / refCost)^PHASE_ITEM_PRICE_EXPONENT[phase]`.
+  `refCost` (`phaseReferenceCost`, phaseItems.ts) is the buy-rate-weighted mean list
+  price of what this hero's players buy in the phase. It is computed in `runHeroBasket`
+  and carried on `ctx.phaseItems.refCost`. An average-priced item keeps the old value.
+- **Exponents:** early 1, mid 0, late 0.75, chosen by the sweep in §7. Mid scaling only
+  lowered O2.
+- **Not capped.** The ceiling is 1.8 slots × (price / refCost)^exponent. A pricy item
+  still needs a real buy rate in the phase and must pass the relevance gate.
+- **Penalty side unchanged.** No reference price, or no phase, gives factor 1: unknown is
+  not "early".
+- **Upgrades** are priced at what is still paid, against a list-price reference, because
+  the table has no paid price. That leans slightly against upgrading, the same way
+  ranking does. The sweep was measured with it; switching needs a new sweep.
+
+**Results** (all 44 heroes):
+
+- The build rushes exactly where most (≥ 50%) of the hero's players do: 43 / 44, was 37. It always picks the hero's real top rush item.
+- False rushes stay at 0 (Fixture 13 P6).
+- Late tier-4 items in the real top 3 held: 37 / 52, was 28.
+
+**Measure one build against players who made the same choice.** The guards built on the
+all-player average can't judge a rushing build: a single build is 0% or ~55% big items
+where the average is 26% (old P2 / T1). Its split is lumpier (M1). It buys basics in mid
+that the average player bought early (O2). The milestone replaced P2 with the majority
+rule and re-baselined M1 (mean ≤ 0.14) and O2 (≥ 0.731), with `M1:Seven:early` a known
+lean gap. The follow-up is to fit those tables for rushers and non-rushers separately,
+then restore the old bars.
 
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
