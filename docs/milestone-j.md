@@ -1,6 +1,6 @@
 # Milestone J: rush-aware fidelity guards
 
-**Status:** DRAFT 2026-10-31, for sign-off. Per "Testing Expectations", no fixture or
+**Status:** APPROVED 2026-10-31, with every recommendation in §5 accepted as written. Per "Testing Expectations", no fixture or
 script changes until these criteria are approved; change this doc first if an expectation
 needs to change.
 
