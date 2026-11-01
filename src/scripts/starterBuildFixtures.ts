@@ -60,11 +60,17 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
   //
   // T1: real Oracle+ players on these heroes RUSH one 3,200 item early (Seven
   // Cultist Sacrifice, Lady Geist Radiant Regeneration, Wraith Tesla Bullets).
-  // The shop budget keeps it out of the early phase, so it arrives a phase
-  // later as an upgrade (doc §5.7), a reasonable path for a new player.
+  // Since Milestone I the build rushes where most players do (Seven 55%, Lady Geist
+  // 63%) and fails T1 the other way (57% against the all-player averages 26% / 36%);
+  // Wraith's 24% is a minority choice it skips. T1 compares one build with a blend of
+  // rushers and non-rushers; the majority rule (Milestone I P2) replaces it.
   "T1:Seven",
   "T1:Lady Geist",
   "T1:Wraith",
+  // Milestone I (user decision 2026-10-31): Seven now rushes Cultist Sacrifice like 55% of
+  // its players, so its early split is 57% gun against the all-player average's 45%
+  // (d=0.30). Remove once M1 compares with players who made the same rush choice.
+  "M1:Seven:early",
   // 2026-10-30 patch (user-accepted 2026-10-31): live item data is post-patch,
   // the real-play split it is measured against was fitted on 2026-10-25. Warden's
   // mid went real 24/42/35, engine 38/50/13, d=0.44. Remove at the post-patch refit.
@@ -94,8 +100,11 @@ const LIVE_NOISE = 0.01;
  * Mean M1 distance (L1) to real play across the 24 hero x phase keys (§2.2 gate).
  * 0.12 until the 2026-10-30 patch moved it to 0.129 against pre-patch tables
  * (user-accepted 2026-10-31); restore 0.12 at the post-patch refit.
+ * 0.14 since Milestone I's rushes (0.139, user decision 2026-10-31): a rushing build is
+ * lumpier than the all-player average split (docs/milestone-i.md §4.2). Restore once M1
+ * compares a build with players who made the same rush choice.
  */
-const MEAN_L1_MAX = 0.13;
+const MEAN_L1_MAX = 0.14;
 
 /** O1: early picks that must be among the hero's real top 10 early buys. */
 const O1_MIN_HITS = 2;
@@ -107,7 +116,10 @@ const O1_MIN_HITS = 2;
 // Raised to 40/49 = 0.816 by the G4 profile refit in fight-value units (2026-10-25).
 // Lowered to 39/49 = 0.796 by the 2026-10-30 patch, against pre-patch tables
 // (user-accepted 2026-10-31); raise it back at the post-patch refit.
-const MID_REAL_TOP_BASELINE = 0.796; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch
+// Lowered to 38/52 = 0.731 by Milestone I's rushes (user decision 2026-10-31): after a
+// rush the mid phase buys the basics it skipped early, which the all-player mid top 10
+// doesn't list (docs/milestone-i.md §4.2). Raise it with rush-aware mid data.
+const MID_REAL_TOP_BASELINE = 0.731; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch -> 0.731 Milestone I
 
 /**
  * Milestone H (docs/milestone-h.md §4.1): saving up for big items, on ALL heroes.
@@ -116,14 +128,14 @@ const MID_REAL_TOP_BASELINE = 0.796; // baseline history: 0.679 refit -> 0.731 r
  * listed in KNOWN_BIG_ITEM_GAPS; a listed target that is met fails until it is removed,
  * so progress is locked in. P3 is the reference heroes' T1 keys in KNOWN_LEAN_GAPS.
  */
-const BIG_ITEM_FLOORS = { P1: 1, P2: 22, P4: 26, P5: 2 } as const; // H2 anchored plans (2026-10-28); was P1 0, P4 21, P5 1
+// I2 cost-scaled phase items (2026-10-31); was P1 1, P4 28 (after #139). P2 is the majority
+// rule since Milestone I's amendment (docs/milestone-i.md §4.1), 43 / 44.
+const BIG_ITEM_FLOORS = { P1: 9, P2: 43, P4: 37, P5: 2 } as const;
 /** P6 ceiling: false rushes measured before Milestone I (2026-10-31); a ratchet, never raised. */
 const FALSE_RUSH_CEILING = 0;
-const BIG_ITEM_TARGETS = { P1: 12, P2: 33, P4: 32, P5: 4 } as const;
+const BIG_ITEM_TARGETS = { P1: 12, P2: 40, P4: 32, P5: 4 } as const;
 const KNOWN_BIG_ITEM_GAPS: ReadonlySet<keyof typeof BIG_ITEM_TARGETS> = new Set([
   "P1",
-  "P2",
-  "P4",
   "P5",
 ] as const);
 
@@ -974,7 +986,11 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     const m = measureBigItems(bigHeroes, d.allItems);
     const checks: Array<[keyof typeof BIG_ITEM_TARGETS, string, CountCheck]> = [
       ["P1", "early rushes (3,200+, >= 20% of players) held at the early phase", m.earlyRush],
-      ["P2", "heroes within 15 pts of real early share in 3,200+ items", m.earlyShare],
+      [
+        "P2",
+        "heroes whose build rushes exactly when most (>= 50%) of their players do",
+        m.rushDecision,
+      ],
       ["P4", "6,400+ items in the real late top 3 held by the late phase", m.lateTopBig],
       ["P5", "6,400+ mid buys (>= 20% of players) held by the mid phase", m.midBig],
     ];
@@ -1007,6 +1023,10 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
         assert(false, `H ${id} target missed and not in KNOWN_BIG_ITEM_GAPS: ${label}`, detail);
       }
     }
+    // The pre-amendment P2, kept as information (docs/milestone-i.md §4.1).
+    console.log(
+      `  ℹ️ early share in 3,200+ items within 15 pts of the all-player average: ${m.earlyShare.hit}/${m.earlyShare.total} (information only)`,
+    );
     // P6 (Milestone I guard, docs/milestone-i.md §4.2): rushing must come only where this
     // hero's players rush. Early 3,200+ picks that few of them buy early must not rise.
     assert(

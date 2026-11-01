@@ -286,6 +286,12 @@ export interface BasketContext {
     scope: string;
     /** e.g. "buy it in the first 10 minutes" — quoted in the reason. */
     basis: string;
+    /**
+     * What this hero's players pay per item in this phase (phaseReferenceCost,
+     * Milestone I). The term scales by the candidate's price against it; omitted =>
+     * no price scaling (every item as today).
+     */
+    refCost?: number;
   };
 }
 
