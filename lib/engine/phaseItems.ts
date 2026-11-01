@@ -108,6 +108,28 @@ export function enemyHealthRates(table: PhaseItemsTable): EnemyHealthRates | und
     : undefined;
 }
 
+/**
+ * What this hero's players typically pay per item in one phase: the buy-rate-weighted
+ * mean price (Σ rate × cost / Σ rate) over the phase's listed items with a known price.
+ * Milestone I's reference price for `phaseItemTerm`; undefined when nothing is priced.
+ */
+export function phaseReferenceCost(
+  rates: Readonly<Record<string, number>>,
+  costOf: (itemId: string) => number | undefined,
+): number | undefined {
+  let weighted = 0;
+  let total = 0;
+  // Sorted, so the float sum never depends on the table's key order.
+  for (const id of Object.keys(rates).sort()) {
+    const cost = costOf(id);
+    const rate = rates[id];
+    if (cost === undefined || !Number.isFinite(cost) || cost <= 0) continue;
+    weighted += rate * cost;
+    total += rate;
+  }
+  return total > 0 ? weighted / total : undefined;
+}
+
 /** How the reason names the phase's buy window. */
 export function phaseItemBasis(phase: GamePhase): string {
   if (phase === "early") return "buy it in the first 10 minutes";

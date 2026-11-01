@@ -40,7 +40,9 @@ import {
   LANING_TEMPO,
   PHASE_ITEM_BASELINE,
   PHASE_ITEM_PENALTY_MAX_SHARE,
+  PHASE_ITEM_PRICE_EXPONENT,
   PHASE_ITEM_WEIGHT,
+  phaseItemPriceFactor,
   phaseItemTerm,
   SHOP_BUDGET_SLACK,
   procPlatformTerm,
@@ -103,6 +105,7 @@ import {
   heroPhaseItems,
   PHASE_ITEM_MIN_RATE,
   phaseItemBasis,
+  phaseReferenceCost,
 } from "../phaseItems";
 import {
   enemyHealthAt,
@@ -5734,6 +5737,106 @@ console.log("\n33. 2026-10-30 patch: healing spirit scaling, Shadow Weave ambush
     near(heroWeave, ambushGun * HERO_DAMAGE_SCALE),
     "hero mode: ambush weapon damage is priced once, through damageValues",
     `Got ${heroWeave}, expected ${ambushGun * HERO_DAMAGE_SCALE}`,
+  );
+}
+
+// ---------------------------------------------
+// 34. Rush-item value: cost-scaled phase-item term (Milestone I, docs/milestone-i.md §3)
+// ---------------------------------------------
+console.log("\n34. Rush-item value: cost-scaled phase-item term (Milestone I)");
+{
+  const near = (x: number, y: number) =>
+    Math.abs(x - y) <= 1e-9 * Math.max(1, Math.abs(x), Math.abs(y));
+  const costs: Record<string, number> = { basic: 800, mid: 1600, rush: 3200 };
+  const costOf = (id: string) => costs[id];
+  assert(
+    phaseReferenceCost({ basic: 0.5, rush: 0.5 }, costOf) === 2000 &&
+      phaseReferenceCost({ rush: 0.5, basic: 0.5 }, costOf) === 2000 &&
+      phaseReferenceCost({ basic: 0.75, rush: 0.25, unknown: 0.9 }, costOf) === 1400 &&
+      phaseReferenceCost({ unknown: 0.9 }, costOf) === undefined &&
+      phaseReferenceCost({}, costOf) === undefined,
+    "phaseReferenceCost: the buy-rate-weighted mean price; unpriced items are skipped, none priced is undefined, key order is irrelevant",
+  );
+
+  const rates = { basic: 0.6, mid: 0.6, rush: 0.6 };
+  const ctxWith = (
+    refCost: number | undefined,
+    owned: ItemCandidate[] = [],
+    phase: "early" | "mid" | "late" | "none" = "early",
+  ) =>
+    makeBasketContext({
+      needVector: { ...zeroValues(), gunDamage: 1 },
+      soulBudget: 6000,
+      maxItems: 12,
+      ownedCandidates: owned,
+      phase: phase === "none" ? undefined : phase,
+      phaseItems: {
+        rates,
+        scope: "test players",
+        basis: "buy it in the first 10 minutes",
+        refCost,
+      },
+    });
+  const basic = mkCandidate("basic", 9501, "gun", 800, { gunDamage: 20 });
+  const rush = mkCandidate("rush", 9502, "gun", 3200, { gunDamage: 20 });
+  const value = (c: ItemCandidate, ctx: ReturnType<typeof makeBasketContext>) =>
+    phaseItemTerm.evaluate(c, initialBasketState(ctx), ctx)?.value ?? NaN;
+  const ref = 1600;
+  const scaled = ctxWith(ref);
+  const flat = ctxWith(undefined);
+  const a = PHASE_ITEM_PRICE_EXPONENT.early;
+  assert(
+    Object.values(PHASE_ITEM_PRICE_EXPONENT).every((x) => x >= 0 && x <= 1) &&
+      near(value(basic, flat), value(rush, flat)) &&
+      near(value(rush, scaled), value(rush, flat) * Math.pow(3200 / ref, a)) &&
+      near(value(basic, scaled), value(basic, flat) * Math.pow(800 / ref, a)) &&
+      near(
+        value(mkCandidate("mid", 9503, "gun", ref, { gunDamage: 20 }), scaled),
+        value(basic, flat),
+      ),
+    `phaseItemTerm: the bonus scales by (price / reference price)^${a}; an item at the reference price keeps the flat value; no reference price is flat`,
+    `basic ${value(basic, scaled).toFixed(2)}, rush ${value(rush, scaled).toFixed(2)}, flat ${value(basic, flat).toFixed(2)}`,
+  );
+
+  // Upgrades are priced at what is still paid; the rarely-bought penalty never scales.
+  const comp = mkCandidate("comp", 9504, "gun", 800, { gunDamage: 5 });
+  const upgrade = {
+    ...mkCandidate("rush", 9502, "gun", 3200, { gunDamage: 20 }),
+    componentIds: ["comp"],
+  };
+  const holding = ctxWith(ref, [comp]);
+  const unlisted = mkCandidate("unlisted", 9505, "gun", 3200, { gunDamage: 20 });
+  const reason = phaseItemTerm.evaluate(rush, initialBasketState(scaled), scaled)?.reason ?? "";
+  assert(
+    near(
+      phaseItemPriceFactor(upgrade, initialBasketState(holding), ref, "early"),
+      Math.pow(2400 / ref, a),
+    ) &&
+      near(value(unlisted, scaled), value(unlisted, flat)) &&
+      value(unlisted, flat) < 0 &&
+      phaseItemPriceFactor(rush, initialBasketState(scaled), undefined, "early") === 1 &&
+      reason ===
+        `60% of test players on this hero buy it in the first 10 minutes (×${(Math.round(Math.pow(3200 / ref, a) * 10) / 10).toFixed(1)} for its price)`,
+    "phaseItemTerm: an upgrade is priced at its effective cost; the rarely-bought penalty is not price-scaled; the reason shows the price factor",
+    reason,
+  );
+
+  // Each phase uses its own exponent; mid is flat (shipped 0), and no phase means no factor.
+  const late = ctxWith(ref, [], "late");
+  const mid = ctxWith(ref, [], "mid");
+  const noPhase = ctxWith(ref, [], "none");
+  const midReason = phaseItemTerm.evaluate(rush, initialBasketState(mid), mid)?.reason ?? "";
+  assert(
+    near(
+      value(rush, late),
+      value(rush, flat) * Math.pow(3200 / ref, PHASE_ITEM_PRICE_EXPONENT.late),
+    ) &&
+      PHASE_ITEM_PRICE_EXPONENT.mid === 0 &&
+      near(value(rush, mid), value(rush, flat)) &&
+      !midReason.includes("for its price") &&
+      near(value(rush, noPhase), value(rush, flat)),
+    `phaseItemTerm: late scales by ^${PHASE_ITEM_PRICE_EXPONENT.late}, mid by ^${PHASE_ITEM_PRICE_EXPONENT.mid} (flat, no price note), and a context with no phase is never price-scaled`,
+    `late ${value(rush, late).toFixed(2)}, mid ${value(rush, mid).toFixed(2)}, none ${value(rush, noPhase).toFixed(2)}`,
   );
 }
 

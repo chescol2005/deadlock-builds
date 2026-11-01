@@ -125,6 +125,19 @@ export const PHASE_ITEM_WEIGHT = 2;
 export const PHASE_ITEM_BASELINE = 0.1;
 /** The rarely-bought penalty is at most this share of the item's coverage gain. */
 export const PHASE_ITEM_PENALTY_MAX_SHARE = 0.5;
+/**
+ * Milestone I: the positive phase-item value scales by (effective price / the
+ * phase's reference price)^this. 0 = a flat bonus per item (before Milestone I),
+ * which favoured cheap basics 4:1 per soul and kept real rushes out
+ * (docs/milestone-i.md §2). Chosen by the I2 sweep (§7, 2026-10-31): early 1 makes
+ * the build rush exactly where most of the hero's players do (43 / 44 heroes), late
+ * 0.75 lifts real late tier-4 items (28 -> 37 / 52); mid scaling only cost O2.
+ */
+export const PHASE_ITEM_PRICE_EXPONENT: Readonly<Record<"early" | "mid" | "late", number>> = {
+  early: 1,
+  mid: 0,
+  late: 0.75,
+};
 
 /**
  * Hard ceiling on `categoryBonusTerm`, as a fraction of one slot's coverage
@@ -1210,11 +1223,46 @@ export const categorySplitTerm: MarginalTermFn = {
 };
 
 /**
+ * (effective price / reference price)^PHASE_ITEM_PRICE_EXPONENT[phase]: an item at what
+ * this hero's players typically pay keeps the flat value, a rush item they save for gets
+ * more (Milestone I). 1 without a reference price or a phase (unknown is not "early").
+ *
+ * Upgrades price at what is still paid (effective cost), against a list-price reference:
+ * the table has no per-item paid price. That leans slightly against upgrading a held
+ * component, the same direction as ranking by effective cost; the I2 sweep was measured
+ * with it, so switching to list price needs a new sweep (scoring audit 2026-10-31).
+ */
+export function phaseItemPriceFactor(
+  candidate: ItemCandidate,
+  state: BasketState,
+  refCost: number | undefined,
+  phase: "early" | "mid" | "late" | undefined,
+): number {
+  if (phase === undefined) return 1;
+  const exponent = PHASE_ITEM_PRICE_EXPONENT[phase];
+  if (exponent === 0 || refCost === undefined || !(refCost > 0)) return 1;
+  const paid = effectiveCost(candidate, state.held ?? []).cost;
+  if (!(paid > 0)) return 1;
+  const factor = Math.pow(paid / refCost, exponent);
+  return Number.isFinite(factor) ? factor : 1;
+}
+
+/** " (×1.9 for its price)", or nothing when the price changes little. */
+function priceNote(factor: number): string {
+  const shown = Math.round(factor * 10) / 10;
+  return shown === 1 ? "" : ` (×${shown.toFixed(1)} for its price)`;
+}
+
+/**
  * What high-rank players on THIS hero buy in THIS phase (heroPhaseItems.json):
  * PHASE_ITEM_WEIGHT × one slot's coverage × (buy rate − PHASE_ITEM_BASELINE).
  * It captures kit synergies item maths cannot see (Abrams opens melee items,
  * Lady Geist regen, Wraith Quicksilver Reload), and it is strong: up to 1.8
- * slots of coverage at a 100% buy rate.
+ * slots of coverage at a 100% buy rate for an item at the phase's reference price.
+ * Since Milestone I the bonus is multiplied by `phaseItemPriceFactor`, which is not
+ * capped: the ceiling is 1.8 slots × (price / refCost)^exponent (early ×3 or so for
+ * a 3,200 rush against a ~1,100 reference; a pricier item needs a high buy rate in
+ * the phase to earn much, and the relevance gate still applies).
  * - The bonus (rate above the baseline) is relevance-gated (`coversNeed`):
  *   popularity never buys an item covering under 2% of a slot.
  * - The penalty (rarely bought) needs no gate and is capped at half the item's
@@ -1235,9 +1283,11 @@ export const phaseItemTerm: MarginalTermFn = {
     if (!(scale > 0)) return null;
     const raw = PHASE_ITEM_WEIGHT * scale * (rate - PHASE_ITEM_BASELINE);
     let value: number;
+    let priceFactor = 1;
     if (raw > 0) {
       if (!coversNeed(candidate, state, ctx)) return null;
-      value = raw;
+      priceFactor = phaseItemPriceFactor(candidate, state, table.refCost, ctx.phase);
+      value = raw * priceFactor;
     } else {
       const gain = Math.max(0, computeCoverageGain(candidate, state, ctx).total);
       value = -Math.min(-raw, PHASE_ITEM_PENALTY_MAX_SHARE * gain);
@@ -1248,7 +1298,7 @@ export const phaseItemTerm: MarginalTermFn = {
       value,
       reason:
         rate > 0
-          ? `${Math.round(rate * 100)}% of ${table.scope} on this hero ${table.basis}`
+          ? `${Math.round(rate * 100)}% of ${table.scope} on this hero ${table.basis}${priceNote(priceFactor)}`
           : `Rarely bought by ${table.scope} on this hero at this point (under 2%)`,
     };
   },

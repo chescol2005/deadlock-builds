@@ -40,7 +40,7 @@ import {
   FINAL_SPLIT_BASIS,
 } from "./categorySplit";
 import type { GamePhase, HeroCategorySplit } from "./categorySplit";
-import { phaseItemBasis } from "./phaseItems";
+import { phaseItemBasis, phaseReferenceCost } from "./phaseItems";
 import { enemyHealthAt } from "./enemyHealth";
 import type { EnemyHealthRates } from "./enemyHealth";
 import type { HeroPhaseItems } from "./phaseItems";
@@ -106,6 +106,8 @@ export interface HeroBasketRun {
 export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
   const { heroAbilities, heroBaseStats, heroRoster, allItems, ownedItems } = input;
   if (heroAbilities.length === 0 || allItems.length === 0) return null;
+  // List prices, for the phase's reference price (Milestone I).
+  const costById = new Map(allItems.map((i) => [i.id, i.cost]));
 
   // Discount each hero's nominal gun DPS by how much of it actually lands at
   // the player's own rank. Nominal DPS assumes perfect accuracy, which
@@ -264,6 +266,7 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
             rates: input.phaseItems[phase],
             scope: input.phaseItems.scope,
             basis: phaseItemBasis(phase),
+            refCost: phaseReferenceCost(input.phaseItems[phase], (id) => costById.get(id)),
           }
         : undefined,
     // Spend each shop's measured phase share (shop budgets); the split term's

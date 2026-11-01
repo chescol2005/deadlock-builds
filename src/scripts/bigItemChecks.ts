@@ -14,6 +14,8 @@ export const BIG_COST = 6400;
 export const BIG_BUY_RATE = 0.2;
 /** T1 tolerance: engine vs real early share of souls in 3,200+ items. */
 export const T1_TOLERANCE = 0.15;
+/** Majority rule: the build should rush when at least this share of players buy one 3,200+ item early. */
+export const MAJORITY_RUSH_RATE = 0.5;
 /** A false rush: an early 3,200+ pick that fewer than this share of the hero's players buy early. */
 export const FALSE_RUSH_RATE = 0.1;
 
@@ -33,8 +35,17 @@ export interface CountCheck {
 export interface BigItemMeasures {
   /** P1: real early rushes held at the early phase. */
   earlyRush: CountCheck;
-  /** P2: heroes whose early share of souls in 3,200+ items is within T1_TOLERANCE of real. */
+  /**
+   * Before Milestone I's amendment, P2: heroes whose early share of souls in 3,200+ items
+   * is within T1_TOLERANCE of the all-player average. Kept as information only: one build
+   * can't match a blend of rushers and non-rushers (docs/milestone-i.md §4.1).
+   */
   earlyShare: CountCheck;
+  /**
+   * P2 (Milestone I, amended): heroes where the build rushes (an early 3,200+ pick)
+   * exactly when the hero's top early 3,200+ item is bought by >= MAJORITY_RUSH_RATE.
+   */
+  rushDecision: CountCheck;
   /** P4: 6,400+ items in the real late top 3, held by the late phase. */
   lateTopBig: CountCheck;
   /** P5: 6,400+ items bought in mid by >= BIG_BUY_RATE, held by the mid phase. */
@@ -87,6 +98,7 @@ export function measureBigItems(
   const out: BigItemMeasures = {
     earlyRush: empty(),
     earlyShare: empty(),
+    rushDecision: empty(),
     lateTopBig: empty(),
     midBig: empty(),
     falseRushes: [],
@@ -113,6 +125,17 @@ export function measureBigItems(
     count(out.earlyRush, h.name, atLeast(h.rates.early, RUSH_COST), ids(0));
     count(out.midBig, h.name, atLeast(h.rates.mid, BIG_COST), ids(1));
     count(out.lateTopBig, h.name, lateTop3, ids(2));
+    const topRush = Object.entries(h.rates.early)
+      .filter(([id]) => (costOf(id) ?? 0) >= RUSH_COST)
+      .sort(byRate)[0];
+    const majorityRushes = (topRush?.[1] ?? 0) >= MAJORITY_RUSH_RATE;
+    const rushed = h.build.phases[0].basket.picks.some((p) => p.item.cost >= RUSH_COST);
+    out.rushDecision.total++;
+    if (majorityRushes === rushed) out.rushDecision.hit++;
+    else
+      out.rushDecision.misses.push(
+        `${h.name}: ${rushed ? "rushes" : "no rush"}, top ${topRush ? nameOf(topRush[0]) : "none"} ${Math.round((topRush?.[1] ?? 0) * 100)}%`,
+      );
     for (const p of h.build.phases[0].basket.picks) {
       if (p.item.cost >= RUSH_COST && (h.rates.early[p.item.itemId] ?? 0) < FALSE_RUSH_RATE) {
         out.falseRushes.push(`${h.name}: ${nameOf(p.item.itemId)}`);
