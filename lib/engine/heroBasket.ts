@@ -46,6 +46,41 @@ import type { EnemyHealthRates } from "./enemyHealth";
 import type { HeroPhaseItems } from "./phaseItems";
 import type { BasketContext, BasketResult, HeroNeedVector, ItemCandidate } from "./types";
 
+/**
+ * The starter build's late checkpoint as a planner boon-slider index
+ * (starterBuild.STARTER_PHASE_BOON_LEVELS reads it): 30,000 souls, ~30 min.
+ */
+export const LATE_CHECKPOINT_BOON_LEVEL = 29;
+
+/**
+ * Milestone L: the mid slot horizon is this share of the souls from here to the late
+ * checkpoint. 1 matched the real 3,200+ share of mid souls best (0.60 vs 0.57) but
+ * traded Lady Geist's Healing Booster (69% of rushers) for Surge of Power (26%); 0.5
+ * keeps both it and Spirit Resilience (docs/milestone-l.md §3, 2026-11-02).
+ */
+export const MID_SLOT_HORIZON_SHARE = 0.5;
+
+/**
+ * Souls the build will still gain after a basket at `souls` in `phase`, for
+ * BasketContext.horizonSouls: in mid, MID_SLOT_HORIZON_SHARE of the way to the late
+ * checkpoint; in late, the way to a full build (the last BOON_THRESHOLDS entry,
+ * slider index 35). 0 in the laning phase, where tempo pricing applies instead, and for
+ * unknown souls (missing data is not 0 souls, which would give the largest horizon). Pure.
+ */
+export function slotHorizonSouls(phase: GamePhase, souls: number): number {
+  if (!Number.isFinite(souls)) return 0;
+  const s = souls;
+  if (phase === "mid") {
+    const late = BOON_THRESHOLDS[LATE_CHECKPOINT_BOON_LEVEL]?.souls ?? 0;
+    return MID_SLOT_HORIZON_SHARE * Math.max(0, late - s);
+  }
+  if (phase === "late") {
+    const full = BOON_THRESHOLDS[BOON_THRESHOLDS.length - 1]?.souls ?? 0;
+    return Math.max(0, full - s);
+  }
+  return 0;
+}
+
 export interface HeroBasketInputs {
   heroAbilities: ReadonlyArray<HeroAbility>;
   heroBaseStats: HeroBaseStats;
@@ -255,6 +290,8 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     categorySplit: mode === "need-only" ? undefined : split,
     phase: phase,
     laningSouls: input.souls,
+    // Slot horizon (Milestone L): a mid / late slot is held for the rest of the game.
+    horizonSouls: slotHorizonSouls(phase, input.souls),
     // The late phase (and a hero with no phase data) uses the FINAL split: a
     // cumulative share, so the budgets count souls already held per shop.
     splitBasis: view?.basis === FINAL_SPLIT_BASIS ? "cumulative" : "increment",

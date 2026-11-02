@@ -16,7 +16,7 @@ import type { Item, ItemPhase } from "../items";
 import { BOON_THRESHOLDS } from "../boonSystem";
 import { calculateStatTotals, combineStatTotal } from "../buildCalculations";
 import { calculateStatsAtBoon } from "../heroStats";
-import { runHeroBasket } from "./heroBasket";
+import { LATE_CHECKPOINT_BOON_LEVEL, runHeroBasket } from "./heroBasket";
 import type { HeroBasketInputs } from "./heroBasket";
 import type { BasketResult } from "./types";
 
@@ -33,7 +33,7 @@ import type { BasketResult } from "./types";
 export const STARTER_PHASE_BOON_LEVELS: ReadonlyArray<{ phase: ItemPhase; boonLevel: number }> = [
   { phase: "early", boonLevel: 10 },
   { phase: "mid", boonLevel: 22 },
-  { phase: "late", boonLevel: 29 },
+  { phase: "late", boonLevel: LATE_CHECKPOINT_BOON_LEVEL },
 ];
 
 export type StarterBuildInputs = Omit<

@@ -269,6 +269,13 @@ export interface BasketContext {
    */
   laningSouls?: number;
   /**
+   * Slot horizon (Milestone L): souls the build will still gain after this
+   * basket, which `rankingPrice` spreads over the free slots. Set by the hero
+   * pipeline in the mid and late phases (heroBasket.slotHorizonSouls); omitted =
+   * a slot is priced at today's souls only.
+   */
+  horizonSouls?: number;
+  /**
    * Souls each shop may take in this basket: the measured phase split × the
    * basket's budget × (1 + SHOP_BUDGET_SLACK). Set only when the caller asks
    * to spend by shop (makeBasketContext `spendByShop`) and a split is known;

@@ -78,10 +78,8 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
   "T1:Seven",
   "T1:Lady Geist",
   "T1:Wraith",
-  // 2026-10-30 patch (user-accepted 2026-10-31): live item data is post-patch,
-  // the real-play split it is measured against was fitted on 2026-10-25. Warden's
-  // mid went real 24/42/35, engine 38/50/13, d=0.44. Remove at the post-patch refit.
-  "M1:Warden:mid",
+  // M1:Warden:mid (2026-10-30 patch) closed by Milestone L's slot horizon: Warden's mid
+  // build takes Fortitude instead of three cheap items (docs/milestone-l.md §3).
 ]);
 
 /**
@@ -132,7 +130,18 @@ const O1_MIN_HITS = 2;
 // Raised to 37/52 = 0.712 by Milestone K: heal amp now counts Radiant Regeneration's
 // heals, so Healing Booster joins Lady Geist's mid build (docs/milestone-k.md §4.2).
 // Spirit Resilience and Berserker stay a known gap (§5 question 2).
-const MID_REAL_TOP_BASELINE = 0.712; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch -> 0.731 Milestone I -> 0.692 Milestone J (rush groups) -> 0.712 Milestone K
+// Raised to 41/46 = 0.891 by Milestone L: a mid / late slot is priced against the souls
+// the build will still gain (slot horizon), and a mid pick may overshoot its shop budget
+// by 25%, so mid builds hold fewer, bigger items, as real ones do (docs/milestone-l.md).
+// Spirit Resilience joins Lady Geist's mid build; Berserker stays a known gap.
+const MID_REAL_TOP_BASELINE = 0.891; // baseline history: 0.679 refit -> 0.731 review C2/C3 -> 0.816 G4 -> 0.796 patch -> 0.731 Milestone I -> 0.692 Milestone J (rush groups) -> 0.712 Milestone K -> 0.891 Milestone L
+
+/**
+ * L-L2 floor (Milestone L, docs/milestone-l.md §4.2): mean share of the reference
+ * heroes' mid souls (list prices) in 3,200+ items. Real players (same rush choice): 0.57;
+ * the engine was 0.35 before the slot horizon and is 0.49 after it.
+ */
+const MID_BIG_SHARE_FLOOR = 0.45;
 
 /**
  * Milestone H (docs/milestone-h.md §4.1): saving up for big items, on ALL heroes.
@@ -142,8 +151,9 @@ const MID_REAL_TOP_BASELINE = 0.712; // baseline history: 0.679 refit -> 0.731 r
  * so progress is locked in. P3 is the reference heroes' T1 keys in KNOWN_LEAN_GAPS.
  */
 // I2 cost-scaled phase items (2026-10-31); was P1 1, P4 28 (after #139). P2 is the majority
-// rule since Milestone I's amendment (docs/milestone-i.md §4.1), 43 / 44.
-const BIG_ITEM_FLOORS = { P1: 9, P2: 43, P4: 37, P5: 2 } as const;
+// rule since Milestone I's amendment (docs/milestone-i.md §4.1), 43 / 44. P5 lowered 2 -> 1
+// by Milestone L (user-approved 2026-11-02): Calico's Arctic Blast moves from mid to late.
+const BIG_ITEM_FLOORS = { P1: 9, P2: 43, P4: 37, P5: 1 } as const;
 /** P6 ceiling: false rushes measured before Milestone I (2026-10-31); a ratchet, never raised. */
 const FALSE_RUSH_CEILING = 0;
 const BIG_ITEM_TARGETS = { P1: 12, P2: 40, P4: 32, P5: 4 } as const;
@@ -944,6 +954,8 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     );
   let midHits = 0;
   let midPicks = 0;
+  // L-L2: per hero, the share of mid souls in 3,200+ items, engine and real.
+  const midBigShares: Array<{ name: string; engine: number; real: number }> = [];
   for (const name of REFERENCE_HEROES) {
     const b = builds.get(name);
     const kit = kits.get(name);
@@ -964,6 +976,20 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
       const midTop = groupTopIds(group.counts.mid, 10);
       midHits += b.phases[1].items.filter((i) => midTop.has(i.id)).length;
       midPicks += b.phases[1].items.length;
+      const bigShare = (entries: ReadonlyArray<readonly [number, number]>) => {
+        const all = sum(entries.map(([cost, n]) => cost * n));
+        const big = sum(entries.filter(([cost]) => cost >= 3200).map(([cost, n]) => cost * n));
+        return all > 0 ? big / all : 0;
+      };
+      midBigShares.push({
+        name,
+        engine: bigShare(b.phases[1].items.map((i) => [i.cost, 1] as const)),
+        real: bigShare(
+          Object.entries(group.counts.mid).map(
+            ([id, n]) => [itemById.get(id)?.cost ?? 0, n] as const,
+          ),
+        ),
+      });
     }
     // T1 — tempo: the early share of souls in 3,200+ items is within 15 points
     // of real play (Σ buy rate × cost over the hero's early purchases).
@@ -1021,6 +1047,34 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     assert(
       share <= MID_REAL_TOP_BASELINE + 0.05,
       `O2 share ${share.toFixed(3)} has not risen well above the baseline (raise MID_REAL_TOP_BASELINE to lock it in)`,
+    );
+  }
+
+  // L-L2 (Milestone L, docs/milestone-l.md §4.2): mid builds hold big items as real ones
+  // do. The mean share of mid souls in 3,200+ items stays at or above the floor.
+  {
+    const mean = (xs: number[]) => (xs.length > 0 ? sum(xs) / xs.length : 0);
+    const engine = mean(midBigShares.map((x) => x.engine));
+    const real = mean(midBigShares.map((x) => x.real));
+    assert(
+      midBigShares.length === REFERENCE_HEROES.length && engine >= MID_BIG_SHARE_FLOOR,
+      `L-L2: mid souls in 3,200+ items ${engine.toFixed(2)} >= ${MID_BIG_SHARE_FLOOR} (real ${real.toFixed(2)}, ${midBigShares.length} heroes)`,
+      midBigShares
+        .map((x) => `${x.name} ${Math.round(x.engine * 100)}% vs ${Math.round(x.real * 100)}%`)
+        .join(" | "),
+    );
+  }
+
+  // L-L1 (Milestone L, docs/milestone-l.md §4.2): Lady Geist's mid phase holds Spirit
+  // Resilience, as 57% of the Geists who rush do. The slot horizon lets a 3,200 item
+  // compete with 1,600 ones.
+  {
+    const geist = builds.get("Lady Geist");
+    const mid = geist ? geist.phases[1].items.map((i) => i.id) : [];
+    assert(
+      mid.includes("upgrade_tech_purge"),
+      "L-L1: Lady Geist's starter mid phase holds Spirit Resilience",
+      `mid: ${mid.join(", ")}`,
     );
   }
 

@@ -263,7 +263,8 @@ async function main(): Promise<void> {
           effective.cost,
           ctx.soulBudget,
           ctx.maxItems,
-          ctx.phase === "early" ? ctx.soulBudget : undefined,
+          ctx.phase === "early" ? (ctx.laningSouls ?? ctx.soulBudget) : undefined,
+          ctx.horizonSouls,
         );
       return { candidate, value, terms, effective, score };
     })
@@ -283,7 +284,7 @@ async function main(): Promise<void> {
   );
   console.log(
     `owned: ${buildItems.length ? buildItems.map((i) => `${i.name} (${i.cost})`).join(", ") : "none"}` +
-      ` | budget ${ctx.soulBudget}, ${ctx.maxItems} slots | spirit power ${fmt(totalSpiritPower, 1)}`,
+      ` | budget ${ctx.soulBudget}, ${ctx.maxItems} slots${ctx.horizonSouls ? ` (+${Math.round(ctx.horizonSouls)} horizon souls)` : ""} | spirit power ${fmt(totalSpiritPower, 1)}`,
   );
   console.log(
     `proc platform ${fmt(procPlatformFactor, 3)}, hit reliability ${fmt(hitReliabilityFactor, 3)}` +
