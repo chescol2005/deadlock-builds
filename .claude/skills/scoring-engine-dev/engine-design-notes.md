@@ -1276,6 +1276,9 @@ budgets here, souls and slots. So the loop now ranks by `value / rankingPrice`, 
   slot's share, so the ranking becomes value per slot and strong tier-4 items still win.
 - **Upgrades:** their lower effective cost counts in their favour (lean L6).
 - **Stop rule:** still raw value ≤ 0, so a cheap item that covers nothing is never bought.
+- **Slot horizon (Milestone L):** in mid and late, the souls per slot also count the souls
+  the build will still gain (`horizonSouls`), since a slot is held for the rest of the
+  game. See "Slot horizon and mid overshoot".
 
 Live effect, alone (before PR 2):
 
@@ -1982,7 +1985,74 @@ Lifestrike, plus bullet and spirit lifesteal.
 (`PHASE_ITEM_PRICE_EXPONENT.mid`). Against the rush groups it failed M1, M3 or P4 at
 every exponent that lifted O2, and on top of the heal fix it added nothing to O2 while
 changing 36 baselines. Spirit Resilience and Berserker (3,200 souls) stay out of Lady
-Geist's mid build: they lose per soul to 1,600 items.
+Geist's mid build: they lose per soul to 1,600 items. Milestone L (next section) brought
+Spirit Resilience in; Berserker remains.
+
+## Slot horizon and mid overshoot (Milestone L)
+
+**The gap.** Real players put 57% of their mid souls into 3,200+ items, the engine 35%
+(8 reference heroes, the same-choice rush group, list prices). Lady Geist's rushers buy
+Spirit Resilience (57%) and Berserker (47%) in mid; the engine bought neither. Two causes:
+
+- **Every mid pick was ranked per soul.** 11,100 souls for 8 slots is ~1,390 a slot, below
+  every 1,600 item, so a 1,600 item needed half a 3,200 item's value. But a mid slot is one
+  of 12 for the rest of the game, and by 30,000 souls it holds a 3,200–6,400 item.
+- **Shop budgets are lumpy.** After one 1,600 pick a 3,200 item rarely fits what its shop
+  has left (Lady Geist: Spirit Resilience and Healing Booster in vitality; Warden: every
+  3,200 gun item).
+
+**The change** (docs/milestone-l.md):
+
+- `rankingPrice(cost, budgetLeft, slotsLeft, laningSouls, horizonSouls)`:
+  `perSlot = (budgetLeft + horizonSouls) / slotsLeft`.
+- `heroBasket.slotHorizonSouls(phase, souls)`:
+  - mid: `MID_SLOT_HORIZON_SHARE` (0.5) × the souls to the late checkpoint
+    (`LATE_CHECKPOINT_BOON_LEVEL`, which `starterBuild` reads too);
+  - late: the souls to a full build (the last `BOON_THRESHOLDS` entry, slider index 35,
+    49,200);
+  - lane and unknown souls: 0. Laning tempo and the horizon never apply together.
+- `MID_SHOP_OVERSHOOT` (0.25): in mid, a pick fits its shop while shop souls + 0.75 × its
+  price ≤ the budget (stacked on `SHOP_BUDGET_SLACK`). Per-shop pass only; the pooled pass
+  and early / late budgets are unchanged. An overshooting pick carries a zero-value
+  `shop-budget` note ("Over this phase's gun share by N souls").
+- The horizon only changes the ranking price, never a term's value, so it has no reason
+  line; the probe prints it (`+N horizon souls`).
+
+**Measured** (docs/milestone-l.md §3):
+
+- The horizon is the lever; nothing else moved the mid build toward real play.
+- **Share 1 vs 0.5.** The full mid horizon fit the big-item share best (0.60), but Lady
+  Geist traded Healing Booster (69%) for Surge of Power (26%). 0.5 keeps both Healing
+  Booster and Spirit Resilience.
+- **The late horizon is required.** Without it, a chunkier mid leaves free slots that the
+  late phase fills with cheap items (P4 37 → 34).
+- **Overshoot.** At 0 Warden's mid stays all 1,600s; at 0.4 the builds drift off the
+  measured split (M1 0.144).
+- **Didn't help:** pricing Spirit Resilience's low-health resist
+  (`TechResistBelowThreshold`, still unpriced), the rushers' mid buy rates, and the
+  rushers' mid split for the budgets. The last one brings in Berserker, but fails M1.
+  M1 compares a 5-item build with an average over thousands of players.
+
+**Result:**
+
+- O2 0.712 → 0.891, M3 0.071, M1 mean 0.123 (Warden mid now passes), P4 37;
+- mid 3,200+ share 0.35 → 0.49;
+- Lady Geist's mid build holds Kinetic Dash, Healing Booster and Spirit Resilience;
+- P5 2 → 1: Calico's Arctic Blast moves to late. `basketPlans` compares plans by total
+  value, not ranked per slot, which likely plays a part;
+- 52 of 72 baselines changed, none in the early phase.
+
+**Known limits:**
+
+- **Calibrated at the checkpoints only.** The late horizon was measured at the 30,000
+  checkpoint. Between 17,550 and 30,000 souls it is largest relative to the budget, and
+  no baseline or starter checkpoint samples it.
+  - Slider 22 → 23 switches from the mid to the late horizon (6,650 → 31,200 souls).
+  - An empty Haze build at 23 buys four big items (Siphon Bullets, Capacitor, Burst
+    Fire, Arcane Surge), where main bought ten mostly rarely-bought 800s.
+  - A smaller jump comes at the early → mid boundary.
+- **Mid soul budget.** Real rushers spend ~13,700 souls in 9–20 min. The mid checkpoint
+  leaves 11,100.
 
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
