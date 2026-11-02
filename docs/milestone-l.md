@@ -1,7 +1,8 @@
 # Milestone L: 3,200-soul items in the mid build
 
-**Status:** draft for sign-off (L0). Per "Testing Expectations", no engine or fixture change
-until these criteria are approved; change this doc first if an expectation needs to change.
+**Status:** approved 2026-11-02, with every recommendation in §5 accepted as written. Per
+"Testing Expectations", no engine or fixture change until these criteria are approved;
+change this doc first if an expectation needs to change.
 
 **Scope:** how the basket ranks picks in the mid and late phases (`rankingPrice`) and how
 strictly the mid phase holds each shop's budget (`shopBudgetsFor`, the greedy loop) in
