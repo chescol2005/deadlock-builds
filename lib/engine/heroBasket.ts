@@ -17,7 +17,7 @@ import { calculateStatsAtBoon } from "../heroStats";
 import type { HeroDamageModel } from "./heroDamage";
 import { abilityChargeCredit, heroDps } from "./heroDamage";
 import { ownedGapHeal, ownedTradeHealHp } from "./heroFight";
-import { kitHealPerTrade } from "./kitHeal";
+import { kitHealPerTrade, kitSelfDamagePerTrade } from "./kitHeal";
 import { BOON_THRESHOLDS } from "../boonSystem";
 import type { HeroAccuracy, ItemAnalytics } from "../analyticsStore";
 import { resolveAccuracyAtRank } from "../analyticsStore";
@@ -390,7 +390,8 @@ export function heroValuationModel(input: {
 
 /**
  * The model with `survival.kitHealHp` set: HP the hero's own kit heals it per
- * trade in this phase (kitHeal.ts, Milestone G3).
+ * trade in this phase (kitHeal.ts, Milestone G3). Also `survival.selfDamage`, the
+ * health the kit costs the hero (Milestone N), when there is any.
  */
 export function withKitHeal(
   model: HeroDamageModel | undefined,
@@ -407,7 +408,18 @@ export function withKitHeal(
     abilityDps: dps.ability,
     ...(model.meleeDamage !== undefined ? { meleeDamage: model.meleeDamage } : {}),
   });
-  return { ...model, survival: { ...model.survival, kitHealHp } };
+  const selfDamage = kitSelfDamagePerTrade(abilities, {
+    spiritPower: model.spiritPower,
+    maxHealth: model.survival.maxHealth,
+  });
+  return {
+    ...model,
+    survival: {
+      ...model.survival,
+      kitHealHp,
+      ...(selfDamage.start + selfDamage.later > 0 ? { selfDamage } : {}),
+    },
+  };
 }
 
 /**

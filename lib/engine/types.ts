@@ -93,6 +93,12 @@ export interface ItemCandidate {
    * deadlock.wiki/Items and the live item API). Omitted = no components.
    */
   componentIds?: ReadonlyArray<string>;
+  /**
+   * What this hero's kit adds to the item's value that the stats alone don't
+   * show, quoted in the coverage reason (Milestone N: Berserker stacks and spirit
+   * resist from the kit's self-damage). Omitted = nothing to add.
+   */
+  valueNotes?: ReadonlyArray<string>;
 }
 
 export interface StageScore {

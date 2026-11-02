@@ -38,6 +38,8 @@ import {
   DEFAULT_PROC_COOLDOWN_S,
   estimateEffectValues,
   REFERENCE_ENEMY_HEALTH,
+  STACK_PLAUSIBLE_MAX,
+  STACK_REALIZATION,
 } from "./effectEstimator";
 import type { ItemCandidate, ScoreCategory } from "./types";
 import { SCORE_CATEGORIES } from "./types";
@@ -458,6 +460,85 @@ function gunProcRate(stats: ItemStats, model: HeroDamageModel): number {
 }
 
 /**
+ * Stacks held on average over a trade by an item that stacks on damage TAKEN
+ * (Berserker, Milestone N): min(cap, start + (later + enemy) × t) over the trade,
+ * t from 0 to 1. Self-damage from each ability's first cast lands at the start
+ * (it opens the combo); later casts and enemy damage arrive through the trade. The
+ * enemy ramp is set so that with no self-damage the result is exactly the
+ * estimator's hero-agnostic count (cap × STACK_REALIZATION). Damage is counted
+ * before resist (deadlock.wiki/Berserker). Inputs are in stacks.
+ */
+export function heldDamageTakenStacks(cap: number, start: number, later: number): number {
+  if (!(cap > 0)) return 0;
+  const a = Math.max(0, start);
+  const b = Math.max(0, later) + 2 * STACK_REALIZATION * cap;
+  if (a >= cap) return cap;
+  const reach = (cap - a) / b; // the share of the trade until the cap
+  if (reach >= 1) return a + b / 2;
+  return a * reach + (b * reach * reach) / 2 + (1 - reach) * cap;
+}
+
+/** Stacks to credit a damage-taken stacker for: held stacks and their self-damage part. */
+function damageTakenStacks(
+  stats: ItemStats,
+  model: HeroDamageModel,
+): { held: number; base: number; fromSelf: number } | null {
+  const perStack = stats.DamageToStack;
+  const self = model.survival?.selfDamage;
+  if (!self || !(Number.isFinite(perStack) && perStack > 0)) return null;
+  const max = stats.MaxStacks;
+  const cap = Number.isFinite(max) && max > 0 ? Math.min(max, STACK_PLAUSIBLE_MAX) : 0;
+  if (!(cap > 0)) return null;
+  const held = heldDamageTakenStacks(cap, self.start / perStack, self.later / perStack);
+  const base = cap * STACK_REALIZATION;
+  return { held, base, fromSelf: held - base };
+}
+
+/**
+ * Multiplier on a damage-taken stacker's per-stack estimate for this hero's
+ * self-damage (1 = none). Applied only to the estimate flagged `damageTakenStacks`;
+ * its `basis` keeps the hero-agnostic count, and the coverage reason quotes this one.
+ */
+function selfDamageStackFactor(stats: ItemStats, model: HeroDamageModel): number {
+  const s = damageTakenStacks(stats, model);
+  return s && s.base > 0 ? s.held / s.base : 1;
+}
+
+/**
+ * Plain notes on what this hero's self-damage adds to an item (Milestone N), for
+ * the coverage reason: Berserker's extra stacks, spirit resist's saved health.
+ */
+function selfDamageNotes(
+  stats: ItemStats,
+  model: HeroDamageModel | undefined,
+  innate?: ReadonlySet<string>,
+): string[] {
+  const self = model?.survival?.selfDamage;
+  if (!model || !self) return [];
+  const notes: string[] = [];
+  const stacks = damageTakenStacks(stats, model);
+  if (stacks && stacks.fromSelf > 0.05) {
+    notes.push(
+      `~${stacks.held.toFixed(1)} stacks held in a fight, ${stacks.fromSelf.toFixed(1)} more from your own abilities' health cost`,
+    );
+  }
+  // Only an always-on resist: an active's resist is priced conditionally
+  // (heroFight's `cond`), so a flat "cuts N health" would overstate it.
+  const resist = stats.TechResist;
+  const timed =
+    (Number.isFinite(stats.AbilityCooldown) && stats.AbilityCooldown > 0) ||
+    (Number.isFinite(stats.AbilityDuration) && stats.AbilityDuration > 0);
+  const onActive = timed && !innate?.has("TechResist");
+  if (Number.isFinite(resist) && resist > 0 && !onActive) {
+    const saved = (Math.min(90, resist) / 100) * (self.start + self.later);
+    notes.push(
+      `also cuts the ${Math.round(self.start + self.later)} health your own abilities cost you per fight by ${Math.round(saved)}`,
+    );
+  }
+  return notes;
+}
+
+/**
  * An effect estimate's damage, as damage per second for this hero. Null when the
  * estimate carries no damage unit (it is then valued hero-agnostically).
  */
@@ -477,7 +558,9 @@ function estimateDps(
     case "dps":
       return e.value;
     case "weaponPercent":
-      return (e.value / 100) * dps.gun;
+      return (
+        (e.value / 100) * dps.gun * (e.damageTakenStacks ? selfDamageStackFactor(stats, model) : 1)
+      );
     case "maxHealthPercentPerSecond":
       return ((e.perSecond ?? 0) / 100) * enemyHealth * accuracy;
     case "maxHealthPercentPerProc":
@@ -526,6 +609,12 @@ function deriveCategoryValues(
           ...(heroDamage.enemyHealth !== undefined ? { enemyHealth: heroDamage.enemyHealth } : {}),
           ...(heroDamage.survival.ownedGapHeal !== undefined
             ? { ownedGapHeal: heroDamage.survival.ownedGapHeal }
+            : {}),
+          ...(heroDamage.survival.selfDamage
+            ? {
+                selfDamageHp:
+                  heroDamage.survival.selfDamage.start + heroDamage.survival.selfDamage.later,
+              }
             : {}),
         }
       : null;
@@ -649,7 +738,17 @@ export function toItemCandidate(item: Item, ctx?: ItemValuationContext): ItemCan
     procReliance: heroValued ? 0 : deriveProcReliance(stats),
     hitDependence: heroValued ? 0 : deriveHitDependence(stats),
     tags: item.tags,
-    // Only set when present, so items without components are shaped as before.
+    // Only set when present, so other items are shaped as before.
+    ...(() => {
+      const notes = heroValued
+        ? selfDamageNotes(
+            stats,
+            ctx?.heroDamage,
+            item.innateStats ? new Set(item.innateStats) : undefined,
+          )
+        : [];
+      return notes.length > 0 ? { valueNotes: notes } : {};
+    })(),
     ...(item.componentItems && item.componentItems.length > 0
       ? { componentIds: item.componentItems }
       : {}),

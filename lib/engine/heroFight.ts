@@ -76,6 +76,12 @@ export interface HeroFightModel {
    * the target's max health (Siphon Bullets). Omitted = REFERENCE_ENEMY_HEALTH.
    */
   enemyHealth?: number;
+  /**
+   * Health the hero's own abilities cost it per trade, before resist (Milestone N,
+   * kitHeal.kitSelfDamagePerTrade). It is spirit damage, so spirit resist cuts it
+   * too. Omitted = 0.
+   */
+  selfDamageHp?: number;
 }
 
 /** Seconds of a trade: converts per-second healing into effective HP. */
@@ -322,6 +328,12 @@ export function fightValues(
   const rs = clampPct(s("TechResist") * cond("TechResist"));
   const taken = INCOMING_BULLET * (1 - rb) + INCOMING_SPIRIT * (1 - rs);
   let resist = taken > 0 ? (1 / taken - 1) * 100 : 0;
+  // Spirit resist also cuts the kit's own self-damage (Milestone N): the health
+  // saved in ONE trade, in % of max HP. The enemy term above prices resist over a
+  // full health bar of incoming damage (about two trades), so per point of damage
+  // the self-damage term weighs about half as much. That is the variant measured in
+  // docs/milestone-n.md §3; don't "align" it without re-measuring.
+  if (rs > 0 && num(m.selfDamageHp) > 0) resist += ((rs * num(m.selfDamageHp)) / hp) * 100;
   const rm = clampPct(s("MeleeResistPercent"));
   resist += INCOMING_MELEE * CONDITIONAL * (rm / (1 - rm)) * 100;
   resist += INCOMING_BULLET * CONDITIONAL * clampPct(s("DeflectionPercent")) * 100;

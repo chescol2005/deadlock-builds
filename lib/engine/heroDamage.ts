@@ -96,6 +96,12 @@ export interface HeroDamageModel {
     /** HP the hero's own kit heals it per trade (kitHeal.ts, Milestone G3). */
     kitHealHp?: number;
     /**
+     * Health the hero's own abilities cost it per trade, before resist
+     * (kitHeal.kitSelfDamagePerTrade, Milestone N): at the trade's start and later
+     * in it. Omitted or 0 = no priced self-damage.
+     */
+    selfDamage?: { start: number; later: number };
+    /**
      * HP the owned items heal per trade, lifesteal plus temporary heals
      * (heroFight.ownedTradeHealHp, Milestone K): what heal amp multiplies.
      */

@@ -155,16 +155,18 @@ const ABILITY_RESET_UTILITY = 30;
  * target. Clamping stops an unbounded counter from dominating every score.
  * 16 is the highest genuine cap observed across the live catalogue.
  */
-const STACK_PLAUSIBLE_MAX = 16;
+export const STACK_PLAUSIBLE_MAX = 16;
 
 /**
  * Fraction of maximum stacks a player actually holds on average.
  *
  * Stacks accrue over a match and are often lost on death, so crediting an item
  * at full stacks describes a best case rather than a typical one. A judgement
- * call, not a measured rate.
+ * call, not a measured rate. A stack that builds on damage the hero takes from its
+ * own abilities (Berserker on self-damage) is priced on top of this, per hero
+ * (itemAdapter.heldDamageTakenStacks, Milestone N).
  */
-const STACK_REALIZATION = 0.5;
+export const STACK_REALIZATION = 0.5;
 
 /**
  * Divisor turning gold-per-minute into the economy band.
@@ -255,6 +257,13 @@ export type EffectEstimate = {
   unit?: EffectUnit;
   /** For "maxHealthPercentPerSecond": the per-second rate (value is the total). */
   perSecond?: number;
+  /**
+   * True on the per-stack estimate of an item that stacks on damage TAKEN
+   * (Berserker): a hero-aware consumer re-prices its stack count from the hero's
+   * self-damage (itemAdapter.heldDamageTakenStacks, Milestone N). `basis` keeps
+   * the hero-agnostic count.
+   */
+  damageTakenStacks?: boolean;
   /**
    * The effect's physical quantity in `unit` (value scale), already
    * x EFFECT_CONFIDENCE, for the non-damage units. `value` keeps the
@@ -773,12 +782,17 @@ export function estimateEffectValues(stats: ItemStats): EffectEstimate[] {
 
   const perStack = num(stats, "WeaponPowerPerStack") ?? num(stats, "WeaponDamagePerStack");
   if (perStack != null) {
+    const before = out.length;
     add(
       "gunDamage",
       perStack * stacks,
       `+${perStack}% weapon power x ~${st} stacks`,
       "weaponPercent",
     );
+    // Stacks on damage taken (Berserker): the hero's self-damage re-prices the count.
+    const added = out[before];
+    if (added && num(stats, "DamageToStack") != null)
+      out[before] = { ...added, damageTakenStacks: true };
   }
   const healPerStack = num(stats, "HealPerStack");
   if (healPerStack != null) {

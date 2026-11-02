@@ -14,7 +14,7 @@ import {
   mapApiAbilityToHeroAbility,
 } from "../../abilityCoefficients";
 import type { HeroAbilityRaw } from "../../api/deadlockApi";
-import { kitHealPerTrade, selfHealValue } from "../kitHeal";
+import { kitHealPerTrade, kitSelfDamagePerTrade, selfHealValue } from "../kitHeal";
 import type { HeroBaseStats } from "../../heroStats";
 import type { Item } from "../../items";
 import {
@@ -159,7 +159,12 @@ import {
 import { BOON_THRESHOLDS } from "../../boonSystem";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
-import { HERO_DAMAGE_SCALE, resolveScaledStats, toItemCandidate } from "../itemAdapter";
+import {
+  HERO_DAMAGE_SCALE,
+  heldDamageTakenStacks,
+  resolveScaledStats,
+  toItemCandidate,
+} from "../itemAdapter";
 import { baseCategoryStage } from "../stages/baseCategoryStage";
 import { intentWeightStage } from "../stages/intentWeightStage";
 import type {
@@ -5989,6 +5994,216 @@ console.log("\n35. Slot horizon and mid shop overshoot (Milestone L)");
       overNote.reason.startsWith("Over this phase's gun share by 350 souls"),
     "constructBasket: a mid pick over its shop's budget carries a zero-value note saying by how much",
     overNote?.reason,
+  );
+}
+
+console.log("\n36. Self-damage triggers (Milestone N)");
+{
+  const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
+  const ability = (
+    className: string,
+    properties: HeroAbilityRaw["properties"],
+  ): ReturnType<typeof mapApiAbilityToHeroAbility> =>
+    mapApiAbilityToHeroAbility(
+      { id: 1, class_name: className, name: className, properties, upgrades: [] },
+      "signature1",
+    );
+
+  // a. Parse: only the verified abilities, each with what its percent is of.
+  const malice = ability("ability_blood_shards", {
+    AbilityCooldown: { value: 6 },
+    HealthToDamage: { value: 23 },
+    SelfDamagePct: { value: "9" },
+  });
+  const bomb = ability("ability_blood_bomb", {
+    AbilityCooldown: { value: 14 },
+    Damage: { value: 90 },
+    SelfDamagePct: { value: "30" },
+  });
+  const chimera = ability("ability_deadpack_rocketeer", {
+    AbilityCooldown: { value: 21 },
+    ExplosionDamage: { value: 70 },
+    MaxHealthSelfDamagePercent: { value: "10" },
+  });
+  const closeTheDeal = ability("ability_deadpack_ultimate", {
+    AbilityCooldown: { value: 135 },
+    Damage: { value: 70 },
+    SelfDamagePercent: { value: 25 },
+  });
+  const unknown = ability("n_other_hero", {
+    AbilityCooldown: { value: 10 },
+    Damage: { value: 50 },
+    SelfDamagePercent: { value: 20 },
+  });
+  assert(
+    malice.selfDamage?.percent === 9 &&
+      malice.selfDamage.of === "health" &&
+      bomb.selfDamage?.percent === 30 &&
+      bomb.selfDamage.of === "ownDamage" &&
+      closeTheDeal.selfDamage?.percent === 25 &&
+      closeTheDeal.selfDamage.of === "ownDamage" &&
+      chimera.selfDamage === undefined &&
+      unknown.selfDamage === undefined,
+    "parse: Malice 9% of health, Essence Bomb and Close The Deal 30% / 25% of their damage; Chimera's overheat and unverified keys unpriced",
+  );
+
+  // b. Per trade, before resist: the in-game rules (docs/milestone-n.md §2.1). One
+  //    Malice cast at 4,738 HP is 426 (log 423 at 1% resist); a bomb hitting for 244
+  //    costs 73.2 (log 72 at 1%).
+  const once = (a: HeroAbility, cooldown: number) => ({ ...a, cooldown });
+  const maliceOnce = kitSelfDamagePerTrade([once(malice, TRADE_GAP_SECONDS * 2)], {
+    spiritPower: 0,
+    maxHealth: 4738,
+  });
+  const bombOnce = kitSelfDamagePerTrade([{ ...once(bomb, 14), baseDamage: 244 }], {
+    spiritPower: 0,
+    maxHealth: 4738,
+  });
+  // Malice on 6 s: 10 / 6 casts, the first at full health, the rest at 75%.
+  const maliceTrade = kitSelfDamagePerTrade([malice], { spiritPower: 0, maxHealth: 2000 });
+  assert(
+    near(maliceOnce.start, 0.09 * 4738 * castsPerTrade(TRADE_GAP_SECONDS * 2)) &&
+      maliceOnce.later === 0 &&
+      near(bombOnce.start, 0.3 * 244) &&
+      near(maliceTrade.start, 180) &&
+      near(maliceTrade.later, 180 * 0.75 * (TRADE_SECONDS / 6 - 1)) &&
+      kitSelfDamagePerTrade([unknown, chimera], { spiritPower: 0, maxHealth: 2000 }).start === 0,
+    "kitSelfDamagePerTrade: % of health from current health, % of damage per cast; none without a priced rule",
+    JSON.stringify({ maliceOnce, bombOnce, maliceTrade }),
+  );
+  // The user's logs, after resist (docs/milestone-n.md §2.1 / §2.3): one cast each,
+  // priced per cast (a 0-cooldown-share check divides the trade weighting back out).
+  const perCast = (a: HeroAbility, maxHealth: number, damage?: number) => {
+    const cd = TRADE_GAP_SECONDS * 2;
+    const r = kitSelfDamagePerTrade(
+      [{ ...a, cooldown: cd, ...(damage !== undefined ? { baseDamage: damage } : {}) }],
+      { spiritPower: 0, maxHealth },
+    );
+    return r.start / castsPerTrade(cd);
+  };
+  const logs = {
+    malice: perCast(malice, 4738) * 0.99, // log 423
+    bomb: perCast(bomb, 4738, 337) * 0.99, // log 100
+    deal: perCast(closeTheDeal, 876, 160) * 0.7, // log 28
+  };
+  assert(
+    Math.abs(logs.malice - 423) <= 2 &&
+      Math.abs(logs.bomb - 100) <= 2 &&
+      Math.abs(logs.deal - 28) <= 2,
+    "kitSelfDamagePerTrade: reproduces the in-game logs after resist (Malice 423, Essence Bomb 100, Close The Deal 28)",
+    JSON.stringify(logs),
+  );
+
+  // c. Held stacks: neutral without self-damage (the estimator's 5 of 10), more with
+  //    it, capped.
+  assert(
+    near(heldDamageTakenStacks(10, 0, 0), 5) &&
+      heldDamageTakenStacks(10, 2.5, 0) > 5 &&
+      heldDamageTakenStacks(10, 2.5, 1) > heldDamageTakenStacks(10, 2.5, 0) &&
+      heldDamageTakenStacks(10, 12, 0) === 10 &&
+      heldDamageTakenStacks(10, 50, 50) === 10 &&
+      heldDamageTakenStacks(0, 3, 3) === 0,
+    "heldDamageTakenStacks: 5 of 10 with no self-damage, more with it, never above the cap",
+    `${heldDamageTakenStacks(10, 2.5, 0)}`,
+  );
+
+  // d. Wiring: a hero whose kit hurts it gets more from Berserker and from spirit
+  //    resist, with reasons; the same hero without self-damage prices both as before.
+  const baseModel: HeroDamageModel = {
+    gun: { perShot: 10, shotsPerSecond: 3, clip: 20, reload: 2, overhead: 0 },
+    accuracy: 1,
+    abilities: [{ baseDamage: 100, spiritScaling: 1, cooldown: 10 }],
+    spiritPower: 0,
+    survival: { maxHealth: 2000, moveSpeed: 7 },
+  };
+  const hurt = withKitHeal(baseModel, [malice], "mid");
+  const plain = withKitHeal(baseModel, [], "mid");
+  const nItem = (id: string, stats: Item["stats"]): Item => ({
+    id,
+    numericId: 9961,
+    name: id,
+    category: "gun",
+    tier: 3,
+    cost: 3200,
+    tags: [],
+    stats,
+    statScaling: {},
+  });
+  const berserker = nItem("n_berserker", {
+    DamageToStack: 120,
+    WeaponPowerPerStack: 7,
+    MaxStacks: 10,
+    DamageDuration: 10,
+  });
+  const resist = nItem("n_spirit_resist", { TechResist: 25 });
+  const valued = (item: Item, m: HeroDamageModel | undefined) =>
+    toItemCandidate(item, { spiritPower: 0, boonLevel: 20, ...(m ? { heroDamage: m } : {}) });
+  const bHurt = valued(berserker, hurt);
+  const bPlain = valued(berserker, plain);
+  const rHurt = valued(resist, hurt);
+  const rPlain = valued(resist, plain);
+  // Neutral means identical: a kit with no self-damage prices both items exactly as
+  // the model without withKitHeal's self-damage step.
+  assert(
+    JSON.stringify(bPlain.categoryValues) ===
+      JSON.stringify(valued(berserker, baseModel).categoryValues) &&
+      JSON.stringify(rPlain.categoryValues) ===
+        JSON.stringify(valued(resist, baseModel).categoryValues) &&
+      rPlain.valueNotes === undefined,
+    "no self-damage: Berserker and spirit resist priced exactly as before, no note",
+  );
+  assert(
+    hurt?.survival?.selfDamage !== undefined && plain?.survival?.selfDamage === undefined,
+    "withKitHeal: survival.selfDamage set only for a kit that hurts its caster",
+  );
+  assert(
+    bHurt.categoryValues.gunDamage > bPlain.categoryValues.gunDamage &&
+      (bHurt.valueNotes ?? []).some((n) => n.includes("from your own abilities' health cost")) &&
+      bPlain.valueNotes === undefined,
+    "Berserker: worth more to a hero whose kit hurts it, with a reason; unchanged without self-damage",
+    `${bHurt.categoryValues.gunDamage.toFixed(2)} vs ${bPlain.categoryValues.gunDamage.toFixed(2)}; ${bHurt.valueNotes?.join(" | ")}`,
+  );
+  const fm = { maxHealth: 2000, moveSpeed: 7, gunDps: 20, abilityDps: 10 };
+  assert(
+    rHurt.categoryValues.resist > rPlain.categoryValues.resist &&
+      (rHurt.valueNotes ?? []).some((n) => n.startsWith("also cuts the")) &&
+      near(
+        (fightValues({ TechResist: 25 }, { ...fm, selfDamageHp: 400 }).resist ?? 0) -
+          (fightValues({ TechResist: 25 }, fm).resist ?? 0),
+        ((0.25 * 400) / 2000) * 100,
+      ),
+    "spirit resist: also saves its share of the kit's self-damage (rs x self-damage / max HP), with a reason",
+    rHurt.valueNotes?.join(" | "),
+  );
+  assert(
+    fightValues({ TechResist: 25 }, { ...fm, selfDamageHp: 0 }).resist ===
+      fightValues({ TechResist: 25 }, fm).resist,
+    "spirit resist: self-damage 0 = omitted",
+  );
+
+  // e. An active's resist counts conditionally in the value, and gets no flat note;
+  //    listed as innate, it is always on and the note returns.
+  const activeStats = { TechResist: 25, AbilityCooldown: 30 };
+  const activeDelta =
+    (fightValues(activeStats, { ...fm, selfDamageHp: 400 }).resist ?? 0) -
+    (fightValues(activeStats, fm).resist ?? 0);
+  const activeResist = nItem("n_active_resist", activeStats);
+  const innateResist: Item = { ...activeResist, innateStats: ["TechResist"] };
+  assert(
+    near(activeDelta, 0.4 * ((0.25 * 400) / 2000) * 100) &&
+      !(valued(activeResist, hurt).valueNotes ?? []).some((n) => n.startsWith("also cuts")) &&
+      (valued(innateResist, hurt).valueNotes ?? []).some((n) => n.startsWith("also cuts")),
+    "spirit resist on an active: the saving counts at the conditional weight and gets no note; innate gets it",
+    `delta ${activeDelta}`,
+  );
+
+  // f. Only the per-stack estimate is re-priced: an item with no DamageToStack keeps
+  //    its stacks, whatever the hero's self-damage.
+  const otherStacker = nItem("n_other_stacker", { WeaponPowerPerStack: 7, MaxStacks: 10 });
+  assert(
+    JSON.stringify(valued(otherStacker, hurt).categoryValues) ===
+      JSON.stringify(valued(otherStacker, plain).categoryValues),
+    "self-damage re-prices only stacks on damage taken",
   );
 }
 
