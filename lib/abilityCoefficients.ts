@@ -54,7 +54,43 @@ export type HeroAbility = {
    * Absent = no self-heal. Converted to HP per trade by lib/engine/kitHeal.ts.
    */
   selfHeals?: SelfHeal[];
+  /**
+   * The health this ability costs its caster per cast (Milestone N): a percent
+   * of the caster's health, or of this ability's own damage. Set only for the
+   * abilities in KIT_SELF_DAMAGE; absent = no self-damage priced. Converted to HP
+   * per trade by lib/engine/kitHeal.ts (kitSelfDamagePerTrade).
+   */
+  selfDamage?: SelfDamage;
 };
+
+/** See HeroAbility.selfDamage. */
+export type SelfDamage = { percent: number; of: "health" | "ownDamage" };
+
+/**
+ * Abilities whose self-damage is priced (Milestone N, docs/milestone-n.md §2). The
+ * key does not say what its percent is OF (Lady Geist's SelfDamagePct is health on
+ * Malice and own damage on Essence Bomb), so only rules checked in game are listed.
+ * All three are spirit-type: spirit resist cuts them.
+ * - Malice: 9% of current health (deadlock.wiki/Malice); the user's combat logs
+ *   from full health, 2026-11-02 (337 at 3,768 HP, 1% spirit resist).
+ * - Essence Bomb: 30% of the bomb's damage (deadlock.wiki/Lady_Geist; logs: 72 for
+ *   a 244 hit).
+ * - Close The Deal: 25% of its damage (logs: 28 for a 160 hit at 30% resist).
+ * Left out on purpose: Deadman Danny's Chimera Mk1 (MaxHealthSelfDamagePercent)
+ * only hits him when he overheats, a misplay. Unchecked, so unpriced: Victor Aura of
+ * Suffering, Bebop Sticky Bomb.
+ */
+export const KIT_SELF_DAMAGE: Readonly<Record<string, { key: string; of: SelfDamage["of"] }>> = {
+  ability_blood_shards: { key: "SelfDamagePct", of: "health" },
+  ability_blood_bomb: { key: "SelfDamagePct", of: "ownDamage" },
+  ability_deadpack_ultimate: { key: "SelfDamagePercent", of: "ownDamage" },
+};
+
+function selfDamageOf(raw: HeroAbilityRaw): SelfDamage | undefined {
+  const rule = KIT_SELF_DAMAGE[raw.class_name];
+  const percent = rule ? safeNum(raw.properties?.[rule.key]?.value) : null;
+  return rule && percent != null && percent > 0 ? { percent, of: rule.of } : undefined;
+}
 
 /**
  * What a self-heal property measures (Milestone G3, docs/milestone-g.md §2.1):
@@ -367,6 +403,7 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
   const active = desc["active"] ?? null;
 
   const selfHeals = selfHealsOf(raw);
+  const selfDamage = selfDamageOf(raw);
 
   const upgrades: [AbilityUpgradeTier, AbilityUpgradeTier, AbilityUpgradeTier] = [
     buildUpgradeTier(raw.upgrades, 0, desc),
@@ -394,6 +431,7 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
     ...(damageSeconds != null ? { damageSeconds } : {}),
     ...(baseCharges >= 1 ? { charges: baseCharges } : upgradeCharges ? { upgradeCharges } : {}),
     ...(selfHeals.length > 0 ? { selfHeals } : {}),
+    ...(selfDamage ? { selfDamage } : {}),
   };
 }
 

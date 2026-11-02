@@ -1,8 +1,12 @@
 # Milestone N: self-damage triggers (Lady Geist)
 
-**Status:** use cases (N0), for sign-off. Per "Testing Expectations", no engine or fixture
-change until these criteria are approved; change this doc first if an expectation needs
-to change.
+**Status:** approved 2026-11-02 (PR #153), with every recommendation in §5 accepted.
+
+- The user added that Berserker is a key Lady Geist item, so the mid-build gap (§3.1) is a
+  priority follow-up, not an accepted one.
+- Deadman Danny's Close The Deal joined the table after the user's tests (§2.3).
+
+Per "Testing Expectations", change this doc first if an expectation needs to change.
 
 **Scope:** a hero's own self-damage as an input to item value: Berserker's stacks and the
 spirit resist that cuts the self-damage. That means the ability parser
@@ -69,11 +73,14 @@ Also observed:
   - Self-damage keys on other heroes are listed below. Their basis is not verified on the
     wiki, so N leaves them unpriced (unknown is not zero: those heroes keep today's
     pricing):
-    - hero 66, Aura of Suffering: `SelfDamagePercentage` 70, `SelfDPS` 15;
-    - hero 15, Sticky Bomb: `SelfDamagePercent` 20;
-    - hero 49, Rutger rocket: `SelfDamagePercent` 50;
-    - hero 78, Chimera Mk1: `MaxHealthSelfDamagePercent` 10;
-    - hero 78, Close The Deal: `SelfDamagePercent` 25.
+    - Victor (66), Aura of Suffering: `SelfDamagePercentage` 70, `SelfDPS` 15;
+    - Bebop (15), Sticky Bomb: `SelfDamagePercent` 20;
+    - Rutger (49, disabled), rocket: `SelfDamagePercent` 50;
+    - Deadman Danny (78), Chimera Mk1: `MaxHealthSelfDamagePercent` 10;
+    - Deadman Danny (78), Close The Deal: `SelfDamagePercent` 25.
+
+    The user then tested Deadman Danny (§2.3).
+
 - **Berserker** (`upgrade_berserker`, 3,200):
   - `DamageToStack` 120, `WeaponPowerPerStack` 7, `MaxStacks` 10, `DamageDuration` 10.
   - Per the wiki, a new stack refreshes every stack's duration.
@@ -89,6 +96,21 @@ Also observed:
 
   The frozen inputs and the committed tables predate the patch. This is the
   already-queued post-patch refit, not N.
+
+### 2.3 Deadman Danny (the user, 2026-11-02, boon 0, 876 max HP, from full health)
+
+| Ability        | Spirit resist          | Self-damage                                | Rule                                          |
+| -------------- | ---------------------- | ------------------------------------------ | --------------------------------------------- |
+| Chimera Mk1    | 0% (35% bullet resist) | 87                                         | 10% × 876 = 87.6; bullet resist does nothing  |
+| Chimera Mk1    | 30%                    | 61                                         | 10% × 876 × 0.70 = 61.3                       |
+| Close The Deal | 30%                    | 1 per tick (6 dealt), 28 final (160 dealt) | 25% of its damage × 0.70 (6 → 1.05, 160 → 28) |
+
+- **Chimera Mk1** only hurts him when the OVERHEATING buff runs out, with a 1.3s
+  self-stun. The user confirmed that overheating is a misplay, so it stays unpriced:
+  pricing it would reward a mistake.
+- **Close The Deal** joins the verified table: 25% of its own damage. On a 135s cooldown
+  it costs him about 4 HP per trade, so it barely moves his items.
+- **Victor and Bebop** are untested, so they stay unpriced.
 
 ## 3. Candidate change, measured on a scratch copy
 
@@ -171,15 +193,18 @@ fails M1"). More value for Berserker can't fix it; only the gun budget can.
 - `HeroAbility.selfDamage` is parsed only for the abilities verified in §2.2 (a table
   keyed by ability class name, with a cited source):
   - Malice: % of health;
-  - Essence Bomb: % of its own damage.
-  - Any other self-damage key is left unpriced and listed in the code comment.
+  - Essence Bomb: % of its own damage;
+  - Close The Deal: % of its own damage (§2.3).
+  - Any other self-damage key is left unpriced and listed in the code comment. Chimera
+    Mk1 is listed as left out on purpose (a misplay).
 - Self-damage per trade comes from the survival model (`kitHeal.ts`) through the same trade
   model as kit healing. It is 0, not missing, for a hero without it.
 - Berserker's stacks:
   - With no self-damage they are exactly today's (5 of 10), for every hero.
   - With self-damage they rise, capped at `MaxStacks`.
-  - The reason line names the self-damage ("+N stacks from your own abilities' health
-    cost").
+  - The reason line names the self-damage. As built: "~N stacks held in a fight, M more
+    from your own abilities' health cost". It goes in the coverage reason (advanced view),
+    not the plain line.
 - Spirit resist adds rs × self-damage / max HP; 0 without self-damage.
 - Engine fixture (new section 36):
   - parse: Malice 9 / health, bomb 30 / own damage, another hero's key ignored;
@@ -199,7 +224,8 @@ fails M1"). More value for Berserker can't fix it; only the gun budget can.
    Resilience 25% for her. **Recommendation: yes.**
 2. **Berserker in her mid build stays a known gap?** The blocker is the gun budget (§3.1).
    **Recommendation: yes.** Revisit together with M1 against per-player builds, as L
-   suggested.
+   suggested. **Decision (the user):** yes for N, but it's a priority follow-up, since
+   Berserker is a key item for her.
 3. **Malice's damage amp:** not modelled. The engine values damage items in % of the
    hero's own damage, so an amp that raises all of her damage cancels out. It only matters
    for the share of fights the debuff is up, which N does not try to measure.
@@ -214,3 +240,36 @@ fails M1"). More value for Berserker can't fix it; only the gun budget can.
 | N0  | This doc                                              | Opus 5.5; data-verifier (Sonnet)        |
 | N1  | Engine change, engine §36, 2 baselines                | Opus 5.5; scoring-auditor (Opus) review |
 | N2  | Close: engine design notes, CLAUDE.md, session record | Opus 5.5                                |
+
+## 7. Results
+
+### N1: self-damage triggers (2026-11-02)
+
+- **As measured in §3** (recommended variant), plus Close The Deal (§2.3). The recorded
+  builds are identical to the scratch run: 2 of 72 changed, both Lady Geist. Deadman
+  Danny's didn't move (his ultimate costs him about 4 HP per trade).
+- **Engine fixture §36**, 11 checks:
+  - parse, including Close The Deal and the excluded Chimera Mk1;
+  - per-trade self-damage, with the user's logs reproduced after resist: Malice 423,
+    Essence Bomb 100, Close The Deal 28;
+  - held stacks: exact neutrality, rise, cap;
+  - Berserker and spirit resist with no self-damage, priced exactly as before;
+  - spirit resist on an active at the conditional weight, with no note;
+  - only stacks on damage taken are re-priced.
+- **Live probe**, Lady Geist mid: Berserker's reason reads "~6.9 stacks held in a fight,
+  1.9 more from your own abilities' health cost". It still ranks 6th of 151 and misses her
+  mid build (§3.1).
+- **`scoring-auditor`:**
+  - Blocking: Close The Deal was in code before the doc listed it. Resolved by §2.3 / §4.1
+    and a parse check.
+  - Fixed on its review:
+    - neutrality is now asserted exactly, not as a direction;
+    - the active-resist path has a test;
+    - the log checks use the logged numbers after resist;
+    - only the per-stack estimate is re-priced (`damageTakenStacks` flag);
+    - comments on the one-trade weighting of the resist saving, and on the
+      simplifications (charges, bonus health);
+    - the estimator comment's wording.
+  - For N2: the next `fit-category-split` refit values Lady Geist's resist with the
+    self-damage saving (the fitter builds `heroValuationModel`), so her fitted profile
+    will shift.

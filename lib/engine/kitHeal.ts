@@ -11,6 +11,9 @@
 // Used to value heal amplification (Healing Booster, Healing Tempo) per hero:
 // it multiplies the healing the hero actually has.
 //
+// Also the kit's self-damage (Milestone N, kitSelfDamagePerTrade): the health a
+// hero's own abilities cost it, which stacks Berserker and which spirit resist cuts.
+//
 // Pure: same inputs, same output.
 
 import type { HeroAbility, SelfHeal } from "../abilityCoefficients";
@@ -115,6 +118,46 @@ export function abilityHealPerTrade(a: HeroAbility, ctx: KitHealContext): number
     }
   }
   return heal;
+}
+
+/**
+ * Health the kit costs its caster in one trade, before resist (Milestone N): what
+ * the first cast of each ability costs at the start of the trade, and what its
+ * later casts cost during it. A % of health cast is paid from current health: full
+ * for the first cast, then the health a trade leaves on average
+ * (1 - TRADE_DAMAGE_TAKEN_SHARE / 2). A long cooldown counts by the share of trades
+ * it is ready for, as damage does. Zero for a kit without priced self-damage.
+ *
+ * Simplifications, the same as kit healing's: charges are not counted, and "health"
+ * is the hero's max health at this boon level (owned items' bonus health is not
+ * included, so a health-stacked hero pays slightly more than priced). An ownDamage
+ * ability whose damage does not parse costs 0 here: the verified abilities all
+ * parse (engine §36), and a new one should be checked when it joins the table.
+ */
+export function kitSelfDamagePerTrade(
+  abilities: ReadonlyArray<HeroAbility>,
+  ctx: Pick<KitHealContext, "spiritPower" | "maxHealth">,
+): { start: number; later: number } {
+  let start = 0;
+  let later = 0;
+  const hp = Math.max(0, ctx.maxHealth);
+  for (const a of abilities) {
+    const cooldown = a.cooldown ?? 0;
+    if (!a.selfDamage || !(cooldown > 0)) continue;
+    const casts = castsPerTrade(cooldown);
+    const share = a.selfDamage.percent / 100;
+    if (a.selfDamage.of === "health") {
+      start += share * hp * Math.min(1, casts);
+      later += share * hp * (1 - TRADE_DAMAGE_TAKEN_SHARE / 2) * Math.max(0, casts - 1);
+    } else {
+      const perCast =
+        ((a.baseDamage ?? 0) + (a.spiritScaling ?? 0) * Math.max(0, ctx.spiritPower)) *
+        damagePerCastFactor(a);
+      start += share * Math.max(0, perCast) * Math.min(1, casts);
+      later += share * Math.max(0, perCast) * Math.max(0, casts - 1);
+    }
+  }
+  return { start, later };
 }
 
 /** HP the hero's whole kit heals it in one trade. */

@@ -712,11 +712,12 @@ export const coverageTerm: MarginalTermFn = {
       .map((entry) => `${entry.cat} +${entry.gain.toFixed(1)}`);
     const hidden = perCategoryGain.length - named.length;
     const suffix = hidden > 0 ? `, +${hidden} more` : "";
+    const notes = candidate.valueNotes?.length ? `; ${candidate.valueNotes.join("; ")}` : "";
 
     return {
       termId: "coverage",
       value: gain,
-      reason: `Covers ${gain.toFixed(1)} of remaining need (${named.join(", ")}${suffix})`,
+      reason: `Covers ${gain.toFixed(1)} of remaining need (${named.join(", ")}${suffix})${notes}`,
       plain: plainCoverage(perCategoryGain.map((entry) => entry.cat)),
     };
   },
