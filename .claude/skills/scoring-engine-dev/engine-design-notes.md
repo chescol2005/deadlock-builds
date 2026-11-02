@@ -2054,6 +2054,65 @@ Spirit Resilience (57%) and Berserker (47%) in mid; the engine bought neither. T
 - **Mid soul budget.** Real rushers spend ~13,700 souls in 9–20 min. The mid checkpoint
   leaves 11,100.
 
+## Self-damage triggers (Milestone N)
+
+**The gap.** Lady Geist's Malice and Essence Bomb damage her. That stacks Berserker, and
+spirit resist cuts it. The engine read `SelfDamagePct` only as "not ability damage",
+credited Berserker 5 of 10 stacks for every hero, and priced spirit resist only against
+enemies. The user measured the rules in game, from combat logs (docs/milestone-n.md §2).
+
+**The change:**
+
+- **`KIT_SELF_DAMAGE`** (abilityCoefficients.ts): a table of verified abilities. The key
+  doesn't say what its percent is of: the same `SelfDamagePct` is health on Malice and
+  own damage on Essence Bomb. So an unlisted key stays unpriced.
+  - Malice: 9% of health.
+  - Essence Bomb: 30% of its damage.
+  - Close The Deal: 25% of its damage.
+  - Left out on purpose: Chimera Mk1's overheat, a misplay. Victor and Bebop are
+    untested.
+- **`kitSelfDamagePerTrade`** (kitHeal.ts): before resist, the trade model's casts.
+  - The first cast lands at the start of the trade, at full health.
+  - Later casts are paid at 75% health (1 − `TRADE_DAMAGE_TAKEN_SHARE` / 2).
+  - `withKitHeal` sets `survival.selfDamage` only when it is above 0.
+- **Berserker** (`heldDamageTakenStacks`, itemAdapter.ts): the stacks held over a
+  trade.
+  - Formula: min(cap, start + (later + 2 × `STACK_REALIZATION` × cap) × t). With no
+    self-damage this is exactly the estimator's cap × 0.5.
+  - Only the estimate flagged `damageTakenStacks` is re-priced; its `basis` keeps the
+    agnostic count.
+  - Stacks count damage before resist (wiki, and the user).
+- **Spirit resist** (`fightValues`): adds rs × self-damage / max HP. That is ONE trade's
+  saving, about half the weight per point of the enemy term, which spans a full health
+  bar. It was measured that way; don't "align" it without re-measuring.
+- **Reasons:** `ItemCandidate.valueNotes` (from `selfDamageNotes`) are appended to the
+  coverage reason. An active's resist gets no flat "cuts N health" note, the same timed /
+  innate rule as `conditionalFor`.
+
+**Measured** (docs/milestone-n.md §3):
+
+- Lady Geist's self-damage per trade is 219 / 306 / 364 at the early / mid / late
+  checkpoints.
+- In her mid, Berserker is worth 1.37× (20.7 → 26.1 % fight value) and Spirit Resilience
+  25% more.
+- Only 2 recorded builds changed, both hers. At boon 16, Spirit Resilience comes in.
+- A variant that ramped enemy stacks from the trade's damage taken changed nothing, so the
+  simpler neutral form was kept.
+
+**Known limits:**
+
+- **Berserker still misses her mid build** because of the mid gun budget, not its value.
+  - 27.2% of 11,100 souls, about 3,470 with slack.
+  - Kinetic Dash + Berserker needs 4,000 even with L's overshoot.
+  - At 2.5× its value it only enters late.
+  - The user treats this as a priority follow-up: Berserker is a key Lady Geist item.
+- **Simplifications** (the same as kit healing's): no charges; "health" is the boon-level
+  max HP without owned bonus health.
+- **Malice's damage amp** is unmodelled. Values are in % of the hero's own damage, so an
+  amp on all of it cancels out.
+- **Refit.** `fitCategorySplit.ts` builds `heroValuationModel`, so the next refit values
+  Lady Geist's resist with the saving, and her fitted profile will shift.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical

@@ -1,6 +1,7 @@
 # Milestone N: self-damage triggers (Lady Geist)
 
-**Status:** approved 2026-11-02 (PR #153), with every recommendation in §5 accepted.
+**Status:** CLOSED 2026-11-02 (PRs #153–#155). Approved the same day (PR #153), with
+every recommendation in §5 accepted.
 
 - The user added that Berserker is a key Lady Geist item, so the mid-build gap (§3.1) is a
   priority follow-up, not an accepted one.
