@@ -1,6 +1,7 @@
 # Milestone L: 3,200-soul items in the mid build
 
-**Status:** approved 2026-11-02, with every recommendation in §5 accepted as written. Per
+**Status:** CLOSED 2026-11-02 (PRs #150–#152). Approved the same day, with every
+recommendation in §5 accepted as written. Per
 "Testing Expectations", no engine or fixture change until these criteria are approved;
 change this doc first if an expectation needs to change.
 
@@ -197,3 +198,32 @@ Each carries a recommendation; approving the doc as written accepts them.
 | L0  | This doc (sign-off)                                                                                                                                                  | docs   |
 | L1  | Slot horizon and mid overshoot; engine fixture; L-L1, L-L2; O2 → 0.891, Warden mid off the known gaps, P5 floor → 1; 52 baselines accepted; probe prints the horizon | engine |
 | L2  | Close: engine design notes ("Ranking by value per binding resource" and "Spend like real players" updated, new section), CLAUDE.md follow-ups, session record        | docs   |
+
+## 7. Results
+
+### L1: slot horizon and mid shop overshoot (2026-11-02, PR #151)
+
+- **As measured in §3, row A.** The shipped horizon depends on the souls
+  (`slotHorizonSouls`), not a fixed number, and gives the same values at the checkpoints.
+  Every live number matched the scratch run.
+- **Live:**
+  - L-L1 passes (Spirit Resilience in Lady Geist's mid build, with Healing Booster);
+  - L-L2 0.49 ≥ 0.45 (real 0.57);
+  - O2 41 / 46 = 0.891 (new baseline), M3 0.071, M1 mean 0.123;
+  - Warden mid passes (off `KNOWN_LEAN_GAPS`), P4 37, P5 1 (new floor).
+- **Engine fixture §35:**
+  - horizon values and gating;
+  - the 3,200 vs 1,600 order with and without the horizon;
+  - overshoot at 23% (fits) and 28% (doesn't) of the price, early and late strict;
+  - the overshoot note.
+- **Baselines:** 52 of 72 changed, every mid and late basket and 7 starter builds; none
+  in the early phase. Accepted.
+- **`scoring-auditor`:** no blockers. Fixed on its review:
+  - an overshooting pick now carries a zero-value `shop-budget` note;
+  - unknown souls give no horizon;
+  - the sweep comment says only 0.25 and 0.4 were measured;
+  - the probe's early tempo uses `ctx.laningSouls`, an existing mismatch.
+
+  Recorded as a known limit: the late horizon is calibrated only at the 30,000
+  checkpoint, and slider 22 → 23 switches from the mid to the late horizon (engine
+  design notes, "Slot horizon and mid overshoot").
