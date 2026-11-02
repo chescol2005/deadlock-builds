@@ -45,6 +45,7 @@ import {
   phaseItemPriceFactor,
   phaseItemTerm,
   SHOP_BUDGET_SLACK,
+  MID_SHOP_OVERSHOOT,
   procPlatformTerm,
   SYNERGY_MAX_FRACTION,
   synergyTerm,
@@ -114,7 +115,7 @@ import {
   vitalityHealthBonus,
 } from "../enemyHealth";
 import type { PhaseItemsTable } from "../phaseItems";
-import { buyOrder } from "../starterBuild";
+import { buyOrder, STARTER_PHASE_BOON_LEVELS } from "../starterBuild";
 import {
   abilityDps,
   AMBUSH_OPEN_SHARE,
@@ -146,7 +147,15 @@ import {
   tradeHealHp,
 } from "../heroFight";
 import { normalizeItem } from "../../itemNormalizer";
-import { deriveHeroDamageModel, runHeroBasket, withKitHeal, withOwnedGapHeal } from "../heroBasket";
+import {
+  deriveHeroDamageModel,
+  LATE_CHECKPOINT_BOON_LEVEL,
+  MID_SLOT_HORIZON_SHARE,
+  runHeroBasket,
+  slotHorizonSouls,
+  withKitHeal,
+  withOwnedGapHeal,
+} from "../heroBasket";
 import { BOON_THRESHOLDS } from "../../boonSystem";
 import { recommendItems } from "../engine";
 import { deriveHeroNeedVector } from "../heroNeed";
@@ -5871,6 +5880,115 @@ console.log("\n34. Rush-item value: cost-scaled phase-item term (Milestone I)");
       near(value(rush, noPhase), value(rush, flat)),
     `phaseItemTerm: late scales by ^${PHASE_ITEM_PRICE_EXPONENT.late}, mid by ^${PHASE_ITEM_PRICE_EXPONENT.mid} (flat, no price note), and a context with no phase is never price-scaled`,
     `late ${value(rush, late).toFixed(2)}, mid ${value(rush, mid).toFixed(2)}, none ${value(rush, noPhase).toFixed(2)}`,
+  );
+}
+
+console.log("\n35. Slot horizon and mid shop overshoot (Milestone L)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const lateSouls = BOON_THRESHOLDS[LATE_CHECKPOINT_BOON_LEVEL].souls;
+  const fullSouls = BOON_THRESHOLDS[BOON_THRESHOLDS.length - 1].souls;
+
+  // a. The horizon: half the way to the late checkpoint in mid, the way to a full build
+  //    in late, nothing in lane. The late checkpoint is the starter build's.
+  assert(
+    STARTER_PHASE_BOON_LEVELS.find((p) => p.phase === "late")?.boonLevel ===
+      LATE_CHECKPOINT_BOON_LEVEL &&
+      slotHorizonSouls("early", 5900) === 0 &&
+      near(slotHorizonSouls("mid", 16700), MID_SLOT_HORIZON_SHARE * (lateSouls - 16700)) &&
+      near(slotHorizonSouls("late", lateSouls), fullSouls - lateSouls) &&
+      slotHorizonSouls("mid", lateSouls + 1000) === 0 &&
+      slotHorizonSouls("late", fullSouls + 1000) === 0 &&
+      slotHorizonSouls("mid", Number.NaN) === 0,
+    "slotHorizonSouls: mid = share of the way to the late checkpoint, late = to a full build, lane = 0, never negative",
+    `mid ${slotHorizonSouls("mid", 16700)}, late ${slotHorizonSouls("late", lateSouls)}`,
+  );
+
+  // b. rankingPrice spreads the horizon over the free slots; no horizon = as before.
+  assert(
+    rankingPrice(1600, 11100, 8, undefined, 13300) === (11100 + 13300) / 8 &&
+      rankingPrice(3200, 11100, 8, undefined, 13300) === 3200 &&
+      rankingPrice(1600, 11100, 8) === 1600 &&
+      rankingPrice(1600, 11100, 8, undefined, Number.NaN) === 1600 &&
+      rankingPrice(1600, 11100, 8, undefined, -5000) === 1600,
+    "rankingPrice: a slot's share counts the horizon souls; missing or invalid horizon = none",
+  );
+
+  // c. The context keeps a horizon only outside the laning phase.
+  const hNeed = { ...zeroValues(), gunDamage: 1 };
+  const hCtx = (phase: "early" | "mid" | "late" | undefined, horizonSouls?: number) =>
+    makeBasketContext({ needVector: hNeed, soulBudget: 4800, maxItems: 8, phase, horizonSouls });
+  assert(
+    hCtx("mid", 20000).horizonSouls === 20000 &&
+      hCtx("late", 20000).horizonSouls === 20000 &&
+      hCtx("early", 20000).horizonSouls === undefined &&
+      hCtx(undefined, 20000).horizonSouls === undefined &&
+      hCtx("mid", -1).horizonSouls === undefined &&
+      hCtx("mid").horizonSouls === undefined,
+    "makeBasketContext: horizonSouls kept in mid / late, dropped in lane, without a phase or when invalid",
+  );
+
+  // d. With souls per slot below both prices, the 3,200 item worth 1.6x the 1,600 one
+  //    loses per soul without a horizon and wins once a slot is priced over the game.
+  const bigMid = mkCandidate("l_big", 9351, "gun", 3200, { gunDamage: 16 });
+  const smallMid = mkCandidate("l_small", 9352, "gun", 1600, { gunDamage: 10 });
+  const order = (ctx: ReturnType<typeof hCtx>) =>
+    constructBasket([bigMid, smallMid], ctx, [coverageTerm])
+      .picks.map((p) => p.item.itemId)
+      .join(",");
+  const noHorizon = order(hCtx("mid"));
+  const withHorizon = order(hCtx("mid", 20000));
+  assert(
+    noHorizon === "l_small,l_big" && withHorizon === "l_big,l_small",
+    "constructBasket: the slot horizon lets a 3,200 item beat a 1,600 one per slot, not per soul",
+    `no horizon ${noHorizon}, horizon ${withHorizon}`,
+  );
+
+  // e. Mid overshoot: the gun shop holds 4,000 x 0.25 x 1.15 = 1,150 souls. In mid a
+  //    1,500 gun pick (23% of its price over) fits; a 1,600 one (28% over) doesn't;
+  //    early and late budgets stay strict.
+  const oNeed = { ...zeroValues(), gunDamage: 1, spiritDamage: 1 };
+  const oSplit = { gun: 0.25, spirit: 0.65, vitality: 0.1, scope: "test players" };
+  const oCtx = (phase: "early" | "mid" | "late") =>
+    makeBasketContext({
+      needVector: oNeed,
+      soulBudget: 4000,
+      maxItems: 6,
+      categorySplit: oSplit,
+      spendByShop: true,
+      phase,
+    });
+  const gun1500 = mkCandidate("l_gun_1500", 9353, "gun", 1500, { gunDamage: 60 });
+  const gun1600 = mkCandidate("l_gun_1600", 9354, "gun", 1600, { gunDamage: 64 });
+  const spirit = mkCandidate("l_spirit", 9355, "spirit", 800, { spiritDamage: 10 });
+  const basketOf = (gun: ItemCandidate, phase: "early" | "mid" | "late") =>
+    constructBasket([gun, spirit], oCtx(phase), [coverageTerm]);
+  const first = (gun: ItemCandidate, phase: "early" | "mid" | "late") =>
+    basketOf(gun, phase).picks[0]?.item.itemId;
+  const firsts = {
+    mid1500: first(gun1500, "mid"),
+    mid1600: first(gun1600, "mid"),
+    late1500: first(gun1500, "late"),
+    early1500: first(gun1500, "early"),
+  };
+  assert(
+    MID_SHOP_OVERSHOOT === 0.25 &&
+      firsts.mid1500 === "l_gun_1500" &&
+      firsts.mid1600 === "l_spirit" &&
+      firsts.late1500 === "l_spirit" &&
+      firsts.early1500 === "l_spirit",
+    "constructBasket: a mid pick may overshoot its shop budget by up to 25% of its price; early and late stay strict",
+    JSON.stringify(firsts),
+  );
+
+  // f. The overshoot is explained: a zero-value shop-budget note names the souls over.
+  const overNote = basketOf(gun1500, "mid").picks[0]?.terms.find((t) => t.termId === "shop-budget");
+  assert(
+    overNote !== undefined &&
+      overNote.value === 0 &&
+      overNote.reason.startsWith("Over this phase's gun share by 350 souls"),
+    "constructBasket: a mid pick over its shop's budget carries a zero-value note saying by how much",
+    overNote?.reason,
   );
 }
 

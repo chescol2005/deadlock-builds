@@ -100,6 +100,17 @@ const DEFAULT_COVERAGE_TARGET_PER_SLOT = 75;
 export const SHOP_BUDGET_SLACK = 0.15;
 
 /**
+ * Milestone L (docs/milestone-l.md): in the mid phase a pick may exceed its shop's
+ * budget by up to this share of its effective price. A 3,200 item rarely fits what a
+ * shop has left after one 1,600 pick (Lady Geist's Spirit Resilience and Healing
+ * Booster, Warden's 3,200 gun items). It stacks on SHOP_BUDGET_SLACK: a mid pick fits
+ * while shop souls + 0.75 x its price <= share x souls x 1.15. 0.25 kept M1; 0.4 failed
+ * it, the chunkier mid builds drifting off the measured split (the only two values
+ * measured, 2026-11-02; docs/milestone-l.md §3).
+ */
+export const MID_SHOP_OVERSHOOT = 0.25;
+
+/**
  * Laning tempo (rankingPrice): souls saved toward an item give nothing until it
  * is bought, and that window is when a laner gets punished. In the laning phase
  * an item's ranking price grows by its share of the phase's souls × this
@@ -363,6 +374,8 @@ export function makeBasketContext(opts: {
   phase?: BasketContext["phase"];
   /** See BasketContext.laningSouls. Omitted => the basket's soul budget. */
   laningSouls?: number;
+  /** See BasketContext.horizonSouls. Omitted => no horizon. */
+  horizonSouls?: number;
   /**
    * What the split's shares measure. "increment" (default): what players buy
    * in this window (early / mid purchase splits), so the budgets split this
@@ -456,6 +469,11 @@ export function makeBasketContext(opts: {
     laningSouls:
       opts.phase === "early"
         ? safeNonNegative(opts.laningSouls, soulBudget) || undefined
+        : undefined,
+    // Laning tempo and the slot horizon never apply together: early has no horizon.
+    horizonSouls:
+      opts.phase !== undefined && opts.phase !== "early"
+        ? safeNonNegative(opts.horizonSouls, 0) || undefined
         : undefined,
     shopBudgets: opts.spendByShop
       ? shopBudgetsFor(opts.categorySplit, soulBudget, owned, opts.splitBasis ?? "increment")
@@ -1330,14 +1348,22 @@ export const DEFAULT_BASKET_TERMS: ReadonlyArray<MarginalTermFn> = [
  * above an item's price) cheap items are charged a full slot's share, so the
  * ranking becomes value per slot and strong tier-4 items still win. An upgrade's
  * lower effective cost counts in its favour. Never below 1 (no division by 0).
+ *
+ * Slot horizon (Milestone L, `horizonSouls`): a mid or late slot is held for the
+ * rest of the game, so its share counts the souls the build will still gain, not
+ * only today's. Without it every mid pick was ranked per soul (11,100 souls for 8
+ * slots) and 3,200 items lost to 1,600 ones that real players replace later.
  */
 export function rankingPrice(
   effectiveCost: number,
   budgetLeft: number,
   slotsLeft: number,
   laningSouls?: number,
+  horizonSouls?: number,
 ): number {
-  const perSlot = Math.max(0, budgetLeft) / Math.max(1, slotsLeft);
+  const horizon =
+    horizonSouls !== undefined && Number.isFinite(horizonSouls) ? Math.max(0, horizonSouls) : 0;
+  const perSlot = (Math.max(0, budgetLeft) + horizon) / Math.max(1, slotsLeft);
   // Laning tempo (LANING_TEMPO): pass the phase's souls in the laning phase.
   const tempo =
     laningSouls !== undefined && laningSouls > 0
@@ -1603,6 +1629,8 @@ function greedyBasket(
   // Souls each shop has paid in this basket (BasketContext.shopBudgets).
   const shopSpent: Record<ItemCategory, number> = { gun: 0, spirit: 0, vitality: 0 };
   const laningSouls = ctx.phase === "early" ? (ctx.laningSouls ?? ctx.soulBudget) : undefined;
+  // Share of a pick's price its shop's budget must hold (MID_SHOP_OVERSHOOT).
+  const shopCharge = ctx.phase === "mid" ? 1 - MID_SHOP_OVERSHOOT : 1;
 
   for (;;) {
     const budgetLeft = ctx.soulBudget - spent;
@@ -1647,7 +1675,7 @@ function greedyBasket(
         if (slotsLeft - 1 + eff.consumes.length < 0) continue;
         if (
           shopBudgets &&
-          shopSpent[candidate.category] + eff.cost > shopBudgets[candidate.category]
+          shopSpent[candidate.category] + eff.cost * shopCharge > shopBudgets[candidate.category]
         ) {
           continue;
         }
@@ -1667,7 +1695,8 @@ function greedyBasket(
         // Rank by value per unit of the BINDING resource, not raw value (see
         // rankingPrice). Raw value let a 3,200-soul all-rounder beat an 800-soul
         // item that was just as efficient, so every hero opened the same way.
-        const score = value / rankingPrice(eff.cost, budgetLeft, slotsLeft, laningSouls);
+        const score =
+          value / rankingPrice(eff.cost, budgetLeft, slotsLeft, laningSouls, ctx.horizonSouls);
         if (bestIndex === -1 || outranks(candidate, score, remaining[bestIndex], bestScore)) {
           bestIndex = i;
           bestValue = value;
@@ -1717,6 +1746,12 @@ function greedyBasket(
     coverage = nextCoverage;
     soulsPerCategory = nextSouls;
     spent += bestCost.cost;
+    // A mid pick allowed past its shop's budget (MID_SHOP_OVERSHOOT) says by how much.
+    const shopBudget = ctx.shopBudgets?.[chosen.category];
+    const overBy =
+      !bestPooled && shopBudget !== undefined
+        ? shopSpent[chosen.category] + bestCost.cost - shopBudget
+        : 0;
     shopSpent[chosen.category] += bestCost.cost;
     slotsLeft += bestCost.consumes.length - 1;
     held = [...held.filter((h) => !consumedIds.has(h.itemId)), chosen];
@@ -1736,7 +1771,16 @@ function greedyBasket(
               reason: `Bought from the shared pool: this phase's ${chosen.category} share is already spent`,
             },
           ]
-        : bestTerms,
+        : overBy > 0
+          ? [
+              ...bestTerms,
+              {
+                termId: "shop-budget",
+                value: 0,
+                reason: `Over this phase's ${chosen.category} share by ${Math.round(overBy)} souls: a big mid item may overshoot it by up to ${MID_SHOP_OVERSHOOT * 100}% of its price`,
+              },
+            ]
+          : bestTerms,
       coverageAfter: nextCoverage,
       effectiveCost: bestCost.cost,
       consumes: bestCost.consumes.map((c) => c.itemId),
