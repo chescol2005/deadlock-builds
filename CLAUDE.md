@@ -98,7 +98,7 @@ changes have to meet written expectations, not just compile.
   starter build). Engine harness section 25 fails on
   any change; review it with `npm run baseline`, accept it with
   `npm run baseline -- --update`, and describe the diff in the PR body. Live
-  ratchets (M3, O2) carry a 0.01 noise band; M1's mean distance must stay <= 0.13 (0.12
+  ratchets (M3, O2) carry a 0.01 noise band, and the P4 floor a 1-item band (2026-11-06); M1's mean distance must stay <= 0.13 (0.12
   until the 2026-10-30 patch; restore it at the post-patch refit). Since Milestone J,
   M1's early / mid keys and O2 compare each build with the players who made its own
   early rush choice (`src/scripts/rushGroups.ts`).

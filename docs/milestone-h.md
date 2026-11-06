@@ -92,6 +92,15 @@ winning, the comparison uses coverage value only and records why.
 | P4  | Late tier-4 in the real top 3, held by the late phase                                      | 21 / 52 | ≥ 32 / 52 |
 | P5  | Mid 6,400+ items (≥ 20% of players), held by the mid phase                                 | 1 / 10  | ≥ 4 / 10  |
 
+**P4 noise band (2026-11-06, after the milestone closed).** P4 fell 37 → 36 with no code
+change. Paige's mid build is a tie between Veil Walker and Guardian Ward + Enchanter's
+Emblem + Opening Rounds. Item win rates (`/v1/analytics/item-stats`, no time window) moved
+since 2026-10-25: Guardian Ward 50.70% → 50.11%, Veil Walker 49.20% → 49.41%. Either one
+alone flips the tie; the tipping points are 50.25% and 49.27%, 0.14 points away, less
+than a thousandth of a slot of value. With Veil Walker in her mid build, her late build
+drops Divine Barrier. So the P4 floor passes one item below it, with a printed warning;
+the floor itself still only goes up.
+
 ### 4.2 Guards (pass today; must still pass)
 
 - **Hard rules H1–H9** (`docs/starter-build-use-cases.md`): the soul budget, never an
