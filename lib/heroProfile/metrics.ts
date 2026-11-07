@@ -3,7 +3,12 @@
 // and a boon count, and returns null when the data needed is missing:
 // unknown is never 0.
 
-import { calculateStatsAtBoon, heroResistAtBoon, type HeroBaseStats } from "@/lib/heroStats";
+import {
+  calculateStatsAtBoon,
+  healthRegenAt,
+  heroResistAtBoon,
+  type HeroBaseStats,
+} from "@/lib/heroStats";
 import type { Direction } from "./percentiles";
 
 /** Late game: about 30,000 souls spent is boon 30 (BOON_THRESHOLDS). */
@@ -79,6 +84,8 @@ export type HeroMetricId =
   | "lightMelee"
   | "heavyMelee"
   | "maxHealth"
+  | "healthPerBoon"
+  | "healthGrowth"
   | "bulletResist"
   | "spiritResist"
   | "ehpBullet"
@@ -190,6 +197,32 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     value: ({ stats }, b) => maxHealthAt(stats, b),
   },
   {
+    // HP scaling (the user, 2026-11-06): health gained per boon, 27 (Mina) to
+    // 65 (Mo & Krill) live. The same at every boon count, so boon 0 shows it too.
+    id: "healthPerBoon",
+    group: "vitality",
+    label: "Health per boon",
+    direction: "higher",
+    lead: false,
+    rankAware: false,
+    value: ({ stats }) => (stats.maxHealth > 0 ? nonNegative(stats.maxHealthPerBoon) : null),
+  },
+  {
+    // Health at boon B over health at boon 0, minus 1: how much of the hero's
+    // late-game health comes from boons (Warden +224% vs Vindicta +111%, live).
+    id: "healthGrowth",
+    group: "vitality",
+    label: "Health growth from boons",
+    direction: "higher",
+    lead: false,
+    rankAware: false,
+    value: ({ stats }, b) => {
+      const atBoon = maxHealthAt(stats, b);
+      const atZero = maxHealthAt(stats, 0);
+      return atBoon != null && atZero != null ? atBoon / atZero - 1 : null;
+    },
+  },
+  {
     id: "bulletResist",
     group: "vitality",
     label: "Bullet resist",
@@ -238,7 +271,8 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     direction: "higher",
     lead: false,
     rankAware: false,
-    value: ({ stats }) => nonNegative(stats.healthRegen),
+    // Base regen plus spirit-scaled regen from boon spirit power (Victor 0.08).
+    value: ({ stats }, b) => nonNegative(healthRegenAt(stats, boonSpiritPower(stats, b))),
   },
   {
     id: "moveSpeed",

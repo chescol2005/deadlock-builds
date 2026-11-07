@@ -58,22 +58,31 @@ export type HeroBaseStats = {
   spiritResist: number;
   spiritResistPerBoon: number;
   spiritResistPerSpirit: number;
+  // Health regen per point of spirit power, from scaling_stats
+  // (EBaseHealthRegen <- ETechPower). Only Victor, 0.08, live 2026-11-06.
+  healthRegenPerSpirit: number;
 };
 
 /**
- * Resist fields for stats captured before Milestone O (the frozen engine
- * snapshot, lib/engine/__fixtures__/frozen/inputs.json). The engine does not read
- * resists, so backfilling 0 keeps its baselines unchanged; nothing ranks resists
+ * Fields Milestone O added, for stats captured before it (the frozen engine
+ * snapshot, lib/engine/__fixtures__/frozen/inputs.json). The engine reads none of
+ * them, so backfilling 0 keeps its baselines unchanged; nothing ranks resists
  * from that snapshot.
  */
-export const HERO_RESIST_DEFAULTS = {
+export const HERO_PROFILE_STAT_DEFAULTS = {
   bulletResist: 0,
   bulletResistPerBoon: 0,
   bulletResistPerSpirit: 0,
   spiritResist: 0,
   spiritResistPerBoon: 0,
   spiritResistPerSpirit: 0,
+  healthRegenPerSpirit: 0,
 } as const satisfies Partial<HeroBaseStats>;
+
+/** Health regen at a spirit power: base + per spirit x spirit power. Pure. */
+export function healthRegenAt(base: HeroBaseStats, spiritPower: number): number {
+  return base.healthRegen + base.healthRegenPerSpirit * Math.max(0, spiritPower);
+}
 
 const MAX_BOON = 35;
 

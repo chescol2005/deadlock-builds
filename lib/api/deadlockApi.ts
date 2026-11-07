@@ -190,6 +190,7 @@ export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
     spiritResist: statVal(ss, "tech_armor_damage_reduction"),
     spiritResistPerBoon: lu.MODIFIER_VALUE_TECH_RESIST ?? 0,
     spiritResistPerSpirit: perSpiritPower(d.scaling_stats, "ETechArmorDamageReduction"),
+    healthRegenPerSpirit: perSpiritPower(d.scaling_stats, "EBaseHealthRegen"),
   };
 }
 

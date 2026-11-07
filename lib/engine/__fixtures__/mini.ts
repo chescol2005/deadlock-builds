@@ -15,7 +15,12 @@ import {
 } from "../../abilityCoefficients";
 import type { HeroAbilityRaw } from "../../api/deadlockApi";
 import { kitHealPerTrade, kitSelfDamagePerTrade, selfHealValue } from "../kitHeal";
-import { HERO_RESIST_DEFAULTS, heroResistAtBoon, type HeroBaseStats } from "../../heroStats";
+import {
+  HERO_PROFILE_STAT_DEFAULTS,
+  healthRegenAt,
+  heroResistAtBoon,
+  type HeroBaseStats,
+} from "../../heroStats";
 import { accuracyAtRank } from "../../heroProfile/accuracy";
 import { castsFromCooldown, LONG_FIGHT_SECONDS } from "../../heroProfile/fight";
 import { HERO_METRICS } from "../../heroProfile/metrics";
@@ -827,7 +832,7 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
     moveSpeed,
     spiritPower: 0,
     spiritPowerPerBoon: 0,
-    ...HERO_RESIST_DEFAULTS,
+    ...HERO_PROFILE_STAT_DEFAULTS,
   };
 }
 
@@ -6472,6 +6477,60 @@ console.log("\n38. Hero roster profile (Milestone O.2, §7.1)");
       other?.metrics.sustainedDps.rank?.n === frozen.roster.length - 1 &&
       gp.metrics.maxHealth.rank != null,
     "no weapon data: left out of the gun pool, still ranked elsewhere",
+  );
+}
+
+console.log("\n39. HP scaling (Milestone O §3.1)");
+{
+  const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
+  const frozen = loadFrozen();
+  const profile = rankRoster({
+    roster: frozen.roster,
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+  });
+  const MO_KRILL = 18;
+
+  // a. Health per boon: Mo & Krill gain the most (65 per boon in the snapshot).
+  const perBoon = profile.get(MO_KRILL)?.metrics.healthPerBoon;
+  assert(
+    perBoon?.rank?.rank === 1 && perBoon.value === perBoon.boon0,
+    "health per boon: Mo & Krill top it; the same value at boon 0 and 30",
+    JSON.stringify(perBoon),
+  );
+
+  // b. Health growth is 0 at boon 0, and equals per boon x 30 / base at boon 30.
+  const s = frozen.roster[0];
+  const growth = profile.get(s.heroId)?.metrics.healthGrowth;
+  assert(
+    growth?.boon0 != null &&
+      near(growth.boon0, 0) &&
+      growth.value != null &&
+      near(growth.value, (s.maxHealthPerBoon * 30) / s.maxHealth),
+    "health growth: 0 at boon 0, per boon x 30 / base at boon 30",
+  );
+
+  // c. Victor-style regen from spirit: base + 0.08 x boon spirit power.
+  const base = mkHero(39, 700, 7);
+  const victorLike = {
+    ...base,
+    heroId: 40,
+    healthRegen: 2,
+    healthRegenPerSpirit: 0.08,
+    spiritPowerPerBoon: 1,
+  };
+  const regen = rankRoster({
+    roster: [base, victorLike],
+    accuracy: new Map(),
+    rankTier: null,
+  }).get(40)?.metrics.healthRegen;
+  assert(
+    healthRegenAt(victorLike, 30) === 2 + 0.08 * 30 &&
+      regen?.value != null &&
+      near(regen.value, 2 + 0.08 * 30) &&
+      regen.boon0 === 2,
+    "health regen adds spirit-scaled regen from boon spirit power",
+    JSON.stringify(regen),
   );
 }
 

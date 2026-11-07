@@ -75,6 +75,29 @@ New `HeroBaseStats` fields, all required, in percentage points: `bulletResist`,
 O.2 fixtures need real resists, so `abilityRoster.json` (§7.1) also carries every roster
 hero's fresh `baseStats`.
 
+### 2.2.1 HP scaling and other spirit-scaled stats (checked live 2026-11-06)
+
+**HP scaling.** Health grows only with boons (`MODIFIER_VALUE_BASE_HEALTH_FROM_LEVEL`). No
+hero's max health scales with spirit power. The growth varies a lot: 27 per boon (Mina) to 65
+(Mo & Krill), or +111% (Vindicta) to +224% (Warden) from boon 0 to boon 30. Both are now
+metrics (§3.1). The user asked for it, 2026-11-06.
+
+**`scaling_stats` has more than resists.** These hero stats grow with spirit power:
+
+| Stat (`scaling_stats` key)      | Heroes, per point of spirit power             | In this milestone               |
+| ------------------------------- | --------------------------------------------- | ------------------------------- |
+| `EBaseHealthRegen`              | Victor 0.08                                   | **Yes**, in health regen (§3.1) |
+| `E*ArmorDamageReduction`        | Venator 0.122 both, Baba 0.05 spirit          | Yes, in resists (§2.2)          |
+| `EBulletDamage`                 | Solomon 0.14, Grey Talon 0.08, Vindicta 0.022 | Not yet, §6 Q7                  |
+| `EClipSize`                     | Haze 0.5, Yamato 0.15                         | Not yet, §6 Q7                  |
+| `EFireRate`, `ERoundsPerSecond` | Warden 0.21, 0.008                            | Not yet, §6 Q7                  |
+| `EHeavyMeleeDamage`             | Paige 0.45                                    | Not yet, §6 Q7                  |
+| `EMaxMoveSpeed`, `ESprintSpeed` | Grey Talon, Vyper, Sinclair; Wraith sprint    | Not yet, §6 Q7                  |
+
+`healthRegenPerSpirit` is the seventh field Milestone O adds to `HeroBaseStats`.
+`HERO_RESIST_DEFAULTS` is renamed `HERO_PROFILE_STAT_DEFAULTS`, since it no longer covers
+only resists.
+
 ### 2.3 Not in scope
 
 Sprint speed, stamina, dash distance, and the gun's falloff and range. All of it is in the API
@@ -99,11 +122,13 @@ boon 30.
 | Melee    | Light melee              | `lightMeleeDamage + lightMeleePerBoon·B`                                                             | higher |
 | Melee    | **Heavy melee** (lead)   | `heavyMeleeDamage + heavyMeleePerBoon·B`                                                             | higher |
 | Vitality | **Max health** (lead)    | `maxHealth + maxHealthPerBoon·B`                                                                     | higher |
+| Vitality | Health per boon          | `maxHealthPerBoon` (HP scaling; 27 Mina to 65 Mo & Krill, live)                                      | higher |
+| Vitality | Health growth            | health at B ÷ at 0, minus 1 (Warden +224% vs Vindicta +111%, live)                                   | higher |
 | Vitality | Bullet resist            | `bulletResist + bulletResistPerBoon·B` (combination rule per §2.2)                                   | higher |
 | Vitality | Spirit resist            | `spiritResist + spiritResistPerBoon·B`                                                               | higher |
 | Vitality | Effective HP vs bullets  | `health / (1 − bulletResist)`                                                                        | higher |
 | Vitality | Effective HP vs spirit   | `health / (1 − spiritResist)`                                                                        | higher |
-| Vitality | Health regen, move speed | as fetched                                                                                           | higher |
+| Vitality | Health regen, move speed | regen + `healthRegenPerSpirit` × boon spirit power (Victor 0.08); move speed as fetched              | higher |
 | Spirit   | Spirit power from boons  | `spiritPowerPerBoon·B`                                                                               | higher |
 | Spirit   | **Kit spirit scaling**   | Σ over damaging abilities: `spiritScaling(T3) × damagePerCastFactor × castsInFight(cooldown(T3), F)` | higher |
 | Spirit   | Kit weapon scaling       | same, with `weaponScaling`                                                                           | higher |
@@ -436,6 +461,10 @@ per-hero abilities ───────────┘   /heroes/[id]    rankAb
 6. **Rank-aware accuracy** (the user, 2026-11-06). Gun metrics that need bullets to land
    use the hero's accuracy at the selected rank, and the page has a rank picker (§3.4).
    Abilities stay accuracy-free, because the API has no ability hit rates.
+7. **HP scaling** (the user, 2026-11-06): health per boon and health growth are metrics
+   (§2.2.1). Effective HP vs bullets and vs spirit was already in, built on boon 30
+   health. **Open:** should the other spirit-scaled hero stats (§2.2.1: Solomon bullet
+   damage, Haze clip, Warden fire rate, Paige heavy melee) count at boon spirit power too?
 
 ## 7. Acceptance criteria
 
