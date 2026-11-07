@@ -4,6 +4,7 @@
 
 import type { HeroAccuracy } from "@/lib/analyticsStore";
 import type { HeroBaseStats } from "@/lib/heroStats";
+import type { AbilityT3 } from "./abilities";
 import { accuracyAtRank } from "./accuracy";
 import { EVAL_BOON, HERO_METRICS, type HeroMetricId } from "./metrics";
 import { percentileRanks, type MetricRank } from "./percentiles";
@@ -23,6 +24,13 @@ export type HeroProfile = {
   /** True when this hero had no accuracy data and got the roster median. */
   accuracyEstimated: boolean;
   metrics: Record<HeroMetricId, HeroMetricResult>;
+  /** §4.1, from landed DPS and short-fight kit spirit scaling. Null = a lead is unknown. */
+  lean: LateGameLean | null;
+  /**
+   * "Scales into long fights": the long-fight kit spirit percentile is at least
+   * LONG_FIGHT_NOTE_DELTA above the short-fight one (§3.2).
+   */
+  scalesIntoLongFights: boolean;
 };
 
 export type RosterProfileInput = {
@@ -31,7 +39,12 @@ export type RosterProfileInput = {
   accuracy: ReadonlyMap<number, HeroAccuracy>;
   /** Rank tier for accuracy; null = all ranks pooled. */
   rankTier: number | null;
+  /** Each hero's kit at T3 (kitAtT3), by hero id. A hero without one has unknown kit metrics. */
+  kits?: ReadonlyMap<number, ReadonlyArray<AbilityT3>>;
 };
+
+/** Percentile points the long-fight kit rank must gain for the long-fight note (§3.2). */
+export const LONG_FIGHT_NOTE_DELTA = 15;
 
 /** Ranks every roster hero on every §3.1 metric. Keyed by hero id. */
 export function rankRoster(input: RosterProfileInput): Map<number, HeroProfile> {
@@ -42,7 +55,11 @@ export function rankRoster(input: RosterProfileInput): Map<number, HeroProfile> 
   for (const def of HERO_METRICS) {
     const perHero = new Map<number, { now: number | null; boon0: number | null }>();
     for (const stats of input.roster) {
-      const metricInput = { stats, accuracy: accuracy.get(stats.heroId)?.accuracy ?? null };
+      const metricInput = {
+        stats,
+        accuracy: accuracy.get(stats.heroId)?.accuracy ?? null,
+        kit: input.kits?.get(stats.heroId) ?? null,
+      };
       perHero.set(stats.heroId, {
         now: def.value(metricInput, EVAL_BOON),
         boon0: def.value(metricInput, 0),
@@ -70,11 +87,18 @@ export function rankRoster(input: RosterProfileInput): Map<number, HeroProfile> 
       };
     }
     const acc = accuracy.get(heroId);
+    const spiritShort = metrics.kitSpiritShort.rank?.percentile ?? null;
+    const spiritLong = metrics.kitSpiritLong.rank?.percentile ?? null;
     out.set(heroId, {
       heroId,
       accuracy: acc?.accuracy ?? null,
       accuracyEstimated: acc?.estimated ?? false,
       metrics,
+      lean: lateGameLean(metrics.landedDps.rank?.percentile ?? null, spiritShort),
+      scalesIntoLongFights:
+        spiritShort != null &&
+        spiritLong != null &&
+        spiritLong - spiritShort >= LONG_FIGHT_NOTE_DELTA,
     });
   }
   return out;

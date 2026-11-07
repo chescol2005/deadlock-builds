@@ -1343,6 +1343,16 @@ async function run() {
     globalsCss.includes("color-scheme: dark") && !globalsCss.includes("prefers-color-scheme"),
     "site is dark-only (panels are designed dark; no light-mode switch)",
   );
+  assert(
+    /unoptimized:\s*true/.test(readFileSync("next.config.ts", "utf-8")),
+    "next/image serves source URLs (Vercel Image Optimization off, docs/milestone-o.md §11)",
+  );
+  const rootLayout = readFileSync("app/layout.tsx", "utf-8");
+  assert(
+    rootLayout.includes('from "@vercel/speed-insights/next"') &&
+      rootLayout.includes("<SpeedInsights />"),
+    "root layout mounts Vercel Speed Insights (docs/milestone-o.md §11)",
+  );
 
   // -----------------------------------------------
   // Fixture 17: Hero roles (docs/milestone-m6.md §4, C2)

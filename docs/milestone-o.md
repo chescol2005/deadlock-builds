@@ -203,15 +203,39 @@ to item pricing is a separate scoring PR (§8).
 
 #### 3.2.1 Cast gates
 
-Checked across the filtered roster, 2026-11-06. Only the abilities named below fall outside
-the cooldown gate.
+Checked across the filtered roster, 2026-11-06, and again on the O.3 snapshot
+(`abilityRoster.json`, 2026-11-07). Only the abilities named below fall outside the cooldown
+gate.
 
-| Gate         | Detected by (API, at T3)                                         | Casts in a fight of `F` s                                                                    | Roster cases                                                        |
-| ------------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| **Cooldown** | default                                                          | `castsFromCooldown(cd, F)`                                                                   | nearly all; Victor Pain Battery (2 s), Mirage Djinn's Mark (2.75 s) |
-| **Resource** | `ResourcePerCard` and `CardResourcePerBulletHit` present         | banked + generated, capped by throw rate (below)                                             | Wraith Card Trick                                                   |
-| **Charges**  | `AbilityCharges ≥ 2` and `AbilityCooldownBetweenCharge > 0`      | `(charges − 1) + castsFromCooldown(chargeRestore, F)`                                        | Graves Jar of Dead (4 charges, 13 s)                                |
-| **Channel**  | per-second damage key (`isDamageRate`) and `AbilityDuration > 0` | damage seconds = `min(F, castsFromCooldown(cd + duration, F) × duration)`, in place of casts | Victor Aura of Suffering (8 s, 2 s cooldown)                        |
+| Gate         | Detected by (API, at T3)                                                                    | Casts in a fight of `F` s                                                                    | Roster cases                                   |
+| ------------ | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| **Cooldown** | default                                                                                     | `castsFromCooldown(cd, F)`                                                                   | nearly all; Mirage Djinn's Mark (2.75 s)       |
+| **Resource** | `ResourcePerCard` and `CardResourcePerBulletHit` present                                    | banked + generated, capped by throw rate (below)                                             | Wraith Card Trick                              |
+| **Battery**  | `StoredDamageHealthPercentRequired > 0`                                                     | 1 (the charge assumed full at the start); recharge from damage taken not modelled (below)    | Victor Pain Battery (40% of max HP per charge) |
+| **Charges**  | `AbilityCharges ≥ 2`, `AbilityCooldownBetweenCharge > 0` and **no** `AbilityCooldown`       | `(charges − 1) + castsFromCooldown(chargeRestore, F)`                                        | Graves Jar of Dead (4 charges, 13 s)           |
+| **Channel**  | per-second damage key (`isDamageRate`), duration > 0 and **cooldown shorter than duration** | damage seconds = `min(F, castsFromCooldown(cd + duration, F) × duration)`, in place of casts | Victor Aura of Suffering (8 s, 2 s cooldown)   |
+
+**Detection tightened in O.3** (the roster survey, 2026-11-07). The first-draft rules caught
+more than the roster cases they named:
+
+- the charges rule also caught 7 ordinary cooldown abilities with 2 charges and a short
+  between-charge delay (Kelvin Frost Grenade, Holliday Powder Keg, Vindicta Assassinate, Shiv
+  Serrated Knives, Vyper Screwjab Dagger, Venator Snap Trap, Violet Living Ink). Only Jar of
+  Dead has no `AbilityCooldown` at all, so its restore time is what limits it;
+- the channel rule also caught 7 rate abilities whose cooldown is longer than their duration
+  (Arctic Beam, Siphon Life, Flame Dash, Life Drain, Entangling Thorns, Last Stand, Leech
+  Therapy). For those the cooldown is the gate, and `damagePerCastFactor` already counts the
+  seconds. Only Aura of Suffering's 2 s cooldown is shorter than its 8 s channel.
+
+**Battery gate (Pain Battery), found in O.3.** The first draft counted Pain Battery as a 2 s
+cooldown: 5 casts per short fight, 15 per long one. The wiki says otherwise
+(deadlock.wiki/Victor, 2026-11-07): "Taking any damage passively charges up your Pain
+Battery", and "It takes damage equal to 40% of Victor's Max HP to gain a charge". CDR lowers
+that share, `40% × (1 − CDR)`. The API carries it as `StoredDamageHealthPercentRequired 40`.
+The model has no damage-taken-per-fight input, so for now the gate counts **one charge per
+fight**, assumed full at the start. That's conservative and pending the user's call (§6 Q10).
+The 2 s figure put Victor's kit at 17.2, double the next hero's. With the battery gate it's
+8.4, still first, carried by Aura of Suffering.
 
 **Resource gate (Card Trick).** The API's per-hit values × `CardResourceGenPctScale` (85%) are
 exactly the wiki's rates: 4 × 0.85 = 3.4% of a card per body shot, 5.1% per headshot, 8.5%
@@ -238,9 +262,13 @@ cycle is assumed to be the duration plus the cooldown, with the cooldown startin
 channel ends. That gives 8 s of damage in a short fight and 24 s in a long one. Without this
 gate, a 2 s cooldown × 8 s duration would credit 16 s of damage in a 10 s fight under the
 engine's cap, and 40 s with no cap. The DPS used is the wiki's "Max DPS" figure, since the
-aura ramps up to its maximum.
+aura ramps up to its maximum. The engine's damage key reads `MinDPS` (13), so the profile
+reads the matching `MaxDPS` property instead: 58 + 34 at T3 = 92, × 0.72 spirit. Its T2
+upgrade spells the min key `MinDps`, which matches nothing; that doesn't affect the max. The
+wiki gives no ramp time and doesn't say when the cooldown starts (checked 2026-11-07), so
+both stay in-game checks.
 
-**Gate assumptions to check in game before O.3 merges** (§6 Q5):
+**Gate assumptions to check in game, later in the milestone** (§6 Q5; O.3 shipped without them, the user, 2026-11-07):
 
 - Card Trick: the bank of 4 cards is full at the start of a fight;
 - Jar of Dead: a charge comes back in 13 s;
@@ -256,7 +284,7 @@ engine counts them, with no extra casts. That's a known gap, listed in §8.
 | 12 s cooldown               | 1             | 2.5            |
 | 25 s cooldown               | 1             | 1.2            |
 | 120 s ultimate              | 0.25          | 0.25           |
-| Pain Battery, 2 s           | 5             | 15             |
+| Pain Battery (battery gate) | 1             | 1              |
 | Card Trick, 50% accuracy    | 5.8           | 9.4            |
 | Jar of Dead, 4 × 13 s       | 4             | 5.31           |
 | Aura of Suffering (seconds) | 8 s of damage | 24 s of damage |
@@ -479,7 +507,7 @@ per-hero abilities ───────────┘   /heroes/[id]    rankAb
 5. **No blanket cast cap** (the user, 2026-11-06, on Card Trick). Each ability's casts come
    from what actually limits it (§3.2.1). **Still open:** the in-game checks listed there
    (Card Trick's starting bank and how CDR speeds up card generation, Jar of Dead's restore
-   time, Aura of Suffering's cycle). They're needed before O.3 merges, and each one only
+   time, Aura of Suffering's cycle). O.3 shipped with them open (the user, 2026-11-07); they come back later in the milestone, and each one only
    changes its gate's formula.
 6. **Rank-aware accuracy** (the user, 2026-11-06). Gun metrics that need bullets to land
    use the hero's accuracy at the selected rank, and the page has a rank picker (§3.4).
@@ -492,6 +520,11 @@ per-hero abilities ───────────┘   /heroes/[id]    rankAb
    35%**: `EHP_SPIRIT_WEIGHT = 0.65`, the user's call, not measured.
 9. **Spirit-scaled hero stats count** (the user, 2026-11-06), at boon spirit power: damage
    per bullet, clip, fire rate, heavy melee and move speed (§2.2.1).
+10. **Open: Pain Battery's casts** (found in O.3, §3.2.1). It's charged by damage Victor
+    takes, 40% of max HP per charge. It counts one charge per fight until the user picks a
+    model. The options are to keep one charge, or to add a damage-taken-per-fight assumption
+    (unmeasured). O.3 shipped with one charge; the choice comes back later in the milestone
+    (the user, 2026-11-07).
 
 ## 7. Acceptance criteria
 
@@ -532,10 +565,12 @@ separate file so `inputs.json` and the engine baselines don't change.
   `CDR_SPOTLIGHT_PERCENTILE` gets no annotation. Gain never goes down as `r` grows. Adding
   CDR never changes any rank.
 - **Cast gates**: on the frozen ability snapshot, Card Trick is the only resource gate, Jar
-  of Dead the only charges gate, and Aura of Suffering the only channel gate. If the roster
+  of Dead the only charges gate, Aura of Suffering the only channel gate, and Pain Battery
+  the only battery gate (added in O.3). If the roster
   changes and that list grows, the fixture fails so the new ability gets reviewed. Every
   value in the §3.2.1 examples table matches, Card Trick at a fixed 50% accuracy.
-- **No cap**: Pain Battery (2 s) gets 5 short-fight casts. For any `cd ≥ 5`,
+- **No cap**: a 2 s cooldown gets 5 short-fight casts (made-up; Pain Battery turned out to be
+  battery-gated, §3.2.1). For any `cd ≥ 5`,
   `castsFromCooldown(cd, 10) === castsPerTrade(cd)`.
 - **Channel**: Aura of Suffering's damage seconds never exceed `F`.
 - **Card Trick inputs**: throws never exceed `F / 0.6`. Card generation scales linearly
@@ -588,6 +623,22 @@ no lead metric has `n < 30`. That catches a broken fetch that drops most of the 
 - **The engine's short-fight flat stretch** (§3.2): cooldowns from 10 to 30 s all count 1
   cast. A readiness model that separates them would be an engine (scoring) PR.
 - A rank panel in the build planner (`BuildClient`).
+- **Ability damage keys the shared mapper misses** (found in O.3, 2026-11-07).
+  `mapApiAbilityToHeroAbility` only reads damage properties with a damage `css_class`, and
+  skips keys matching `Percent|Pct|Bonus`. So:
+  - **Solomon's whole kit reads as utility.** None of his damage properties carries a
+    `css_class` (Setup Bishop `ImpactDamage 70`, ×2.0 spirit; Rook Battery `Damage 50`,
+    ×0.9; Develop Queen `Damage 120`, ×1.6). The profile shows his kit metrics as unknown,
+    and the engine prices his basket with no ability damage;
+  - **Drifter's damage reads as 0.** Rend's `BonusDamage 40` (×1.4 spirit) and Stalker's
+    Mark's `DotHealthPercent` are skipped.
+
+  Fixing the mapper changes engine inputs, so it's a scoring PR with baseline review. The
+  profile reads the same mapper, so its ranks follow the fix automatically.
+
+- **The engine's Pain Battery and Aura of Suffering.** The engine counts Pain Battery as a
+  2 s cooldown (capped at 2 casts per trade) and Aura at `MinDPS`. That belongs with the
+  cast-gates scoring PR above.
 
 ## 9. Work items
 
@@ -599,7 +650,44 @@ no lead metric has `n < 30`. That catches a broken fetch that drops most of the 
 | O.3 | Ability T3 values, ability pools (short + long fight), CDR impact (§3.3), `abilityRoster.json`; §7.1 ability fixtures |
 | O.4 | `HeroRosterRankSection` + rank picker (`?rank=`) on `/heroes/[id]`; §7.2 live guard                                   |
 | O.5 | `/heroes/compare` sortable roster table (§6 Q4)                                                                       |
+| O.x | Vercel Image Optimization off (`next.config.ts` `images.unoptimized`), §11; rides along with O.3                      |
 
 ## 10. Results
 
-_None yet._
+**O.3** (`lib/heroProfile/abilities.ts`, `abilityRanks.ts`, `cdr.ts`; snapshot
+`abilityRoster.json`, 44 heroes, captured 2026-11-07):
+
+- **176 abilities:** 115 in the spirit pool, 5 in the weapon pool, 7 unscaled damaging (base
+  damage rank only) and 49 utility;
+- **gates:** Card Trick resource, Jar of Dead charges, Aura of Suffering channel, Pain Battery
+  battery; the rest are cooldown;
+- **top short-fight spirit scaling per ability:** Aura of Suffering 5.76, Card Trick 5.53,
+  Arctic Beam 4.90, Siphon Life 4.32;
+- **top kit spirit scaling (short):** Victor 8.4, Infernus 7.0, Lady Geist 6.8, Ivy 6.7;
+- **lean, all ranks:** Abrams, Lady Geist, Yamato and Seven lean hybrid. Drifter, Apollo,
+  Venator and others lean gun. Infernus, Ivy, Warden and Wraith lean spirit. Solomon has no
+  lean (kit unknown, §8);
+- **resist anchors hold:** Dynamo tops bullet resist and Kelvin spirit resist, 18.75 each;
+- **engine harness section 41:** 24 checks.
+
+## 11. Side item: Vercel Image Optimization off (2026-11-07)
+
+Not hero-profile work; it rides along with O.3 so it ships before the quota resets.
+
+- **Why:** Vercel warned the project had used 75% of its Image Optimization transformations.
+  A transformation is one uncached (source × width × quality × format) version.
+  `assets-bucket.deadlock-api.com` sends no `Cache-Control`, so cached versions expired
+  after Next 16's default `minimumCacheTTL` (4 hours). Every icon that got traffic was then
+  transformed again.
+- **Where:** only `HomeHeroPicker` (homepage hero grid) and `MatchIcon` (`/match` hero and
+  item icons) use `next/image`. Every other page already uses plain `<img>`.
+- **Change:** `images.unoptimized: true`. `<Image>` serves the source URL as is, so
+  transformations drop to zero. The sources are ~10 KB WebP behind Cloudflare, shown at
+  24–56 px, so optimization saved almost nothing. Fixture 16 asserts the flag.
+- **Later:** if optimization comes back (e.g. for large hero art), set `minimumCacheTTL`
+  to 31 days, `formats: ["image/webp"]` and `qualities: [75]`, and opt in per image
+  rather than globally.
+- **Speed Insights:** `@vercel/speed-insights` is installed, and `<SpeedInsights />` is
+  mounted in `app/layout.tsx`, so every route reports real-user Core Web Vitals on Vercel.
+  It sends nothing in local dev. That makes the effect of turning image optimization off
+  measurable. Fixture 16 asserts the root layout mounts it.

@@ -71,6 +71,35 @@ export interface FrozenData {
   tables: FrozenInputsFile["tables"];
 }
 
+export const FROZEN_ABILITY_ROSTER_FILE = join(FROZEN_DIR, "abilityRoster.json");
+
+/**
+ * Every visible hero's raw kit and fresh base stats, for the roster profile's
+ * ability ranks and resist anchors (Milestone O §7.1). A separate file so
+ * inputs.json and the engine baselines never move with it. Written by
+ * `npm run capture-inputs -- --ability-roster`.
+ */
+export interface FrozenAbilityRosterFile {
+  version: 1;
+  captured: string;
+  patch: string;
+  heroes: FrozenHero[];
+}
+
+/** The ability roster snapshot, with base stats backfilled like loadFrozen. */
+export function loadFrozenAbilityRoster(): FrozenAbilityRosterFile {
+  const file = JSON.parse(
+    readFileSync(FROZEN_ABILITY_ROSTER_FILE, "utf-8"),
+  ) as FrozenAbilityRosterFile;
+  return {
+    ...file,
+    heroes: file.heroes.map((h) => ({
+      ...h,
+      baseStats: { ...HERO_PROFILE_STAT_DEFAULTS, ...h.baseStats },
+    })),
+  };
+}
+
 /** Rebuilds the planner's inputs from the snapshot, through the app's own parsers. */
 export function loadFrozen(): FrozenData {
   const rawItems = JSON.parse(readFileSync(FROZEN_ITEMS_FILE, "utf-8")) as UpgradeV2Raw[];
