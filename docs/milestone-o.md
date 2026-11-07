@@ -75,6 +75,41 @@ New `HeroBaseStats` fields, all required, in percentage points: `bulletResist`,
 O.2 fixtures need real resists, so `abilityRoster.json` (§7.1) also carries every roster
 hero's fresh `baseStats`.
 
+### 2.2.1 HP scaling and other spirit-scaled stats (checked live 2026-11-06)
+
+**HP scaling.** Health grows only with boons (`MODIFIER_VALUE_BASE_HEALTH_FROM_LEVEL`). No
+hero's max health scales with spirit power. The growth varies a lot: 27 per boon (Mina) to 65
+(Mo & Krill), or +111% (Vindicta) to +224% (Warden) from boon 0 to boon 30. Both are now
+metrics (§3.1). The user asked for it, 2026-11-06.
+
+**`scaling_stats` has more than resists.** These hero stats grow with spirit power:
+
+| Stat (`scaling_stats` key)      | Heroes, per point of spirit power                                 | In this milestone                            |
+| ------------------------------- | ----------------------------------------------------------------- | -------------------------------------------- |
+| `EBaseHealthRegen`              | Victor 0.08                                                       | **Yes**, in health regen (§3.1)              |
+| `E*ArmorDamageReduction`        | Venator 0.122 both, Baba 0.05 spirit                              | Yes, in resists (§2.2)                       |
+| `EBulletDamage`                 | Solomon 0.14, Grey Talon 0.08, Vindicta 0.022                     | **Yes**: damage per bullet, DPS              |
+| `EClipSize`                     | Haze 0.5, Yamato 0.15                                             | **Yes**: clip size, DPS                      |
+| `EFireRate`, `ERoundsPerSecond` | Warden: one bonus written two ways (0.21% × 3.81 = 0.008 shots/s) | **Yes**, `ERoundsPerSecond` only             |
+| `EHeavyMeleeDamage`             | Paige 0.45                                                        | **Yes**: heavy melee                         |
+| `EMaxMoveSpeed`, `ESprintSpeed` | Grey Talon, Vyper, Sinclair; Wraith sprint                        | **Yes** for move speed; sprint has no metric |
+
+The user decided 2026-11-06 that these count. Every coefficient matched its hero's
+deadlock.wiki infobox that day. All are a **flat amount per spirit point**, in the stat's
+own unit ("base + (Spirit Power × coefficient)", deadlock.wiki/Spirit_Power). They apply at
+boon spirit power `SP = spiritPowerPerBoon × B`, with no items, like resists and regen.
+
+New `HeroBaseStats` fields: `healthRegenPerSpirit`, `bulletDamagePerSpirit`,
+`clipPerSpirit`, `bulletsPerSecondPerSpirit`, `heavyMeleePerSpirit` and
+`moveSpeedPerSpirit`. `EFireRate` is never read, since it restates `ERoundsPerSecond` as a
+percent. `HERO_RESIST_DEFAULTS` is renamed `HERO_PROFILE_STAT_DEFAULTS`, since it no longer
+covers only resists.
+
+Live effect at boon 30 (2026-11-06), on-paper sustained DPS: Solomon 38.1 → 42.8, Grey
+Talon 65.1 → 70.2, Haze 45.7 → 51.6 (clip 25 → 32.5), Warden 55.4 → 57.6, and Yamato 77.0 →
+97.1 (clip 12 → 17). Paige's heavy melee goes from 156 to 171. **Yamato's clip gain is
+approximate**: hers is one of the 12 weapons the cycle model can't reproduce (§3.1 notes).
+
 ### 2.3 Not in scope
 
 Sprint speed, stamina, dash distance, and the gun's falloff and range. All of it is in the API
@@ -87,35 +122,48 @@ boon 30.
 
 ### 3.1 Hero metrics
 
-| Group    | Metric                   | Formula                                                                                              | Better |
-| -------- | ------------------------ | ---------------------------------------------------------------------------------------------------- | ------ |
-| Gun      | **Landed DPS** (lead)    | sustained DPS × `accuracy(hero, rank)` (§3.4)                                                        | higher |
-| Gun      | Sustained DPS (on paper) | `dpsWithReload × (bulletDamage + perBoon·B) / bulletDamage`                                          | higher |
-| Gun      | Damage per bullet        | `bulletDamage + bulletDamagePerBoon·B`                                                               | higher |
-| Gun      | Fire rate                | `bulletsPerSecond`                                                                                   | higher |
-| Gun      | Clip size                | `ammo`                                                                                               | higher |
-| Gun      | Reload time              | `reloadTime`                                                                                         | lower  |
-| Gun      | Gun growth               | sustained DPS at B ÷ at 0, minus 1                                                                   | higher |
-| Melee    | Light melee              | `lightMeleeDamage + lightMeleePerBoon·B`                                                             | higher |
-| Melee    | Heavy melee              | `heavyMeleeDamage + heavyMeleePerBoon·B`                                                             | higher |
-| Vitality | **Max health** (lead)    | `maxHealth + maxHealthPerBoon·B`                                                                     | higher |
-| Vitality | Bullet resist            | `bulletResist + bulletResistPerBoon·B` (combination rule per §2.2)                                   | higher |
-| Vitality | Spirit resist            | `spiritResist + spiritResistPerBoon·B`                                                               | higher |
-| Vitality | Effective HP vs bullets  | `health / (1 − bulletResist)`                                                                        | higher |
-| Vitality | Effective HP vs spirit   | `health / (1 − spiritResist)`                                                                        | higher |
-| Vitality | Health regen, move speed | as fetched                                                                                           | higher |
-| Spirit   | Spirit power from boons  | `spiritPowerPerBoon·B`                                                                               | higher |
-| Spirit   | **Kit spirit scaling**   | Σ over damaging abilities: `spiritScaling(T3) × damagePerCastFactor × castsInFight(cooldown(T3), F)` | higher |
-| Spirit   | Kit weapon scaling       | same, with `weaponScaling`                                                                           | higher |
+| Group    | Metric                   | Formula                                                                                                | Better |
+| -------- | ------------------------ | ------------------------------------------------------------------------------------------------------ | ------ |
+| Gun      | **Landed DPS** (lead)    | sustained DPS × `accuracy(hero, rank)` (§3.4)                                                          | higher |
+| Gun      | Sustained DPS (on paper) | `dpsWithReload × cycleDps(gun at B) / cycleDps(base gun)`, anchored to Valve (notes)                   | higher |
+| Gun      | Damage per bullet        | `bulletDamage + bulletDamagePerBoon·B + bulletDamagePerSpirit·SP`                                      | higher |
+| Gun      | Fire rate                | `bulletsPerSecond + bulletsPerSecondPerSpirit·SP`                                                      | higher |
+| Gun      | Clip size                | `ammo + clipPerSpirit·SP`                                                                              | higher |
+| Gun      | Reload time              | `reloadTime`                                                                                           | lower  |
+| Gun      | Gun growth               | sustained DPS at B ÷ at 0, minus 1                                                                     | higher |
+| Melee    | Light melee              | `lightMeleeDamage + lightMeleePerBoon·B`                                                               | higher |
+| Melee    | **Heavy melee** (lead)   | `heavyMeleeDamage + heavyMeleePerBoon·B + heavyMeleePerSpirit·SP`                                      | higher |
+| Vitality | **Max health** (lead)    | `maxHealth + maxHealthPerBoon·B`                                                                       | higher |
+| Vitality | Health per boon          | `maxHealthPerBoon` (HP scaling; 27 Mina to 65 Mo & Krill, live)                                        | higher |
+| Vitality | Health growth            | health at B ÷ at 0, minus 1 (Warden +224% vs Vindicta +111%, live)                                     | higher |
+| Vitality | Bullet resist            | `bulletResist + bulletResistPerBoon·B` (combination rule per §2.2)                                     | higher |
+| Vitality | Spirit resist            | `spiritResist + spiritResistPerBoon·B`                                                                 | higher |
+| Vitality | Effective HP vs bullets  | `health / (1 − bulletResist)`                                                                          | higher |
+| Vitality | Effective HP vs spirit   | `health / (1 − spiritResist)`                                                                          | higher |
+| Vitality | Health regen, move speed | regen + `healthRegenPerSpirit` × boon spirit power (Victor 0.08); move speed + `moveSpeedPerSpirit`·SP | higher |
+| Spirit   | Spirit power from boons  | `spiritPowerPerBoon·B`                                                                                 | higher |
+| Spirit   | **Kit spirit scaling**   | Σ over damaging abilities: `spiritScaling(T3) × damagePerCastFactor × castsInFight(cooldown(T3), F)`   | higher |
+| Spirit   | Kit weapon scaling       | same, with `weaponScaling`                                                                             | higher |
 
 Notes:
 
 - **Landed DPS leads the gun group.** Damage per bullet alone ranks Paige (35.0 per shot) far
   above Calico (1.8 per pellet at 42.86/s). Only damage × fire rate compares fairly (see
-  `heroNeed.ts`), and only damage that lands counts, at the viewer's rank (§3.4). Bullet
-  growth scales per-bullet damage, so the reload uptime ratio in `dpsWithReload` carries over
-  to boon 30 unchanged. On-paper sustained DPS (100% accuracy) stays as a second row, so the
-  gap between the two is visible.
+  `heroNeed.ts`), and only damage that lands counts, at the viewer's rank (§3.4). On-paper
+  sustained DPS (100% accuracy) stays as a second row, so the gap between the two is
+  visible.
+- **Sustained DPS is anchored to Valve.** `cycleDps` is the engine's `sustainedGunDps` with
+  its per-clip overhead recovered from the base stats. It measures only how much damage,
+  clip and fire-rate changes help. Valve's `dpsWithReload` sets the base. Without the
+  anchor, the cycle's base lands **19–79% below Valve's for 12 of 44 heroes** (frozen
+  roster): Calico −79%, Pocket −65%, Shiv −62%, Mo & Krill and Yamato −55%, Baba −39%,
+  Drifter −37%, Abrams −29%, Rat King −21% and Silver −19%, plus Lash and Seven at about 0%.
+  Those are spread and per-shell-reload weapons, where `bullets_per_second` counts pellets
+  but `clip` counts shots, so the derived overhead clamps at 0. With the anchor, every hero
+  with no spirit-scaled gun stats gets exactly `dpsWithReload × damage ratio`, and a fixture
+  checks all 44. The engine builds its `GunProfile` the same unanchored way
+  (`heroBasket.ts`), so item scoring likely undervalues gun items for those heroes. That's a
+  separate scoring PR (§8).
 - **Unknown is not zero.** `dpsWithReload === 0` means no weapon data. That hero is left out
   of the gun rankings and shows "—". The same rule applies to any other missing value.
 - **Kit spirit scaling** means "damage per fight gained per point of spirit power", with
@@ -436,6 +484,14 @@ per-hero abilities ───────────┘   /heroes/[id]    rankAb
 6. **Rank-aware accuracy** (the user, 2026-11-06). Gun metrics that need bullets to land
    use the hero's accuracy at the selected rank, and the page has a rank picker (§3.4).
    Abilities stay accuracy-free, because the API has no ability hit rates.
+7. **HP scaling** (the user, 2026-11-06): health per boon and health growth are metrics
+   (§2.2.1). Effective HP vs bullets and vs spirit was already in, built on boon 30
+   health.
+8. **EHP stays separate** (the user, 2026-11-06): bullet and spirit EHP are two metrics,
+   with no blended headline. If a blend is ever added, it weights **spirit 65%, bullet
+   35%**: `EHP_SPIRIT_WEIGHT = 0.65`, the user's call, not measured.
+9. **Spirit-scaled hero stats count** (the user, 2026-11-06), at boon spirit power: damage
+   per bullet, clip, fire rate, heavy melee and move speed (§2.2.1).
 
 ## 7. Acceptance criteria
 
@@ -452,9 +508,15 @@ separate file so `inputs.json` and the engine baselines don't change.
 - **Unknowns**: a hero with `dpsWithReload = 0` is left out of the gun pool, and that pool's
   `n` drops by one.
 - **Direction**: reload time ranks lower-is-better.
-- **Known anchors** on the frozen roster: Mo & Krill has the top max health; Paige ranks
-  above Calico on damage per bullet but not on sustained DPS; Dynamo and Kelvin rank top on
-  bullet and spirit resist at boon 30.
+- **Known anchors**, on the frozen roster (`inputs.json`, 44 heroes, captured 2026-10-25):
+  - Mo & Krill has the top max health;
+  - The Doorman tops damage per bullet at boon 30 (61.5) but not sustained DPS, and Paige
+    tops it at boon 0 (35). Corrected in O.2: the first draft said Paige leads per bullet
+    at boon 30 and trails Calico on DPS. The snapshot shows neither;
+  - Graves has no accuracy data and gets the estimate.
+- **Resist anchors**: Dynamo and Kelvin top bullet and spirit resist at boon 30. That
+  snapshot predates resists, so these checks run in O.3 against `abilityRoster.json`, which
+  carries fresh `baseStats`.
 - **Pools**: no ability shows up in both the spirit and weapon pools; utility abilities show
   up in neither.
 - **Lean**: each of the four rules in §4.1 is tested with made-up percentiles.
@@ -505,6 +567,11 @@ no lead metric has `n < 30`. That catches a broken fetch that drops most of the 
   scaling, cooldown, duration, charges). Only possible once O.3's T3 ability values exist.
   That work would be its own milestone.
 - Sprint, stamina, dash, and gun range metrics (§2.3).
+- **Anchor the engine's gun model to Valve's DPS** (§3.1 notes). `heroBasket.ts` builds its
+  `GunProfile` with an overhead that clamps at 0 for 12 heroes, so its sustained gun DPS is
+  19–79% low for Calico, Pocket, Shiv, Mo & Krill, Yamato, Baba and others. That likely
+  undervalues gun items for them. It's a scoring PR, with baseline review, and the pellet
+  count (`weapon_info.bullets`) is the likely fix.
 - **Cast gates in the engine** (§3.2.1). The engine still caps every ability at 2 casts per
   10 s, so item pricing undervalues Card Trick, and with it fire rate and CDR on Wraith, while
   overvaluing Aura of Suffering's damage seconds. Moving the gates into `heroDamage.ts` is a

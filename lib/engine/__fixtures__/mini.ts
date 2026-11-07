@@ -6,7 +6,7 @@
 // Run with:  npx ts-node --project tsconfig.json lib/engine/__fixtures__/mini.ts
 // or wire into a test runner script if added to package.json.
 
-import type { ItemAnalytics } from "../../analyticsStore";
+import type { HeroAccuracy, ItemAnalytics } from "../../analyticsStore";
 import type { HeroAbility, AbilityUpgradeTier } from "../../abilityCoefficients";
 import {
   calculateAbilityDamage,
@@ -15,7 +15,17 @@ import {
 } from "../../abilityCoefficients";
 import type { HeroAbilityRaw } from "../../api/deadlockApi";
 import { kitHealPerTrade, kitSelfDamagePerTrade, selfHealValue } from "../kitHeal";
-import { HERO_RESIST_DEFAULTS, heroResistAtBoon, type HeroBaseStats } from "../../heroStats";
+import {
+  HERO_PROFILE_STAT_DEFAULTS,
+  healthRegenAt,
+  heroResistAtBoon,
+  type HeroBaseStats,
+} from "../../heroStats";
+import { accuracyAtRank } from "../../heroProfile/accuracy";
+import { castsFromCooldown, LONG_FIGHT_SECONDS } from "../../heroProfile/fight";
+import { HERO_METRICS, sustainedDps } from "../../heroProfile/metrics";
+import { lowerMedian, percentileRanks } from "../../heroProfile/percentiles";
+import { lateGameLean, rankRoster } from "../../heroProfile/profile";
 import type { Item } from "../../items";
 import {
   ANCHOR_CANDIDATES,
@@ -822,7 +832,7 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
     moveSpeed,
     spiritPower: 0,
     spiritPowerPerBoon: 0,
-    ...HERO_RESIST_DEFAULTS,
+    ...HERO_PROFILE_STAT_DEFAULTS,
   };
 }
 
@@ -6240,6 +6250,371 @@ console.log("\n37. Hero resists (Milestone O §2.2)");
   // d. Negative spirit power is treated as none.
   const venator = { ...base, bulletResistPerSpirit: 0.12178 };
   assert(heroResistAtBoon(venator, 0, -10).bullet === 0, "negative spirit power counts as 0");
+}
+
+console.log("\n38. Hero roster profile (Milestone O.2, §7.1)");
+{
+  const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
+
+  // a. percentileRanks: best 100, worst 0, ties share, unknowns leave the pool.
+  const pr = percentileRanks(
+    [
+      { key: "a", value: 10 },
+      { key: "b", value: 20 },
+      { key: "c", value: 20 },
+      { key: "d", value: 30 },
+      { key: "e", value: null },
+      { key: "f", value: Number.NaN },
+    ],
+    "higher",
+  );
+  const pa = pr.get("a");
+  const pb = pr.get("b");
+  const pc = pr.get("c");
+  const pd = pr.get("d");
+  assert(
+    pa?.percentile === 0 &&
+      pd?.percentile === 100 &&
+      pa.rank === 4 &&
+      pd.rank === 1 &&
+      pb?.rank === 2 &&
+      pc?.rank === 2 &&
+      pb.percentile != null &&
+      near(pb.percentile, 50) &&
+      pb.percentile === pc.percentile &&
+      pa.n === 4,
+    "percentileRanks: bounds, shared ties, n counts known values only",
+    JSON.stringify([...pr]),
+  );
+  assert(
+    pr.get("e") === null && pr.get("f") === null,
+    "percentileRanks: null and NaN are unknown, not 0",
+  );
+
+  // b. Lower is better reverses the order; a pool of one has no percentile.
+  const lower = percentileRanks(
+    [
+      { key: 1, value: 2.5 },
+      { key: 2, value: 3.5 },
+    ],
+    "lower",
+  );
+  const solo = percentileRanks([{ key: 1, value: 5 }], "higher").get(1);
+  assert(
+    lower.get(1)?.percentile === 100 &&
+      lower.get(2)?.percentile === 0 &&
+      solo?.rank === 1 &&
+      solo.percentile === null,
+    "percentileRanks: lower-is-better reversed; n < 2 gives no percentile",
+  );
+
+  // c. Float noise does not split a tie.
+  const noisy = percentileRanks(
+    [
+      { key: 1, value: 0.1 + 0.2 },
+      { key: 2, value: 0.3 },
+    ],
+    "higher",
+  );
+  assert(
+    noisy.get(1)?.rank === 1 && noisy.get(2)?.rank === 1,
+    "percentileRanks: 0.1 + 0.2 ties 0.3",
+  );
+
+  // d. lowerMedian picks a real value; empty is null.
+  assert(
+    lowerMedian([4, null, 1, 3, 2]) === 2 &&
+      lowerMedian([5, 1, 3]) === 3 &&
+      lowerMedian([]) === null,
+    "lowerMedian: lower middle of the known values",
+  );
+
+  // e. Fight model (§3.2): the engine's castsPerTrade without its cap, at F = 10.
+  for (const cd of [0, 5, 9.99, 10, 12, 30, 120, 200]) {
+    assert(
+      near(castsFromCooldown(cd, 10), castsPerTrade(cd)),
+      `castsFromCooldown(${cd}, 10) === castsPerTrade`,
+    );
+  }
+  assert(
+    near(castsFromCooldown(6, LONG_FIGHT_SECONDS), 5) &&
+      near(castsFromCooldown(12, LONG_FIGHT_SECONDS), 2.5) &&
+      near(castsFromCooldown(25, LONG_FIGHT_SECONDS), 1.2) &&
+      near(castsFromCooldown(120, LONG_FIGHT_SECONDS), 0.25) &&
+      near(castsFromCooldown(6, 10), 10 / 6) &&
+      near(castsFromCooldown(2, 10), 5),
+    "castsFromCooldown: §3.2 table, and no cap (Pain Battery 2 s = 5 casts)",
+  );
+  let monotonic = true;
+  for (const cd of [0.6, 2, 5, 9, 10, 11, 25, 29, 30, 31, 60, 120]) {
+    if (castsFromCooldown(cd, 30) < castsFromCooldown(cd, 10) - 1e-12) monotonic = false;
+    if (castsFromCooldown(cd * 1.1, 10) > castsFromCooldown(cd, 10) + 1e-12) monotonic = false;
+  }
+  assert(monotonic, "castsFromCooldown: never fewer casts in a longer fight or a shorter cooldown");
+
+  // f. Rank-aware accuracy (§3.4): pooled at null, pooled when a tier is thin,
+  //    roster lower median for a hero with no data.
+  const acc = new Map<number, HeroAccuracy>([
+    [1, { heroId: 1, pooled: 0.5, byRankTier: new Map([[11, 0.6]]), shots: 1 }],
+    [2, { heroId: 2, pooled: 0.4, byRankTier: new Map([[11, 0.42]]), shots: 1 }],
+    [3, { heroId: 3, pooled: 0.3, byRankTier: new Map(), shots: 1 }],
+  ]);
+  const atNull = accuracyAtRank(acc, [1, 2, 3, 4], null);
+  const at11 = accuracyAtRank(acc, [4, 3, 2, 1], 11);
+  assert(
+    atNull.get(1)?.accuracy === 0.5 &&
+      at11.get(1)?.accuracy === 0.6 &&
+      at11.get(3)?.accuracy === 0.3 &&
+      atNull.get(4)?.accuracy === 0.4 &&
+      atNull.get(4)?.estimated === true &&
+      at11.get(4)?.accuracy === 0.42 &&
+      at11.get(1)?.estimated === false,
+    "accuracyAtRank: pooled default, thin-tier fallback, lower-median estimate",
+    JSON.stringify([...at11]),
+  );
+
+  // g. Lean (§4.1): the four rules, and null when a lead is unknown.
+  assert(
+    lateGameLean(80, 30) === "gun" &&
+      lateGameLean(30, 80) === "spirit" &&
+      lateGameLean(70, 70) === "hybrid" &&
+      lateGameLean(65, 49.9) === "gun" &&
+      lateGameLean(65, 50) === "flexible" &&
+      lateGameLean(55, 55) === "flexible" &&
+      lateGameLean(null, 80) === null &&
+      lateGameLean(80, null) === null,
+    "lateGameLean: gun / spirit / hybrid / flexible at 65 and 50",
+  );
+
+  // h. The frozen roster (44 heroes, captured 2026-10-25), with its accuracy.
+  const frozen = loadFrozen();
+  const profile = rankRoster({
+    roster: frozen.roster,
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+  });
+  const MO_KRILL = 18;
+  const PAIGE = 67;
+  const DOORMAN = 69;
+  const SHIV = 19;
+  const GRAVES = 76;
+  let bounded = true;
+  for (const p of profile.values()) {
+    for (const m of Object.values(p.metrics)) {
+      const pct = m.rank?.percentile;
+      if (pct != null && !(pct >= 0 && pct <= 100)) bounded = false;
+    }
+  }
+  assert(
+    profile.size === frozen.roster.length && bounded,
+    "rankRoster: every hero, percentiles in [0, 100]",
+  );
+  assert(
+    profile.get(MO_KRILL)?.metrics.maxHealth.rank?.rank === 1,
+    "frozen roster: Mo & Krill has the most max health at boon 30",
+  );
+  // Damage per bullet alone misleads (§3.1): the boon 30 leader is not the DPS
+  // leader, and boon growth reorders it (Paige leads at boon 0, The Doorman at 30).
+  const boon0Bullet = frozen.roster.map((s) => s.bulletDamage);
+  const doorman = profile.get(DOORMAN)?.metrics;
+  assert(
+    doorman?.damagePerBullet.rank?.rank === 1 &&
+      (doorman.sustainedDps.rank?.rank ?? 0) > 1 &&
+      profile.get(PAIGE)?.metrics.damagePerBullet.boon0 === Math.max(...boon0Bullet),
+    "frozen roster: The Doorman tops damage per bullet at boon 30 but not sustained DPS; Paige tops it at boon 0",
+    `Doorman sustained rank ${doorman?.sustainedDps.rank?.rank}`,
+  );
+  assert(
+    profile.get(GRAVES)?.accuracyEstimated === true && profile.get(GRAVES)?.accuracy != null,
+    "frozen roster: Graves has no accuracy data and gets the roster median",
+  );
+  const grow = profile.get(SHIV)?.metrics.gunGrowth;
+  assert(
+    grow?.value != null && grow.boon0 != null && near(grow.boon0, 0) && grow.value > 0,
+    "gun growth is 0 at boon 0 and positive at boon 30",
+  );
+
+  // i. Shuffling the roster changes nothing.
+  const shuffled = [...frozen.roster].reverse();
+  shuffled.push(shuffled.shift() as HeroBaseStats);
+  const again = rankRoster({ roster: shuffled, accuracy: frozen.heroAccuracy, rankTier: null });
+  const same = [...profile].every(([id, p]) => JSON.stringify(p) === JSON.stringify(again.get(id)));
+  assert(same, "rankRoster: roster order does not change any value or rank");
+
+  // j. Rank changes only rank-aware metrics, and Shiv's falling accuracy shows.
+  const low = rankRoster({ roster: frozen.roster, accuracy: frozen.heroAccuracy, rankTier: 1 });
+  const high = rankRoster({ roster: frozen.roster, accuracy: frozen.heroAccuracy, rankTier: 11 });
+  let onlyRankAware = true;
+  for (const def of HERO_METRICS) {
+    if (def.rankAware) continue;
+    for (const [id, p] of low) {
+      if (JSON.stringify(p.metrics[def.id]) !== JSON.stringify(high.get(id)?.metrics[def.id])) {
+        onlyRankAware = false;
+      }
+    }
+  }
+  const shivLow = low.get(SHIV)?.metrics.landedDps.value;
+  const shivHigh = high.get(SHIV)?.metrics.landedDps.value;
+  assert(onlyRankAware, "rank tier changes rank-aware metrics only");
+  assert(
+    shivLow != null && shivHigh != null && shivHigh < shivLow,
+    "Shiv: accuracy falls with rank in the snapshot, so landed DPS does too",
+    `t1 ${shivLow} t11 ${shivHigh}`,
+  );
+
+  // k. No weapon data: out of the gun pool, n drops by one, other metrics kept.
+  const noGun = { ...frozen.roster[0], dpsWithReload: 0 } as HeroBaseStats;
+  const gapped = rankRoster({
+    roster: [noGun, ...frozen.roster.slice(1)],
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+  });
+  const gp = gapped.get(noGun.heroId);
+  const other = gapped.get(frozen.roster[1].heroId);
+  assert(
+    gp?.metrics.sustainedDps.value === null &&
+      gp.metrics.landedDps.rank === null &&
+      other?.metrics.sustainedDps.rank?.n === frozen.roster.length - 1 &&
+      gp.metrics.maxHealth.rank != null,
+    "no weapon data: left out of the gun pool, still ranked elsewhere",
+  );
+}
+
+console.log("\n39. HP scaling (Milestone O §3.1)");
+{
+  const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
+  const frozen = loadFrozen();
+  const profile = rankRoster({
+    roster: frozen.roster,
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+  });
+  const MO_KRILL = 18;
+
+  // a. Health per boon: Mo & Krill gain the most (65 per boon in the snapshot).
+  const perBoon = profile.get(MO_KRILL)?.metrics.healthPerBoon;
+  assert(
+    perBoon?.rank?.rank === 1 && perBoon.value === perBoon.boon0,
+    "health per boon: Mo & Krill top it; the same value at boon 0 and 30",
+    JSON.stringify(perBoon),
+  );
+
+  // b. Health growth is 0 at boon 0, and equals per boon x 30 / base at boon 30.
+  const s = frozen.roster[0];
+  const growth = profile.get(s.heroId)?.metrics.healthGrowth;
+  assert(
+    growth?.boon0 != null &&
+      near(growth.boon0, 0) &&
+      growth.value != null &&
+      near(growth.value, (s.maxHealthPerBoon * 30) / s.maxHealth),
+    "health growth: 0 at boon 0, per boon x 30 / base at boon 30",
+  );
+
+  // c. Victor-style regen from spirit: base + 0.08 x boon spirit power.
+  const base = mkHero(39, 700, 7);
+  const victorLike = {
+    ...base,
+    heroId: 40,
+    healthRegen: 2,
+    healthRegenPerSpirit: 0.08,
+    spiritPowerPerBoon: 1,
+  };
+  const regen = rankRoster({
+    roster: [base, victorLike],
+    accuracy: new Map(),
+    rankTier: null,
+  }).get(40)?.metrics.healthRegen;
+  assert(
+    healthRegenAt(victorLike, 30) === 2 + 0.08 * 30 &&
+      regen?.value != null &&
+      near(regen.value, 2 + 0.08 * 30) &&
+      regen.boon0 === 2,
+    "health regen adds spirit-scaled regen from boon spirit power",
+    JSON.stringify(regen),
+  );
+}
+
+console.log("\n40. Spirit-scaled hero stats (Milestone O §2.2.1)");
+{
+  const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
+  const frozen = loadFrozen();
+
+  // a. Anchored to Valve: with no spirit-scaled gun stats, sustained DPS is
+  //    dpsWithReload x the per-bullet damage ratio for EVERY hero, including the
+  //    12 whose unanchored cycle lands 19-79% below Valve (Calico, Shiv, Yamato...).
+  let matched = 0;
+  let underCycle = 0;
+  let mismatch = "";
+  for (const s of frozen.roster) {
+    if (!(s.dpsWithReload > 0 && s.bulletDamage > 0)) continue;
+    const cycle = (s.bulletDamage * s.ammo) / (s.ammo / s.bulletsPerSecond + s.reloadTime);
+    if (cycle < s.dpsWithReload * 0.95) underCycle += 1;
+    const ratio =
+      (s.dpsWithReload * (s.bulletDamage + s.bulletDamagePerBoon * 30)) / s.bulletDamage;
+    const dps = sustainedDps(s, 30);
+    if (dps != null && near(dps, ratio, 1e-6)) matched += 1;
+    else mismatch += ` ${s.heroId}`;
+  }
+  assert(
+    mismatch === "" && matched === frozen.roster.filter((s) => s.dpsWithReload > 0).length,
+    "sustained DPS is anchored to Valve's for every hero",
+    `matched ${matched}, mismatched:${mismatch}`,
+  );
+  assert(
+    underCycle >= 10,
+    "the unanchored cycle undershoots Valve for the spread / per-shell weapons (why we anchor)",
+    `${underCycle} heroes more than 5% under`,
+  );
+
+  // b. Each spirit-scaled stat, on a hero with 1.1 spirit per boon (33 at boon 30),
+  //    against the same hero without it. Boon 0 has no spirit, so no change there.
+  const base: HeroBaseStats = {
+    ...mkHero(40, 700, 7),
+    bulletDamage: 25,
+    bulletDamagePerBoon: 0.4,
+    bulletsPerSecond: 3.81,
+    ammo: 25,
+    reloadTime: 2.5,
+    dpsWithReload: 60,
+    heavyMeleeDamage: 120,
+    spiritPowerPerBoon: 1.1,
+  };
+  const sp = 33;
+  const metric = (stats: HeroBaseStats, id: (typeof HERO_METRICS)[number]["id"], boon = 30) =>
+    HERO_METRICS.find((d) => d.id === id)?.value({ stats, accuracy: 0.5 }, boon) ?? null;
+  const solomon = { ...base, bulletDamagePerSpirit: 0.14 };
+  const warden = { ...base, bulletsPerSecondPerSpirit: 0.008 };
+  const haze = { ...base, clipPerSpirit: 0.5 };
+  const paige = { ...base, heavyMeleePerSpirit: 0.45 };
+  const vyper = { ...base, moveSpeedPerSpirit: 0.0138 };
+  const baseDps = sustainedDps(base, 30) ?? 0;
+  assert(
+    near(metric(solomon, "damagePerBullet") ?? 0, 25 + 0.4 * 30 + 0.14 * sp) &&
+      (sustainedDps(solomon, 30) ?? 0) > baseDps &&
+      near(metric(warden, "fireRate") ?? 0, 3.81 + 0.008 * sp) &&
+      (sustainedDps(warden, 30) ?? 0) > baseDps &&
+      near(metric(haze, "clipSize") ?? 0, 25 + 0.5 * sp) &&
+      (sustainedDps(haze, 30) ?? 0) > baseDps &&
+      near(metric(paige, "heavyMelee") ?? 0, (metric(base, "heavyMelee") ?? 0) + 0.45 * sp) &&
+      (metric(paige, "heavyMelee") ?? 0) > (metric(base, "heavyMelee") ?? 0) &&
+      near(metric(vyper, "moveSpeed") ?? 0, 7 + 0.0138 * sp),
+    "spirit-scaled damage, fire rate, clip, heavy melee and move speed apply at boon spirit power",
+  );
+  assert(
+    [solomon, warden, haze, paige, vyper].every(
+      (h) =>
+        near(sustainedDps(h, 0) ?? 0, sustainedDps(base, 0) ?? 0) &&
+        metric(h, "heavyMelee", 0) === metric(base, "heavyMelee", 0) &&
+        metric(h, "moveSpeed", 0) === metric(base, "moveSpeed", 0),
+    ),
+    "boon 0: no spirit power, so spirit-scaled stats add nothing",
+  );
+
+  // c. Landed DPS keeps the spirit-scaled gun: Solomon-like at 50% accuracy.
+  assert(
+    near(metric(solomon, "landedDps") ?? 0, (sustainedDps(solomon, 30) ?? 0) * 0.5),
+    "landed DPS is spirit-scaled sustained DPS x accuracy",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

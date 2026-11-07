@@ -190,6 +190,14 @@ export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
     spiritResist: statVal(ss, "tech_armor_damage_reduction"),
     spiritResistPerBoon: lu.MODIFIER_VALUE_TECH_RESIST ?? 0,
     spiritResistPerSpirit: perSpiritPower(d.scaling_stats, "ETechArmorDamageReduction"),
+    healthRegenPerSpirit: perSpiritPower(d.scaling_stats, "EBaseHealthRegen"),
+    // Flat per spirit point (see HeroBaseStats). EFireRate is deliberately not
+    // read: it is ERoundsPerSecond restated as a percent (Warden).
+    bulletDamagePerSpirit: perSpiritPower(d.scaling_stats, "EBulletDamage"),
+    clipPerSpirit: perSpiritPower(d.scaling_stats, "EClipSize"),
+    bulletsPerSecondPerSpirit: perSpiritPower(d.scaling_stats, "ERoundsPerSecond"),
+    heavyMeleePerSpirit: perSpiritPower(d.scaling_stats, "EHeavyMeleeDamage"),
+    moveSpeedPerSpirit: perSpiritPower(d.scaling_stats, "EMaxMoveSpeed"),
   };
 }
 
