@@ -97,7 +97,7 @@ boon 30.
 | Gun      | Reload time              | `reloadTime`                                                                                         | lower  |
 | Gun      | Gun growth               | sustained DPS at B ÷ at 0, minus 1                                                                   | higher |
 | Melee    | Light melee              | `lightMeleeDamage + lightMeleePerBoon·B`                                                             | higher |
-| Melee    | Heavy melee              | `heavyMeleeDamage + heavyMeleePerBoon·B`                                                             | higher |
+| Melee    | **Heavy melee** (lead)   | `heavyMeleeDamage + heavyMeleePerBoon·B`                                                             | higher |
 | Vitality | **Max health** (lead)    | `maxHealth + maxHealthPerBoon·B`                                                                     | higher |
 | Vitality | Bullet resist            | `bulletResist + bulletResistPerBoon·B` (combination rule per §2.2)                                   | higher |
 | Vitality | Spirit resist            | `spiritResist + spiritResistPerBoon·B`                                                               | higher |
@@ -452,9 +452,15 @@ separate file so `inputs.json` and the engine baselines don't change.
 - **Unknowns**: a hero with `dpsWithReload = 0` is left out of the gun pool, and that pool's
   `n` drops by one.
 - **Direction**: reload time ranks lower-is-better.
-- **Known anchors** on the frozen roster: Mo & Krill has the top max health; Paige ranks
-  above Calico on damage per bullet but not on sustained DPS; Dynamo and Kelvin rank top on
-  bullet and spirit resist at boon 30.
+- **Known anchors**, on the frozen roster (`inputs.json`, 44 heroes, captured 2026-10-25):
+  - Mo & Krill has the top max health;
+  - The Doorman tops damage per bullet at boon 30 (61.5) but not sustained DPS, and Paige
+    tops it at boon 0 (35). Corrected in O.2: the first draft said Paige leads per bullet
+    at boon 30 and trails Calico on DPS. The snapshot shows neither;
+  - Graves has no accuracy data and gets the estimate.
+- **Resist anchors**: Dynamo and Kelvin top bullet and spirit resist at boon 30. That
+  snapshot predates resists, so these checks run in O.3 against `abilityRoster.json`, which
+  carries fresh `baseStats`.
 - **Pools**: no ability shows up in both the spirit and weapon pools; utility abilities show
   up in neither.
 - **Lean**: each of the four rules in §4.1 is tested with made-up percentiles.
