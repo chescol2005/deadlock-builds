@@ -25,7 +25,21 @@ import { accuracyAtRank } from "../../heroProfile/accuracy";
 import { castsFromCooldown, LONG_FIGHT_SECONDS } from "../../heroProfile/fight";
 import { HERO_METRICS, sustainedDps } from "../../heroProfile/metrics";
 import { lowerMedian, percentileRanks } from "../../heroProfile/percentiles";
-import { lateGameLean, rankRoster } from "../../heroProfile/profile";
+import { lateGameLean, LONG_FIGHT_NOTE_DELTA, rankRoster } from "../../heroProfile/profile";
+import {
+  castsInFight,
+  kitAtT3,
+  type AbilityT3,
+  type CastContext,
+  type CastGate,
+} from "../../heroProfile/abilities";
+import { ABILITY_METRIC_IDS, rankAbilities } from "../../heroProfile/abilityRanks";
+import {
+  cdrImpact,
+  cdrLadder,
+  CDR_SPOTLIGHT_PERCENTILE,
+  combinedReduction,
+} from "../../heroProfile/cdr";
 import type { Item } from "../../items";
 import {
   ANCHOR_CANDIDATES,
@@ -61,7 +75,7 @@ import {
   synergyTerm,
 } from "../basketSelect";
 import pairLiftTableJson from "../data/pairLiftTable.json";
-import { loadFrozen } from "./frozen/frozenInputs";
+import { loadFrozen, loadFrozenAbilityRoster } from "./frozen/frozenInputs";
 import { computeBaselines, diffBaselines, readBaselines } from "./frozen/baselines";
 import categorySplitTableJson from "../data/heroCategorySplit.json";
 import {
@@ -6614,6 +6628,410 @@ console.log("\n40. Spirit-scaled hero stats (Milestone O §2.2.1)");
   assert(
     near(metric(solomon, "landedDps") ?? 0, (sustainedDps(solomon, 30) ?? 0) * 0.5),
     "landed DPS is spirit-scaled sustained DPS x accuracy",
+  );
+}
+
+console.log("\n41. Ability ranks, cast gates and CDR impact (Milestone O §3.2–§3.5)");
+{
+  const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
+  const roster = loadFrozenAbilityRoster();
+  const frozen = loadFrozen();
+  const kits = roster.heroes.map((h) => ({
+    heroId: h.id,
+    stats: h.baseStats,
+    abilities: kitAtT3(h.id, h.abilitiesRaw, h.heroItems),
+  }));
+  const ladder = cdrLadder(frozen.allItems);
+  const ranked = rankAbilities({
+    kits,
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+    cdrSetups: ladder.setups,
+  });
+  const all = [...ranked.values()];
+  const byName = (n: string) => all.find((p) => p.ability.name === n);
+  const gateNames = (kind: CastGate["kind"]) =>
+    all
+      .filter((p) => p.ability.gate.kind === kind)
+      .map((p) => p.ability.name)
+      .sort();
+  const kitCount = kits.reduce((s, k) => s + k.abilities.length, 0);
+
+  // a. Every ability, keyed uniquely; percentiles bounded.
+  let bounded = true;
+  for (const p of all)
+    for (const m of Object.values(p.metrics)) {
+      const pct = m.rank?.percentile;
+      if (pct != null && !(pct >= 0 && pct <= 100)) bounded = false;
+    }
+  assert(
+    roster.heroes.length >= 40 &&
+      ranked.size === kitCount &&
+      kitCount === roster.heroes.length * 4 &&
+      bounded,
+    "rankAbilities: four abilities per roster hero, unique class names, percentiles in [0, 100]",
+    `${roster.heroes.length} heroes, ${kitCount} abilities, ${ranked.size} keys`,
+  );
+
+  // b. Cast gates: only the reviewed abilities fall outside the cooldown gate.
+  //    A new one fails here so it gets reviewed (§7.1).
+  assert(
+    JSON.stringify(gateNames("resource")) === '["Card Trick"]' &&
+      JSON.stringify(gateNames("charges")) === '["Jar of Dead"]' &&
+      JSON.stringify(gateNames("channel")) === '["Aura of Suffering"]' &&
+      JSON.stringify(gateNames("battery")) === '["Pain Battery"]',
+    "cast gates: Card Trick resource, Jar of Dead charges, Aura of Suffering channel, Pain Battery battery; the rest cooldown",
+    JSON.stringify({
+      r: gateNames("resource"),
+      c: gateNames("charges"),
+      ch: gateNames("channel"),
+      b: gateNames("battery"),
+    }),
+  );
+
+  // c. The §3.2 examples table.
+  const cd = (cooldown: number) => ({ gate: { kind: "cooldown" as const, cooldown } });
+  const ctx0 = { accuracy: 0.5, bulletsPerSecond: 10 };
+  const casts = (a: Pick<AbilityT3, "gate">, F: number, c: CastContext = ctx0) =>
+    castsInFight(a, F, c) ?? -1;
+  assert(
+    near(casts(cd(6), 10), 10 / 6) &&
+      near(casts(cd(6), 30), 5) &&
+      near(casts(cd(12), 10), 1) &&
+      near(casts(cd(12), 30), 2.5) &&
+      near(casts(cd(25), 10), 1) &&
+      near(casts(cd(25), 30), 1.2) &&
+      near(casts(cd(120), 10), 0.25) &&
+      near(casts(cd(120), 30), 0.25),
+    "cooldown gate: 6 / 12 / 25 / 120 s match the §3.2 table in both fight lengths",
+  );
+  const jar = byName("Jar of Dead");
+  const aura = byName("Aura of Suffering");
+  const cards = byName("Card Trick");
+  const battery = byName("Pain Battery");
+  assert(
+    jar != null &&
+      near(jar.casts.short ?? 0, 4) &&
+      near(jar.casts.long ?? 0, 3 + 30 / 13) &&
+      aura?.damageSeconds != null &&
+      aura.damageSeconds.short === 8 &&
+      aura.damageSeconds.long === 24 &&
+      battery?.casts.short === 1 &&
+      battery.casts.long === 1,
+    "charges / channel / battery: Jar of Dead 4 and 5.31, Aura of Suffering 8 s and 24 s, Pain Battery 1 charge",
+  );
+  // Aura is ranked at its max DPS (58 + 34 at T3, x0.72), not the engine's MinDPS.
+  assert(
+    aura?.ability.damageKey === "MaxDPS" &&
+      aura.ability.baseDamage === 92 &&
+      near(aura.ability.spiritScaling, 0.72),
+    "Aura of Suffering reads MaxDPS at T3 (92 + 0.72 x spirit)",
+  );
+  const wraith = kits.find((k) => k.abilities.some((a) => a.name === "Card Trick"));
+  const cardAbility = cards?.ability;
+  const wraithCtx = { accuracy: 0.5, bulletsPerSecond: wraith?.stats.bulletsPerSecond ?? 0 };
+  const cShort = cardAbility ? casts(cardAbility, 10, wraithCtx) : -1;
+  const cLong = cardAbility ? casts(cardAbility, 30, wraithCtx) : -1;
+  assert(
+    cardAbility?.gate.kind === "resource" &&
+      cardAbility.gate.banked === 4 &&
+      near(cShort, 5.8, 0.1) &&
+      near(cLong, 9.4, 0.1),
+    "Card Trick at 50% accuracy: 4 banked, about 5.8 throws short and 9.4 long",
+    `${cShort.toFixed(2)} / ${cLong.toFixed(2)} at ${wraithCtx.bulletsPerSecond} shots/s`,
+  );
+  // Throws never exceed F / 0.6, and cards from hits are linear in accuracy.
+  const banked = cardAbility?.gate.kind === "resource" ? cardAbility.gate.banked : 0;
+  const genAt = (acc: number) =>
+    cardAbility ? casts(cardAbility, 10, { ...wraithCtx, accuracy: acc }) - banked : 0;
+  const capped = cardAbility ? casts(cardAbility, 10, { accuracy: 1, bulletsPerSecond: 1000 }) : -1;
+  assert(
+    near(capped, 10 / 0.6) && near(genAt(0.6), 2 * genAt(0.3)),
+    "Card Trick: throws capped at F / 0.6; card generation linear in accuracy",
+  );
+  assert(
+    cardAbility != null &&
+      castsInFight(cardAbility, 10, { accuracy: null, bulletsPerSecond: 10 }) === null,
+    "Card Trick with no accuracy: casts unknown (null), never 0",
+  );
+
+  // d. Fight length and gates: long >= short, channel seconds <= F, no cap.
+  let longAtLeastShort = true;
+  let channelWithin = true;
+  for (const p of all) {
+    const s = p.metrics.scalingShort.value;
+    const l = p.metrics.scalingLong.value;
+    if (s != null && l != null && l < s - 1e-9) longAtLeastShort = false;
+    if (p.damageSeconds && (p.damageSeconds.short > 10 || p.damageSeconds.long > 30))
+      channelWithin = false;
+  }
+  assert(longAtLeastShort, "no ability's long-fight scaling is below its short-fight scaling");
+  assert(channelWithin, "channel damage seconds never exceed the fight length");
+  assert(near(casts(cd(2), 10), 5), "no blanket cap: a 2 s cooldown gets 5 casts in 10 s");
+
+  // e. Pools: spirit and weapon never overlap; utility is in neither; the pool
+  //    sizes are what the survey found (2026-11-07: 115 spirit, 5 weapon).
+  const spiritPool = all.filter(
+    (p) => p.metrics.scalingPerCast.rank != null && p.ability.pool === "spirit",
+  );
+  const weaponPool = all.filter(
+    (p) => p.metrics.scalingPerCast.rank != null && p.ability.pool === "weapon",
+  );
+  const utilityRanked = all.filter(
+    (p) => p.ability.pool === "utility" && Object.values(p.metrics).some((m) => m.rank != null),
+  );
+  const unscaledScaled = all.filter(
+    (p) => p.ability.pool === "unscaled" && p.metrics.scalingPerCast.rank != null,
+  );
+  assert(
+    spiritPool.length > 100 &&
+      weaponPool.length >= 3 &&
+      spiritPool.every((p) => p.metrics.scalingPerCast.rank?.n === spiritPool.length) &&
+      weaponPool.every((p) => p.metrics.scalingPerCast.rank?.n === weaponPool.length) &&
+      utilityRanked.length === 0 &&
+      unscaledScaled.length === 0,
+    "pools: spirit and weapon ranked separately, utility in neither, unscaled only on base damage",
+    `spirit ${spiritPool.length}, weapon ${weaponPool.length}`,
+  );
+
+  // f. Determinism: shuffled kits give the same output.
+  const shuffled = [...kits]
+    .reverse()
+    .map((k) => ({ ...k, abilities: [...k.abilities].reverse() }));
+  const again = rankAbilities({
+    kits: shuffled,
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+    cdrSetups: ladder.setups,
+  });
+  assert(
+    JSON.stringify([...ranked]) === JSON.stringify([...again]),
+    "rankAbilities: kit and ability order do not change any value or rank",
+  );
+
+  // g. CDR ladder: live values, multiplicative stacking, full souls.
+  const setup = (id: string) => ladder.setups.find((s) => s.id === id);
+  assert(
+    ladder.missing.length === 0 &&
+      near(setup("compress")?.reduction ?? 0, 0.18) &&
+      near(setup("superior")?.reduction ?? 0, 0.2) &&
+      near(setup("transcendent")?.reduction ?? 0, 0.25) &&
+      near(setup("transcendentSpellslinger")?.reduction ?? 0, 1 - 0.75 * 0.95) &&
+      setup("superior")?.souls === 3200 &&
+      setup("transcendentSpellslinger")?.souls === 12800 &&
+      near(combinedReduction([0.2, 0.05]), 0.24),
+    "CDR ladder: 18 / 20 / 25 / 28.75%, stacking 1 - product(1 - r), Superior 3,200 souls, not 4,800",
+  );
+  const withoutHolsters = cdrLadder(
+    frozen.allItems.filter((i) => i.id !== "upgrade_enchanted_holsters"),
+  );
+  assert(
+    withoutHolsters.setups.length === 3 &&
+      JSON.stringify(withoutHolsters.missing) === '["upgrade_enchanted_holsters"]',
+    "CDR ladder: a missing live item drops its setup and is reported, never a hardcoded %",
+  );
+
+  // h. CDR impact: the §3.3 worked examples.
+  const twelve = cdrImpact(cd(12), ctx0, ladder.setups);
+  const gainOf = (f: "short" | "long", id: string) =>
+    twelve?.fights[f].setups.find((s) => s.setupId === id)?.gain ?? -1;
+  assert(
+    near(gainOf("short", "compress"), 10 / 9.84 - 1) &&
+      near(gainOf("long", "compress"), 30 / 9.84 / 2.5 - 1) &&
+      near(gainOf("long", "transcendent"), 1 / 3) &&
+      near(twelve?.fights.long.casts ?? 0, 2.5),
+    "CDR impact: 12 s ability +1.6% short / +22% long from Compress, +33% long from Transcendent",
+  );
+  let monotone = true;
+  for (const p of [
+    cd(12),
+    cd(30),
+    cd(4),
+    ...(jar ? [jar.ability] : []),
+    ...(aura ? [aura.ability] : []),
+  ]) {
+    const impact = cdrImpact(
+      p,
+      ctx0,
+      [...ladder.setups].sort((a, b) => a.reduction - b.reduction),
+    );
+    for (const f of ["short", "long"] as const) {
+      const gains = impact?.fights[f].setups.map((s) => s.gain) ?? [];
+      for (let i = 1; i < gains.length; i++) if (gains[i] < gains[i - 1] - 1e-12) monotone = false;
+    }
+  }
+  assert(monotone, "CDR impact: gain never goes down as the reduction grows");
+  if (cardAbility && cardAbility.gate.kind === "resource") {
+    const g = cardAbility.gate;
+    const r = 0.25;
+    const expected = Math.min(
+      g.banked +
+        ((10 * wraithCtx.bulletsPerSecond * 0.5 * g.perBulletHit * g.genScale) / g.perCard) *
+          (1 + g.genScale * r),
+      10 / g.throwCooldown,
+    );
+    const ctImpact = cdrImpact(cardAbility, wraithCtx, ladder.setups);
+    assert(
+      near(casts(cardAbility, 10, { ...wraithCtx, cdr: r }), expected) &&
+        ctImpact?.fireRateStep != null &&
+        ctImpact.fireRateStep.short > 0 &&
+        ctImpact.fireRateStep.long > ctImpact.fireRateStep.short,
+      "Card Trick: CDR speeds card generation by 1 + 0.85r (throw cooldown unchanged); +10% fire rate adds cards",
+    );
+  }
+  const spotlightOk = all.every((p) => {
+    const pct = p.metrics.scalingPerCast.rank?.percentile ?? -1;
+    return pct >= CDR_SPOTLIGHT_PERCENTILE ? p.cdr != null : p.cdr == null;
+  });
+  const noCdr = rankAbilities({
+    kits,
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+    cdrSetups: [],
+  });
+  const ranksUnchanged = [...ranked].every(
+    ([k, p]) => JSON.stringify(p.metrics) === JSON.stringify(noCdr.get(k)?.metrics),
+  );
+  assert(
+    spotlightOk && ranksUnchanged && all.some((p) => p.cdr != null),
+    "CDR: only abilities at or above the 75th percentile per cast get the annotation; it never changes a rank",
+  );
+
+  // i. Rank changes Card Trick and nothing else among abilities.
+  const lowRank = rankAbilities({
+    kits,
+    accuracy: frozen.heroAccuracy,
+    rankTier: 1,
+    cdrSetups: [],
+  });
+  const highRank = rankAbilities({
+    kits,
+    accuracy: frozen.heroAccuracy,
+    rankTier: 11,
+    cdrSetups: [],
+  });
+  let onlyCards = true;
+  for (const [k, p] of lowRank) {
+    const q = highRank.get(k);
+    const sameValues = ABILITY_METRIC_IDS.every(
+      (id) => p.metrics[id].value === q?.metrics[id].value,
+    );
+    if (p.ability.gate.kind !== "resource" && !sameValues) onlyCards = false;
+  }
+  const ctLow = lowRank.get(cardAbility?.classname ?? "")?.casts.short;
+  const ctHigh = highRank.get(cardAbility?.classname ?? "")?.casts.short;
+  assert(
+    onlyCards && ctLow != null && ctHigh != null && ctLow !== ctHigh,
+    "rank tier changes Card Trick's casts and no other ability's values",
+  );
+
+  // j. The hero profile with kits: kit metrics, resist anchors, Solomon unknown, lean.
+  const kitMap = new Map(kits.map((k) => [k.heroId, k.abilities]));
+  const named = (n: string) => roster.heroes.find((h) => h.name === n)?.id ?? -1;
+  const profile = rankRoster({
+    roster: roster.heroes.map((h) => h.baseStats),
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+    kits: kitMap,
+  });
+  assert(
+    profile.get(named("Dynamo"))?.metrics.bulletResist.rank?.rank === 1 &&
+      profile.get(named("Kelvin"))?.metrics.spiritResist.rank?.rank === 1,
+    "fresh roster: Dynamo tops bullet resist and Kelvin spirit resist at boon 30 (§7.1 resist anchors)",
+  );
+  const solomon = profile.get(named("Solomon"));
+  assert(
+    solomon != null &&
+      solomon.metrics.kitSpiritShort.value === null &&
+      solomon.lean === null &&
+      (profile.get(named("Victor"))?.metrics.kitSpiritShort.rank?.n ?? 0) ===
+        roster.heroes.length - 1,
+    "a kit with no readable damage (Solomon) is unknown, not 0: out of the pool, no lean",
+  );
+  let leanConsistent = true;
+  for (const p of profile.values()) {
+    const g = p.metrics.landedDps.rank?.percentile ?? null;
+    const s = p.metrics.kitSpiritShort.rank?.percentile ?? null;
+    const l = p.metrics.kitSpiritLong.rank?.percentile ?? null;
+    if (p.lean !== lateGameLean(g, s)) leanConsistent = false;
+    if (p.scalesIntoLongFights !== (s != null && l != null && l - s >= LONG_FIGHT_NOTE_DELTA))
+      leanConsistent = false;
+  }
+  assert(
+    leanConsistent,
+    "every hero's lean and long-fight note follow §4.1 / §3.2 from its percentiles",
+  );
+
+  // k. The lean is recomputed per rank: a made-up roster where it flips.
+  const base = roster.heroes[0].baseStats;
+  const flipRoster = [1, 2, 3].map((heroId) => ({ ...base, heroId }));
+  const spiritKit = (coef: number): AbilityT3[] => [
+    {
+      heroId: 0,
+      classname: `k${coef}`,
+      name: `k${coef}`,
+      slot: "signature1",
+      isUltimate: false,
+      damageKey: "Damage",
+      baseDamage: 50,
+      spiritScaling: coef,
+      weaponScaling: 0,
+      perCastFactor: 1,
+      cooldown: 12,
+      gate: { kind: "cooldown", cooldown: 12 },
+      pool: "spirit",
+    },
+  ];
+  const flipKits = new Map([
+    [1, spiritKit(0.5)],
+    [2, spiritKit(1)],
+    [3, spiritKit(2)],
+  ]);
+  const flipAcc = new Map<number, HeroAccuracy>([
+    [
+      1,
+      {
+        heroId: 1,
+        pooled: 0.45,
+        byRankTier: new Map([
+          [1, 0.3],
+          [11, 0.6],
+        ]),
+        shots: 1,
+      },
+    ],
+    [
+      2,
+      {
+        heroId: 2,
+        pooled: 0.45,
+        byRankTier: new Map([
+          [1, 0.5],
+          [11, 0.4],
+        ]),
+        shots: 1,
+      },
+    ],
+    [
+      3,
+      {
+        heroId: 3,
+        pooled: 0.45,
+        byRankTier: new Map([
+          [1, 0.4],
+          [11, 0.5],
+        ]),
+        shots: 1,
+      },
+    ],
+  ]);
+  const leanAt = (tier: number) =>
+    rankRoster({ roster: flipRoster, accuracy: flipAcc, rankTier: tier, kits: flipKits }).get(1)
+      ?.lean;
+  assert(
+    leanAt(1) === "flexible" && leanAt(11) === "gun",
+    "lean is rank-aware: the same hero is Flexible at Initiate and Gun at Eternus",
+    `${leanAt(1)} / ${leanAt(11)}`,
   );
 }
 

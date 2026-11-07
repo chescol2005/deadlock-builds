@@ -210,9 +210,9 @@ const NOT_ABILITY_DAMAGE = /(Percent|Pct|Bonus)/;
 // Where a rate's duration lives, in order of preference (data-verifier and live
 // API, 2026-10-25: Siphon Life AbilityDuration 4, Lightning Ball MaxLifetime 5,
 // Afterburn BurnDuration 3).
-const DAMAGE_SECONDS_KEYS = ["AbilityDuration", "MaxLifetime", "BurnDuration"] as const;
+export const DAMAGE_SECONDS_KEYS = ["AbilityDuration", "MaxLifetime", "BurnDuration"] as const;
 
-function isSpiritScaled(p: {
+export function isSpiritScaled(p: {
   scale_function?: { class_name?: string; specific_stat_scale_type?: string };
 }) {
   const fn = p.scale_function;

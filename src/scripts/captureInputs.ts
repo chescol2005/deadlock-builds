@@ -2,7 +2,9 @@
 // offline baseline baskets (lib/engine/__fixtures__/frozen/). Item scoring review
 // PR R1 (docs/item-scoring-review.md §2.1).
 //
-// Run: npm run capture-inputs [-- --tables-only]
+// Run: npm run capture-inputs [-- --tables-only | --ability-roster]
+//   --ability-roster  write abilityRoster.json only: every visible hero's kit and
+//                  base stats, for the roster profile (Milestone O §7.1)
 //   --tables-only  refresh only the copies of the three committed data tables
 //                  (after `npm run fit-pairs` / `fit-category-split`), keeping
 //                  the pinned API data as it was
@@ -11,6 +13,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fetchAllItems, fetchHeroAbilityItems } from "@/lib/api/deadlockApi";
+import type { AbilityProperty, HeroAbilityRaw } from "@/lib/api/deadlockApi";
 import { fetchHeroById, fetchVisibleHeroesEnriched } from "@/lib/heroApi";
 import { getHeroStats } from "@/lib/heroStore";
 import { getHeroAccuracy, getItemAnalytics } from "@/lib/analyticsStore";
@@ -21,10 +24,15 @@ import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 import categorySplitTableJson from "@/lib/engine/data/heroCategorySplit.json";
 import phaseItemsTableJson from "@/lib/engine/data/heroPhaseItems.json";
 import {
+  FROZEN_ABILITY_ROSTER_FILE,
   FROZEN_INPUTS_FILE,
   FROZEN_ITEMS_FILE,
 } from "@/lib/engine/__fixtures__/frozen/frozenInputs";
-import type { FrozenHero, FrozenInputsFile } from "@/lib/engine/__fixtures__/frozen/frozenInputs";
+import type {
+  FrozenAbilityRosterFile,
+  FrozenHero,
+  FrozenInputsFile,
+} from "@/lib/engine/__fixtures__/frozen/frozenInputs";
 import { findHero } from "./basketData";
 import { REFERENCE_HEROES } from "./starterBuildFixtures";
 
@@ -63,7 +71,89 @@ async function latestPatch(): Promise<string> {
   }
 }
 
+/**
+ * Only the fields HeroAbilityRaw declares (the parsers read nothing else), minus
+ * description text and icons: tooltips and icon URLs are most of the raw size.
+ */
+function slimAbility(a: HeroAbilityRaw): HeroAbilityRaw {
+  const properties = Object.fromEntries(
+    Object.entries(a.properties ?? {}).map(([key, p]): [string, AbilityProperty] => {
+      const fn = p.scale_function;
+      return [
+        key,
+        {
+          value: p.value,
+          ...(p.css_class != null ? { css_class: p.css_class } : {}),
+          ...(fn
+            ? {
+                scale_function: {
+                  ...(fn.class_name != null ? { class_name: fn.class_name } : {}),
+                  ...(fn.specific_stat_scale_type != null
+                    ? { specific_stat_scale_type: fn.specific_stat_scale_type }
+                    : {}),
+                  ...(fn.stat_scale != null ? { stat_scale: fn.stat_scale } : {}),
+                },
+              }
+            : {}),
+        },
+      ];
+    }),
+  );
+  return {
+    id: a.id,
+    class_name: a.class_name,
+    name: a.name,
+    ...(a.ability_type != null ? { ability_type: a.ability_type } : {}),
+    properties,
+    upgrades: (a.upgrades ?? []).map((u) => ({
+      property_upgrades: (u.property_upgrades ?? []).map((pu) => ({
+        name: pu.name,
+        bonus: pu.bonus,
+        ...(pu.upgrade_type != null ? { upgrade_type: pu.upgrade_type } : {}),
+        ...(pu.scale_stat_filter != null ? { scale_stat_filter: pu.scale_stat_filter } : {}),
+      })),
+    })),
+  };
+}
+
+// Every visible hero's kit + base stats (Milestone O §7.1), into its own file.
+async function captureAbilityRoster() {
+  const [heroes, patch] = await Promise.all([fetchVisibleHeroesEnriched(), latestPatch()]);
+  const out: FrozenHero[] = [];
+  for (const hero of [...heroes].sort((a, b) => a.id - b.id)) {
+    const [detail, abilitiesRaw, baseStats] = await Promise.all([
+      fetchHeroById(hero.id),
+      fetchHeroAbilityItems(hero.id),
+      getHeroStats(hero.id),
+    ]);
+    if (!baseStats) throw new Error(`no base stats for ${hero.name}`);
+    if (abilitiesRaw.length === 0) throw new Error(`no abilities for ${hero.name}`);
+    // Only the four slotted abilities, without description text: the profile
+    // reads properties and upgrades, and the file stays small.
+    const slotted = new Set(Object.values(detail.items ?? {}));
+    out.push({
+      id: hero.id,
+      name: hero.name,
+      heroItems: detail.items ?? {},
+      abilitiesRaw: abilitiesRaw.filter((a) => slotted.has(a.class_name)).map(slimAbility),
+      baseStats,
+    });
+  }
+  const file: FrozenAbilityRosterFile = {
+    version: 1,
+    captured: new Date().toISOString().slice(0, 10),
+    patch,
+    heroes: out,
+  };
+  writeFileSync(FROZEN_ABILITY_ROSTER_FILE, JSON.stringify(file) + "\n");
+  console.log(`captured ${out.length} roster kits (patch ${patch}, ${file.captured})`);
+}
+
 async function main() {
+  if (process.argv.includes("--ability-roster")) {
+    await captureAbilityRoster();
+    return;
+  }
   if (process.argv.includes("--tables-only")) {
     if (!existsSync(FROZEN_INPUTS_FILE))
       throw new Error("no frozen inputs yet: run a full capture");

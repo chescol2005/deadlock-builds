@@ -11,6 +11,8 @@ import {
 } from "@/lib/heroStats";
 import { sustainedGunDps, type GunProfile } from "@/lib/engine/heroDamage";
 import type { Direction } from "./percentiles";
+import { kitScaling, type AbilityT3 } from "./abilities";
+import { FIGHT_LENGTHS } from "./fight";
 
 /** Late game: about 30,000 souls spent is boon 30 (BOON_THRESHOLDS). */
 export const EVAL_BOON = 30;
@@ -21,6 +23,8 @@ export type HeroMetricInput = {
   stats: HeroBaseStats;
   /** Share of shots that land at the selected rank, 0-1; null = no data. */
   accuracy: number | null;
+  /** The hero's four abilities at T3 (kitAtT3); null / absent = kit unknown. */
+  kit?: ReadonlyArray<AbilityT3> | null;
 };
 
 export type HeroMetricDef = {
@@ -132,12 +136,19 @@ export type HeroMetricId =
   | "ehpSpirit"
   | "healthRegen"
   | "moveSpeed"
-  | "boonSpiritPower";
+  | "boonSpiritPower"
+  | "kitSpiritShort"
+  | "kitSpiritLong"
+  | "kitWeaponShort"
+  | "kitWeaponLong";
 
-/**
- * The §3.1 metric table, in display order. Kit spirit and weapon scaling join
- * in O.3, once ability values at T3 and cast gates exist.
- */
+/** Kit scaling in a fight of `seconds` (§3.1). Boon-independent: coefficients and casts. */
+function kitMetric(pool: "spirit" | "weapon", seconds: number) {
+  return ({ stats, accuracy, kit }: HeroMetricInput): number | null =>
+    kitScaling(kit, pool, seconds, { accuracy, bulletsPerSecond: stats.bulletsPerSecond });
+}
+
+/** The §3.1 metric table, in display order. */
 export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
   {
     id: "landedDps",
@@ -349,9 +360,49 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     group: "spirit",
     label: "Spirit power from boons",
     direction: "higher",
-    // The spirit lead is kit spirit scaling (§3.1), which lands in O.3.
+    // The spirit lead is kit spirit scaling (below).
     lead: false,
     rankAware: false,
     value: ({ stats }, b) => nonNegative(boonSpiritPower(stats, b)),
+  },
+  {
+    // Damage per short fight gained per point of spirit power, every ability at
+    // T3. The lean's S (§4.1). Rank-aware only through Card Trick's cards.
+    id: "kitSpiritShort",
+    group: "spirit",
+    label: "Kit spirit scaling (short fight)",
+    direction: "higher",
+    lead: true,
+    rankAware: true,
+    value: kitMetric("spirit", FIGHT_LENGTHS.short),
+  },
+  {
+    id: "kitSpiritLong",
+    group: "spirit",
+    label: "Kit spirit scaling (long fight)",
+    direction: "higher",
+    lead: false,
+    rankAware: true,
+    value: kitMetric("spirit", FIGHT_LENGTHS.long),
+  },
+  {
+    // Per weapon damage: only five abilities in the roster scale with it, so most
+    // heroes tie at 0.
+    id: "kitWeaponShort",
+    group: "spirit",
+    label: "Kit weapon scaling (short fight)",
+    direction: "higher",
+    lead: false,
+    rankAware: true,
+    value: kitMetric("weapon", FIGHT_LENGTHS.short),
+  },
+  {
+    id: "kitWeaponLong",
+    group: "spirit",
+    label: "Kit weapon scaling (long fight)",
+    direction: "higher",
+    lead: false,
+    rankAware: true,
+    value: kitMetric("weapon", FIGHT_LENGTHS.long),
   },
 ];
