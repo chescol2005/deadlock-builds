@@ -670,6 +670,31 @@ no lead metric has `n < 30`. That catches a broken fetch that drops most of the 
 - **resist anchors hold:** Dynamo tops bullet resist and Kelvin spirit resist, 18.75 each;
 - **engine harness section 41:** 24 checks.
 
+**O.4** (`HeroRosterRankSection` + `HeroRosterRankPanel` on `/heroes/[id]`,
+`lib/heroProfileStore.ts`, `lib/heroProfile/view.ts` + `metricCopy.ts`):
+
+- **Server-side ranking.** The page ranks the live roster at `?rank=` and passes one hero's
+  plain-data view to the client. The client section only switches between Simplified and
+  Advanced and changes the URL. `?rank=` takes only tiers with accuracy data (1–11);
+  anything else means All ranks.
+- **Simplified view:** the four lead metrics, the lean, and one rank line per ability with
+  what limits its casts.
+- **Advanced view:**
+  - every metric, with its value at the start of the match;
+  - each ability's short- and long-fight casts and scaling ranks;
+  - the cooldown-item table for spotlight abilities;
+  - Card Trick's fire-rate step.
+- **Live check, 2026-11-07, Wraith:** the lean is Flexible at All ranks and at Initiate, and
+  becomes Leans spirit at Eternus. The rank picker visibly changes the answer. Server render
+  takes 0.35–1.2 s on the production build.
+- **Fixtures:**
+  - app harness Fixture 25, the §7.2 live guard: all 44 heroes get a view, kits load, every
+    lead metric ranks at least 30 heroes, the live CDR ladder has all four setups, `?rank=`
+    parsing works, and the page wiring is in place;
+  - Fixture 9 now includes the panel;
+  - engine harness section 42 (6 checks): view shape, the JSON round trip, CDR rows and
+    rank labels.
+
 ## 11. Side item: Vercel Image Optimization off (2026-11-07)
 
 Not hero-profile work; it rides along with O.3 so it ships before the quota resets.

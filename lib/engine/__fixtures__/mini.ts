@@ -34,6 +34,8 @@ import {
   type CastGate,
 } from "../../heroProfile/abilities";
 import { ABILITY_METRIC_IDS, rankAbilities } from "../../heroProfile/abilityRanks";
+import { heroRankView } from "../../heroProfile/view";
+import { METRIC_COPY, ordinal, rankLabel } from "../../heroProfile/metricCopy";
 import {
   cdrImpact,
   cdrLadder,
@@ -7032,6 +7034,83 @@ console.log("\n41. Ability ranks, cast gates and CDR impact (Milestone O 搂3.2鈥
     leanAt(1) === "flexible" && leanAt(11) === "gun",
     "lean is rank-aware: the same hero is Flexible at Initiate and Gun at Eternus",
     `${leanAt(1)} / ${leanAt(11)}`,
+  );
+}
+
+console.log("\n42. Hero rank view for the hero page (Milestone O.4)");
+{
+  const roster = loadFrozenAbilityRoster();
+  const frozen = loadFrozen();
+  const kits = roster.heroes.map((h) => ({
+    heroId: h.id,
+    stats: h.baseStats,
+    abilities: kitAtT3(h.id, h.abilitiesRaw, h.heroItems),
+  }));
+  const ladder = cdrLadder(frozen.allItems);
+  const profiles = rankRoster({
+    roster: roster.heroes.map((h) => h.baseStats),
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+    kits: new Map(kits.map((k) => [k.heroId, k.abilities])),
+  });
+  const abilities = rankAbilities({
+    kits,
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+    cdrSetups: ladder.setups,
+  });
+  const viewFor = (heroId: number) =>
+    heroRankView({
+      heroId,
+      profiles,
+      abilities,
+      abilityOrder: (kits.find((k) => k.heroId === heroId)?.abilities ?? []).map(
+        (a) => a.classname,
+      ),
+      cdrSetups: ladder.setups,
+      rankTier: null,
+    });
+  const views = kits.map((k) => viewFor(k.heroId));
+  assert(
+    views.every(
+      (v, i) =>
+        v != null &&
+        v.metrics.map((m) => m.id).join() === HERO_METRICS.map((d) => d.id).join() &&
+        v.abilities.map((a) => a.classname).join() ===
+          kits[i].abilities.map((a) => a.classname).join() &&
+        v.rosterSize === roster.heroes.length,
+    ),
+    "heroRankView: every hero, metrics in HERO_METRICS order, abilities in slot order",
+  );
+  assert(
+    views.every((v) => JSON.stringify(JSON.parse(JSON.stringify(v))) === JSON.stringify(v)),
+    "heroRankView: plain data, survives a JSON round trip (server to client)",
+  );
+  assert(viewFor(-1) === null, "heroRankView: a hero outside the roster has no view");
+  const withCdr = views.flatMap((v) => v?.abilities ?? []).filter((a) => a.cdr.length > 0);
+  assert(
+    withCdr.length > 0 &&
+      withCdr.every(
+        (a) =>
+          a.cdr.length === ladder.setups.length &&
+          a.cdr.filter((c) => c.best.short).length <= 1 &&
+          a.cdr.filter((c) => c.best.long).length <= 1,
+      ),
+    "heroRankView: spotlight abilities carry one CDR row per setup, at most one best per fight",
+  );
+  assert(
+    rankLabel(1, 44, 100) === "1st of 44 路 best" &&
+      rankLabel(7, 38, (31 / 37) * 100) === "7th of 38 路 top 16%" &&
+      rankLabel(44, 44, 0) === "44th of 44 路 top 100%" &&
+      rankLabel(2, 1, null) === "2nd of 1" &&
+      ordinal(11) === "11th" &&
+      ordinal(22) === "22nd" &&
+      ordinal(103) === "103rd",
+    'rankLabel: "7th of 38 路 top 16%" (搂4), the best says "best"',
+  );
+  assert(
+    HERO_METRICS.every((d) => METRIC_COPY[d.id].help.length > 20),
+    "every metric has plain-English help copy",
   );
 }
 

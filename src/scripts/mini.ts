@@ -58,6 +58,9 @@ import {
 } from "@/app/match/matchMessages";
 import { runStarterBuildFixtures } from "./starterBuildFixtures";
 import { fetchVisibleHeroes } from "@/lib/heroApi";
+import { getRosterProfileInputs, heroRankViewFrom } from "@/lib/heroProfileStore";
+import { HERO_METRICS } from "@/lib/heroProfile/metrics";
+import { parseRankParam } from "@/lib/heroProfile/view";
 import { BIG_ITEM_COST, buildCoachContext, VITALITY_ENOUGH_SOULS } from "@/lib/coachContext";
 import { MID_PHASE_MAX_SOULS } from "@/lib/engine/categorySplit";
 import { loadFrozen } from "@/lib/engine/__fixtures__/frozen/frozenInputs";
@@ -823,6 +826,8 @@ async function run() {
     "app/match/components/RecentMatchesPanel.tsx",
     // Match review benchmarks (MRB2).
     "app/match/components/LaneBenchmarkPanel.tsx",
+    // Hero roster profile (Milestone O.4).
+    "app/heroes/components/HeroRosterRankPanel.tsx",
   ];
 
   for (const relPath of SIMPLIFIED_PANELS) {
@@ -851,6 +856,9 @@ async function run() {
     "app/match/components/RecentMatchesPanel.tsx",
     // Match review benchmarks (MRB2).
     "app/match/components/LaneBenchmarkPanel.tsx",
+    // Hero roster profile (Milestone O.4).
+    "app/heroes/components/HeroRosterRankPanel.tsx",
+    "app/heroes/components/HeroRosterRankSection.tsx",
   ];
 
   for (const relPath of TOOLTIP_ADOPTERS) {
@@ -3204,6 +3212,61 @@ async function run() {
         JSON.stringify(benchmarkLane(kelvin, curve, 6)) === JSON.stringify(result) &&
         importsOf("lib/matchReview/benchmark.ts").every((p) => p.startsWith("./")),
       "B6: the same inputs give the same benchmark, whatever the curve's row order; benchmark.ts imports only lib/matchReview",
+    );
+  }
+
+  // -----------------------------------------------
+  // Fixture 25: Hero roster profile, live (docs/milestone-o.md §7.2, O.4)
+  // -----------------------------------------------
+  console.log("\n25. Hero roster profile on live data (docs/milestone-o.md §7.2)");
+  {
+    const inputs = await getRosterProfileInputs();
+    const n = inputs.roster.length;
+    const views = inputs.roster.map((s) => heroRankViewFrom(inputs, s.heroId, null));
+    assert(
+      n >= 30 && views.every((v) => v != null),
+      `every live roster hero (${n}) gets a roster profile view`,
+    );
+    assert(
+      inputs.kits.size >= n - 2,
+      `kits load for the live roster (${inputs.kits.size} of ${n}; at most 2 fetch misses)`,
+    );
+    // A broken fetch that drops most of the roster shows up as a small pool.
+    const leadPools = HERO_METRICS.filter((d) => d.lead).map((d) => {
+      const sizes = views.flatMap((v) => {
+        const r = v?.metrics.find((m) => m.id === d.id)?.rank;
+        return r ? [r.n] : [];
+      });
+      return { id: d.id, n: sizes.length > 0 ? Math.min(...sizes) : 0 };
+    });
+    assert(
+      leadPools.every((p) => p.n >= 30),
+      "no lead metric ranks fewer than 30 heroes",
+      leadPools.map((p) => `${p.id}=${p.n}`).join(" "),
+    );
+    assert(
+      inputs.cdrSetups.length === 4,
+      "the live CDR ladder has all four setups (a missing item would drop one)",
+      inputs.cdrSetups.map((s) => s.id).join(", "),
+    );
+    const tiers = inputs.rankTiers.map((t) => t.tier);
+    const top = tiers[tiers.length - 1] ?? 11;
+    const highView = heroRankViewFrom(inputs, inputs.roster[0].heroId, top);
+    assert(
+      tiers.length >= 10 &&
+        parseRankParam(String(top), tiers) === top &&
+        parseRankParam("0", tiers) === null &&
+        parseRankParam("abc", tiers) === null &&
+        parseRankParam(undefined, tiers) === null &&
+        highView?.rankTier === top,
+      "?rank= accepts only live tiers with data (else All ranks), and the view ranks at it",
+    );
+    const heroPage = readFileSync("app/heroes/[...hero]/page.tsx", "utf-8");
+    assert(
+      heroPage.includes("HeroRosterRankSection") &&
+        heroPage.includes("getRosterProfileInputs") &&
+        heroPage.includes("parseRankParam"),
+      "/heroes/[id] renders the roster rank section, ranked server-side at ?rank=",
     );
   }
 

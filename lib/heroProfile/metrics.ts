@@ -370,7 +370,7 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     // T3. The lean's S (§4.1). Rank-aware only through Card Trick's cards.
     id: "kitSpiritShort",
     group: "spirit",
-    label: "Kit spirit scaling (short fight)",
+    label: "Ability spirit scaling (short fight)",
     direction: "higher",
     lead: true,
     rankAware: true,
@@ -379,7 +379,7 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
   {
     id: "kitSpiritLong",
     group: "spirit",
-    label: "Kit spirit scaling (long fight)",
+    label: "Ability spirit scaling (long fight)",
     direction: "higher",
     lead: false,
     rankAware: true,
@@ -390,7 +390,7 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     // heroes tie at 0.
     id: "kitWeaponShort",
     group: "spirit",
-    label: "Kit weapon scaling (short fight)",
+    label: "Ability weapon scaling (short fight)",
     direction: "higher",
     lead: false,
     rankAware: true,
@@ -399,7 +399,7 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
   {
     id: "kitWeaponLong",
     group: "spirit",
-    label: "Kit weapon scaling (long fight)",
+    label: "Ability weapon scaling (long fight)",
     direction: "higher",
     lead: false,
     rankAware: true,

@@ -12,6 +12,9 @@ import { HeroDifficultyBadge, HeroArchetypeTags } from "@/app/components/HeroDif
 import { HeroStatsSection } from "../components/HeroStatsSection";
 import { HeroAbilitiesSection } from "../components/HeroAbilitiesSection";
 import { heroPageMetadata } from "@/lib/seo";
+import { getRosterProfileInputs, heroRankViewFrom } from "@/lib/heroProfileStore";
+import { parseRankParam } from "@/lib/heroProfile/view";
+import { HeroRosterRankSection } from "../components/HeroRosterRankSection";
 
 export async function generateMetadata({
   params,
@@ -29,8 +32,15 @@ export async function generateMetadata({
   }
 }
 
-export default async function HeroPage({ params }: { params: Promise<{ hero: string[] }> }) {
+export default async function HeroPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ hero: string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { hero } = await params;
+  const query = await searchParams;
 
   const segments = hero ?? [];
   const routeKey = segments[0];
@@ -47,15 +57,21 @@ export default async function HeroPage({ params }: { params: Promise<{ hero: str
   // mapHeroAbilities) rather than fetching every hero's abilities just to
   // filter down. Shop items: the same canonical fetchAllItems() +
   // normalizeItem() pipeline /build uses.
-  const [shopItems, rawAbilities, baseStats, heroAnalyticsMap] = await Promise.all([
+  const [shopItems, rawAbilities, baseStats, heroAnalyticsMap, rosterInputs] = await Promise.all([
     getItems(),
     fetchHeroAbilityItems(heroData.id),
     getHeroStats(heroData.id),
     getHeroAnalytics(),
+    getRosterProfileInputs(),
   ]);
 
   const heroAbilities = mapHeroAbilities(rawAbilities, heroData.items);
   const analytics = heroAnalyticsMap.get(heroData.id);
+  const rankTier = parseRankParam(
+    query.rank,
+    rosterInputs.rankTiers.map((t) => t.tier),
+  );
+  const rankView = heroRankViewFrom(rosterInputs, heroData.id, rankTier);
 
   return (
     <main style={{ padding: 32 }}>
@@ -88,6 +104,14 @@ export default async function HeroPage({ params }: { params: Promise<{ hero: str
       </div>
 
       {baseStats ? <HeroStatsSection stats={baseStats} /> : null}
+
+      {rankView ? (
+        <HeroRosterRankSection
+          heroName={heroData.name}
+          view={rankView}
+          rankTiers={rosterInputs.rankTiers}
+        />
+      ) : null}
 
       <HeroAbilitiesSection abilities={heroAbilities} />
 
