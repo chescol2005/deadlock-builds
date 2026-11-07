@@ -61,6 +61,25 @@ export type HeroBaseStats = {
   // Health regen per point of spirit power, from scaling_stats
   // (EBaseHealthRegen <- ETechPower). Only Victor, 0.08, live 2026-11-06.
   healthRegenPerSpirit: number;
+  // Other hero stats that grow with spirit power (scaling_stats, keyed
+  // <stat> <- ETechPower), each a FLAT amount per point of spirit power in the
+  // stat's own unit: deadlock.wiki/Spirit_Power, "base + (Spirit Power x
+  // coefficient)", and every value below matched its hero's wiki infobox on
+  // 2026-11-06 (Milestone O §2.2.1).
+  /** EBulletDamage: damage per bullet (Solomon 0.14, Grey Talon 0.08, Vindicta 0.022). */
+  bulletDamagePerSpirit: number;
+  /** EClipSize: bullets of clip (Haze 0.5, Yamato 0.15). */
+  clipPerSpirit: number;
+  /**
+   * ERoundsPerSecond: shots per second (Warden 0.008). Warden's EFireRate 0.21
+   * is the SAME bonus as a percent (0.21% x 3.81 base = 0.008), so it is not
+   * read, or it would count twice.
+   */
+  bulletsPerSecondPerSpirit: number;
+  /** EHeavyMeleeDamage: heavy melee damage (Paige 0.45). */
+  heavyMeleePerSpirit: number;
+  /** EMaxMoveSpeed: m/s (Vyper and Sinclair 0.0138, Grey Talon 0.0084). */
+  moveSpeedPerSpirit: number;
 };
 
 /**
@@ -77,6 +96,11 @@ export const HERO_PROFILE_STAT_DEFAULTS = {
   spiritResistPerBoon: 0,
   spiritResistPerSpirit: 0,
   healthRegenPerSpirit: 0,
+  bulletDamagePerSpirit: 0,
+  clipPerSpirit: 0,
+  bulletsPerSecondPerSpirit: 0,
+  heavyMeleePerSpirit: 0,
+  moveSpeedPerSpirit: 0,
 } as const satisfies Partial<HeroBaseStats>;
 
 /** Health regen at a spirit power: base + per spirit x spirit power. Pure. */

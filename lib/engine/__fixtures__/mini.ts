@@ -23,7 +23,7 @@ import {
 } from "../../heroStats";
 import { accuracyAtRank } from "../../heroProfile/accuracy";
 import { castsFromCooldown, LONG_FIGHT_SECONDS } from "../../heroProfile/fight";
-import { HERO_METRICS } from "../../heroProfile/metrics";
+import { HERO_METRICS, sustainedDps } from "../../heroProfile/metrics";
 import { lowerMedian, percentileRanks } from "../../heroProfile/percentiles";
 import { lateGameLean, rankRoster } from "../../heroProfile/profile";
 import type { Item } from "../../items";
@@ -6531,6 +6531,89 @@ console.log("\n39. HP scaling (Milestone O §3.1)");
       regen.boon0 === 2,
     "health regen adds spirit-scaled regen from boon spirit power",
     JSON.stringify(regen),
+  );
+}
+
+console.log("\n40. Spirit-scaled hero stats (Milestone O §2.2.1)");
+{
+  const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
+  const frozen = loadFrozen();
+
+  // a. Anchored to Valve: with no spirit-scaled gun stats, sustained DPS is
+  //    dpsWithReload x the per-bullet damage ratio for EVERY hero, including the
+  //    12 whose unanchored cycle lands 19-79% below Valve (Calico, Shiv, Yamato...).
+  let matched = 0;
+  let underCycle = 0;
+  let mismatch = "";
+  for (const s of frozen.roster) {
+    if (!(s.dpsWithReload > 0 && s.bulletDamage > 0)) continue;
+    const cycle = (s.bulletDamage * s.ammo) / (s.ammo / s.bulletsPerSecond + s.reloadTime);
+    if (cycle < s.dpsWithReload * 0.95) underCycle += 1;
+    const ratio =
+      (s.dpsWithReload * (s.bulletDamage + s.bulletDamagePerBoon * 30)) / s.bulletDamage;
+    const dps = sustainedDps(s, 30);
+    if (dps != null && near(dps, ratio, 1e-6)) matched += 1;
+    else mismatch += ` ${s.heroId}`;
+  }
+  assert(
+    mismatch === "" && matched === frozen.roster.filter((s) => s.dpsWithReload > 0).length,
+    "sustained DPS is anchored to Valve's for every hero",
+    `matched ${matched}, mismatched:${mismatch}`,
+  );
+  assert(
+    underCycle >= 10,
+    "the unanchored cycle undershoots Valve for the spread / per-shell weapons (why we anchor)",
+    `${underCycle} heroes more than 5% under`,
+  );
+
+  // b. Each spirit-scaled stat, on a hero with 1.1 spirit per boon (33 at boon 30),
+  //    against the same hero without it. Boon 0 has no spirit, so no change there.
+  const base: HeroBaseStats = {
+    ...mkHero(40, 700, 7),
+    bulletDamage: 25,
+    bulletDamagePerBoon: 0.4,
+    bulletsPerSecond: 3.81,
+    ammo: 25,
+    reloadTime: 2.5,
+    dpsWithReload: 60,
+    heavyMeleeDamage: 120,
+    spiritPowerPerBoon: 1.1,
+  };
+  const sp = 33;
+  const metric = (stats: HeroBaseStats, id: (typeof HERO_METRICS)[number]["id"], boon = 30) =>
+    HERO_METRICS.find((d) => d.id === id)?.value({ stats, accuracy: 0.5 }, boon) ?? null;
+  const solomon = { ...base, bulletDamagePerSpirit: 0.14 };
+  const warden = { ...base, bulletsPerSecondPerSpirit: 0.008 };
+  const haze = { ...base, clipPerSpirit: 0.5 };
+  const paige = { ...base, heavyMeleePerSpirit: 0.45 };
+  const vyper = { ...base, moveSpeedPerSpirit: 0.0138 };
+  const baseDps = sustainedDps(base, 30) ?? 0;
+  assert(
+    near(metric(solomon, "damagePerBullet") ?? 0, 25 + 0.4 * 30 + 0.14 * sp) &&
+      (sustainedDps(solomon, 30) ?? 0) > baseDps &&
+      near(metric(warden, "fireRate") ?? 0, 3.81 + 0.008 * sp) &&
+      (sustainedDps(warden, 30) ?? 0) > baseDps &&
+      near(metric(haze, "clipSize") ?? 0, 25 + 0.5 * sp) &&
+      (sustainedDps(haze, 30) ?? 0) > baseDps &&
+      near(metric(paige, "heavyMelee") ?? 0, (metric(base, "heavyMelee") ?? 0) + 0.45 * sp) &&
+      (metric(paige, "heavyMelee") ?? 0) > (metric(base, "heavyMelee") ?? 0) &&
+      near(metric(vyper, "moveSpeed") ?? 0, 7 + 0.0138 * sp),
+    "spirit-scaled damage, fire rate, clip, heavy melee and move speed apply at boon spirit power",
+  );
+  assert(
+    [solomon, warden, haze, paige, vyper].every(
+      (h) =>
+        near(sustainedDps(h, 0) ?? 0, sustainedDps(base, 0) ?? 0) &&
+        metric(h, "heavyMelee", 0) === metric(base, "heavyMelee", 0) &&
+        metric(h, "moveSpeed", 0) === metric(base, "moveSpeed", 0),
+    ),
+    "boon 0: no spirit power, so spirit-scaled stats add nothing",
+  );
+
+  // c. Landed DPS keeps the spirit-scaled gun: Solomon-like at 50% accuracy.
+  assert(
+    near(metric(solomon, "landedDps") ?? 0, (sustainedDps(solomon, 30) ?? 0) * 0.5),
+    "landed DPS is spirit-scaled sustained DPS x accuracy",
   );
 }
 

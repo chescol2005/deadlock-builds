@@ -9,6 +9,7 @@ import {
   heroResistAtBoon,
   type HeroBaseStats,
 } from "@/lib/heroStats";
+import { sustainedGunDps, type GunProfile } from "@/lib/engine/heroDamage";
 import type { Direction } from "./percentiles";
 
 /** Late game: about 30,000 souls spent is boon 30 (BOON_THRESHOLDS). */
@@ -38,14 +39,53 @@ const positive = (v: number): number | null => (v > 0 && Number.isFinite(v) ? v 
 const nonNegative = (v: number): number | null => (v >= 0 && Number.isFinite(v) ? v : null);
 
 /**
- * Valve's sustained DPS (reload included) at `boon`. Boon growth scales
- * per-bullet damage, so the reload uptime ratio in dpsWithReload carries over.
- * dpsWithReload 0 means no weapon data: unknown.
+ * The hero's gun at `boon`, with spirit-scaled gun stats applied at boon spirit
+ * power (§2.2.1: Solomon damage, Haze clip, Warden fire rate). Null when the
+ * weapon data is missing (dpsWithReload 0 = unknown).
+ *
+ * The per-clip overhead is recovered from the BASE stats exactly as the engine
+ * does (lib/engine/heroBasket.ts), so with no spirit-scaled gun stats the cycle
+ * reproduces Valve's dpsWithReload scaled by per-bullet damage.
+ */
+export function gunAt(stats: HeroBaseStats, boon: number): GunProfile | null {
+  const { bulletDamage, bulletsPerSecond: rate0, ammo: clip0, reloadTime: reload } = stats;
+  if (!(stats.dpsWithReload > 0 && bulletDamage > 0 && rate0 > 0 && clip0 > 0 && reload >= 0)) {
+    return null;
+  }
+  const baseCycle = (clip0 * bulletDamage) / stats.dpsWithReload;
+  const overhead = Math.max(0, baseCycle - clip0 / rate0 - reload);
+  const sp = boonSpiritPower(stats, boon);
+  return {
+    perShot: calculateStatsAtBoon(stats, boon).bulletDamage + stats.bulletDamagePerSpirit * sp,
+    shotsPerSecond: rate0 + stats.bulletsPerSecondPerSpirit * sp,
+    clip: clip0 + stats.clipPerSpirit * sp,
+    reload,
+    overhead,
+  };
+}
+
+/**
+ * Sustained DPS (reload included) at `boon`, on paper: every bullet lands.
+ *
+ * Anchored to Valve's dpsWithReload: Valve's base DPS x (cycle DPS at `boon` /
+ * cycle DPS at base). The cycle model only measures how much damage, clip and
+ * fire-rate changes help. It is NOT trusted for the absolute number: for 12 of
+ * 44 heroes (frozen roster, 2026-10-25) its base cycle lands 19-79% BELOW
+ * Valve's (Calico -79%, Shiv -62%, Yamato -55%: spread and per-shell-reload
+ * weapons, where bullets_per_second counts pellets but clip counts shots), so
+ * the overhead clamps at 0. Anchoring keeps every hero's base exact. The engine
+ * builds its GunProfile the same unanchored way (heroBasket.ts); fixing it there
+ * is a separate scoring PR (docs/milestone-o.md §8).
  */
 export function sustainedDps(stats: HeroBaseStats, boon: number): number | null {
-  if (!(stats.dpsWithReload > 0) || !(stats.bulletDamage > 0)) return null;
-  const atBoon = calculateStatsAtBoon(stats, boon);
-  return positive((stats.dpsWithReload * atBoon.bulletDamage) / stats.bulletDamage);
+  const gun = gunAt(stats, boon);
+  // Boon 0 has no spirit power: the base gun Valve's dpsWithReload describes.
+  const base = gunAt(stats, 0);
+  if (!gun || !base) return null;
+  const baseCycleDps = sustainedGunDps(base, {});
+  return baseCycleDps > 0
+    ? positive((stats.dpsWithReload * sustainedGunDps(gun, {})) / baseCycleDps)
+    : null;
 }
 
 /** Sustained DPS x the share of shots that land. */
@@ -125,7 +165,12 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     lead: false,
     rankAware: false,
     value: ({ stats }, b) =>
-      stats.bulletDamage > 0 ? positive(calculateStatsAtBoon(stats, b).bulletDamage) : null,
+      stats.bulletDamage > 0
+        ? positive(
+            calculateStatsAtBoon(stats, b).bulletDamage +
+              stats.bulletDamagePerSpirit * boonSpiritPower(stats, b),
+          )
+        : null,
   },
   {
     id: "fireRate",
@@ -134,7 +179,12 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     direction: "higher",
     lead: false,
     rankAware: false,
-    value: ({ stats }) => positive(stats.bulletsPerSecond),
+    value: ({ stats }, b) =>
+      stats.bulletsPerSecond > 0
+        ? positive(
+            stats.bulletsPerSecond + stats.bulletsPerSecondPerSpirit * boonSpiritPower(stats, b),
+          )
+        : null,
   },
   {
     id: "clipSize",
@@ -143,7 +193,10 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     direction: "higher",
     lead: false,
     rankAware: false,
-    value: ({ stats }) => positive(stats.ammo),
+    value: ({ stats }, b) =>
+      stats.ammo > 0
+        ? positive(stats.ammo + stats.clipPerSpirit * boonSpiritPower(stats, b))
+        : null,
   },
   {
     id: "reloadTime",
@@ -185,7 +238,12 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     lead: true,
     rankAware: false,
     value: ({ stats }, b) =>
-      stats.heavyMeleeDamage > 0 ? positive(calculateStatsAtBoon(stats, b).heavyMeleeDamage) : null,
+      stats.heavyMeleeDamage > 0
+        ? positive(
+            calculateStatsAtBoon(stats, b).heavyMeleeDamage +
+              stats.heavyMeleePerSpirit * boonSpiritPower(stats, b),
+          )
+        : null,
   },
   {
     id: "maxHealth",
@@ -281,7 +339,10 @@ export const HERO_METRICS: ReadonlyArray<HeroMetricDef> = [
     direction: "higher",
     lead: false,
     rankAware: false,
-    value: ({ stats }) => positive(stats.moveSpeed),
+    value: ({ stats }, b) =>
+      stats.moveSpeed > 0
+        ? positive(stats.moveSpeed + stats.moveSpeedPerSpirit * boonSpiritPower(stats, b))
+        : null,
   },
   {
     id: "boonSpiritPower",
