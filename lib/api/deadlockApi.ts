@@ -17,12 +17,21 @@ type HeroLevelUpgrades = {
   MODIFIER_VALUE_BASE_HEALTH_FROM_LEVEL?: number;
   MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL?: number;
   MODIFIER_VALUE_TECH_POWER?: number;
+  // Resist gained per boon, in percentage points (Dynamo 0.625 bullet).
+  MODIFIER_VALUE_BULLET_ARMOR_DAMAGE_RESIST?: number;
+  MODIFIER_VALUE_TECH_RESIST?: number;
 };
+
+// A stat that scales with another stat, keyed by the stat that grows
+// (verified live 2026-11-06: Venator {"ETechArmorDamageReduction":
+// {"scaling_stat":"ETechPower","scale":0.12178}, ...}; most heroes {}).
+type HeroScalingStats = Record<string, { scaling_stat?: string; scale?: number } | undefined>;
 
 type HeroV2Raw = {
   id: number;
   starting_stats?: HeroStartingStats;
   standard_level_up_upgrades?: HeroLevelUpgrades;
+  scaling_stats?: HeroScalingStats;
   items?: { weapon_primary?: string };
 };
 
@@ -86,6 +95,15 @@ function metres(sourceUnits: number | undefined): number {
 
 function statVal(stats: HeroStartingStats | undefined, key: string): number {
   return stats?.[key]?.value ?? 0;
+}
+
+/** Points of `stat` per point of spirit power, from scaling_stats; 0 if absent. */
+function perSpiritPower(scaling: HeroScalingStats | undefined, stat: string): number {
+  const entry = scaling?.[stat];
+  const scale = entry?.scale;
+  return entry?.scaling_stat === "ETechPower" && typeof scale === "number" && Number.isFinite(scale)
+    ? scale
+    : 0;
 }
 
 /**
@@ -165,6 +183,13 @@ export async function fetchHeroStats(heroId: number): Promise<HeroBaseStats> {
     // "EWeaponPower" — a different, always-0 stat that was mislabeled here.
     spiritPower: 0,
     spiritPowerPerBoon: lu.MODIFIER_VALUE_TECH_POWER ?? 0,
+    // Resists in percentage points (Milestone O §2.2; see HeroBaseStats).
+    bulletResist: statVal(ss, "bullet_armor_damage_reduction"),
+    bulletResistPerBoon: lu.MODIFIER_VALUE_BULLET_ARMOR_DAMAGE_RESIST ?? 0,
+    bulletResistPerSpirit: perSpiritPower(d.scaling_stats, "EBulletArmorDamageReduction"),
+    spiritResist: statVal(ss, "tech_armor_damage_reduction"),
+    spiritResistPerBoon: lu.MODIFIER_VALUE_TECH_RESIST ?? 0,
+    spiritResistPerSpirit: perSpiritPower(d.scaling_stats, "ETechArmorDamageReduction"),
   };
 }
 
