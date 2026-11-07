@@ -687,3 +687,7 @@ Not hero-profile work; it rides along with O.3 so it ships before the quota rese
 - **Later:** if optimization comes back (e.g. for large hero art), set `minimumCacheTTL`
   to 31 days, `formats: ["image/webp"]` and `qualities: [75]`, and opt in per image
   rather than globally.
+- **Speed Insights:** `@vercel/speed-insights` is installed, and `<SpeedInsights />` is
+  mounted in `app/layout.tsx`, so every route reports real-user Core Web Vitals on Vercel.
+  It sends nothing in local dev. That makes the effect of turning image optimization off
+  measurable. Fixture 16 asserts the root layout mounts it.

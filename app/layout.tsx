@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { SiteNav } from "@/app/components/SiteNav";
 import { BASE_OPEN_GRAPH, DEFAULT_OG_IMAGE, SITE_NAME, siteUrl } from "@/lib/seo";
 
@@ -34,6 +35,8 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <SiteNav />
         {children}
+        {/* Real-user Core Web Vitals on Vercel (docs/milestone-o.md §11). No-op locally. */}
+        <SpeedInsights />
       </body>
     </html>
   );
