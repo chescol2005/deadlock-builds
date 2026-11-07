@@ -14,7 +14,7 @@ import type { HeroAbilityRaw, UpgradeV2Raw } from "../../../api/deadlockApi";
 import type { HeroAccuracy, ItemAnalytics } from "../../../analyticsStore";
 import { mapHeroAbilities } from "../../../abilityCoefficients";
 import type { HeroAbility } from "../../../abilityCoefficients";
-import type { HeroBaseStats } from "../../../heroStats";
+import { HERO_RESIST_DEFAULTS, type HeroBaseStats } from "../../../heroStats";
 import { deriveUpgradesInto } from "../../../itemStore";
 import { normalizeItem } from "../../../itemNormalizer";
 import type { Item } from "../../../items";
@@ -83,9 +83,10 @@ export function loadFrozen(): FrozenData {
       id: h.id,
       name: h.name,
       heroAbilities: mapHeroAbilities(h.abilitiesRaw, h.heroItems),
-      heroBaseStats: h.baseStats,
+      heroBaseStats: { ...HERO_RESIST_DEFAULTS, ...h.baseStats },
     })),
-    roster: file.roster,
+    // Captured before Milestone O added resists: backfill 0 (see HERO_RESIST_DEFAULTS).
+    roster: file.roster.map((s) => ({ ...HERO_RESIST_DEFAULTS, ...s })),
     itemAnalytics: new Map(file.itemAnalytics.map((a) => [a.itemId, a])),
     heroAccuracy: new Map(
       file.heroAccuracy.map((a) => [a.heroId, { ...a, byRankTier: new Map(a.byRankTier) }]),

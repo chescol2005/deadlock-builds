@@ -15,7 +15,7 @@ import {
 } from "../../abilityCoefficients";
 import type { HeroAbilityRaw } from "../../api/deadlockApi";
 import { kitHealPerTrade, kitSelfDamagePerTrade, selfHealValue } from "../kitHeal";
-import type { HeroBaseStats } from "../../heroStats";
+import { HERO_RESIST_DEFAULTS, heroResistAtBoon, type HeroBaseStats } from "../../heroStats";
 import type { Item } from "../../items";
 import {
   ANCHOR_CANDIDATES,
@@ -822,6 +822,7 @@ function mkHero(heroId: number, maxHealth: number, moveSpeed: number): HeroBaseS
     moveSpeed,
     spiritPower: 0,
     spiritPowerPerBoon: 0,
+    ...HERO_RESIST_DEFAULTS,
   };
 }
 
@@ -6205,6 +6206,40 @@ console.log("\n36. Self-damage triggers (Milestone N)");
       JSON.stringify(valued(otherStacker, plain).categoryValues),
     "self-damage re-prices only stacks on damage taken",
   );
+}
+
+console.log("\n37. Hero resists (Milestone O §2.2)");
+{
+  const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
+  const base = mkHero(37, 700, 7);
+
+  // a. No resist data: 0 at every boon and spirit power (the common case).
+  const none = heroResistAtBoon(base, 30, 100);
+  assert(none.bullet === 0 && none.spirit === 0, "no resist fields: 0 resist");
+
+  // b. Per-boon growth, checked against deadlock.wiki/Damage_Resistance:
+  //    Dynamo +0.625 bullet per boon is 21.9 at max boon (35), 18.75 at boon 30.
+  const dynamo = { ...base, bulletResistPerBoon: 0.625 };
+  assert(
+    near(heroResistAtBoon(dynamo, 30, 0).bullet, 18.75) &&
+      near(heroResistAtBoon(dynamo, 35, 0).bullet, 21.875) &&
+      near(heroResistAtBoon(dynamo, 50, 0).bullet, 21.875),
+    "per-boon resist: Dynamo 18.75 at boon 30, capped at boon 35",
+  );
+
+  // c. Starting, per-boon and spirit-scaled resist ADD (wiki: "Boon and Spirit
+  //    scaling resistances stack additively"). Negative starting values are real.
+  const baba = { ...base, bulletResist: -7, spiritResist: 8, spiritResistPerSpirit: 0.05 };
+  const babaAt = heroResistAtBoon(baba, 30, 40);
+  assert(
+    near(babaAt.bullet, -7) && near(babaAt.spirit, 8 + 0.05 * 40),
+    "starting + spirit-scaled resist add; negative starting resist kept",
+    JSON.stringify(babaAt),
+  );
+
+  // d. Negative spirit power is treated as none.
+  const venator = { ...base, bulletResistPerSpirit: 0.12178 };
+  assert(heroResistAtBoon(venator, 0, -10).bullet === 0, "negative spirit power counts as 0");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

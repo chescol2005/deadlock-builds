@@ -43,9 +43,59 @@ export type HeroBaseStats = {
   // Spirit
   spiritPower: number;
   spiritPowerPerBoon: number;
+  // Resists, in PERCENTAGE POINTS (10 = 10%), Milestone O §2.2. Starting value
+  // from starting_stats (bullet_/tech_armor_damage_reduction; negative values are
+  // real: Pocket -15 spirit, Baba -7 bullet), growth per boon from
+  // standard_level_up_upgrades (Dynamo +0.625 bullet), and points per spirit power
+  // from scaling_stats (Venator 0.12178 on both). Most heroes have 0 everywhere.
+  // Verified against deadlock.wiki/Damage_Resistance on 2026-11-06: Dynamo
+  // 0.625 x 35 boons = 21.9 "At Max Boon"; boon and spirit-scaled resist stack
+  // ADDITIVELY with the starting value (other resist sources stack
+  // multiplicatively, see heroResistAtBoon).
+  bulletResist: number;
+  bulletResistPerBoon: number;
+  bulletResistPerSpirit: number;
+  spiritResist: number;
+  spiritResistPerBoon: number;
+  spiritResistPerSpirit: number;
 };
 
+/**
+ * Resist fields for stats captured before Milestone O (the frozen engine
+ * snapshot, lib/engine/__fixtures__/frozen/inputs.json). The engine does not read
+ * resists, so backfilling 0 keeps its baselines unchanged; nothing ranks resists
+ * from that snapshot.
+ */
+export const HERO_RESIST_DEFAULTS = {
+  bulletResist: 0,
+  bulletResistPerBoon: 0,
+  bulletResistPerSpirit: 0,
+  spiritResist: 0,
+  spiritResistPerBoon: 0,
+  spiritResistPerSpirit: 0,
+} as const satisfies Partial<HeroBaseStats>;
+
 const MAX_BOON = 35;
+
+/**
+ * The hero's own bullet and spirit resist, in percentage points, at a boon
+ * count and spirit power: starting + per boon x boons + per spirit x spirit
+ * power, added together (deadlock.wiki/Damage_Resistance: "Boon and Spirit
+ * scaling resistances stack additively"). Items are not included; item resist
+ * stacks multiplicatively on top of this, 1 - (1 - a)(1 - b). Pure.
+ */
+export function heroResistAtBoon(
+  base: HeroBaseStats,
+  heroLevel: number,
+  spiritPower: number,
+): { bullet: number; spirit: number } {
+  const b = Math.min(Math.max(0, heroLevel), MAX_BOON);
+  const sp = Math.max(0, spiritPower);
+  return {
+    bullet: base.bulletResist + base.bulletResistPerBoon * b + base.bulletResistPerSpirit * sp,
+    spirit: base.spiritResist + base.spiritResistPerBoon * b + base.spiritResistPerSpirit * sp,
+  };
+}
 
 export function calculateStatsAtBoon(base: HeroBaseStats, heroLevel: number): HeroBaseStats {
   const b = Math.min(Math.max(0, heroLevel), MAX_BOON);
