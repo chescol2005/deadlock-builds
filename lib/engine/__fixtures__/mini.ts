@@ -35,6 +35,7 @@ import {
 } from "../../heroProfile/abilities";
 import { ABILITY_METRIC_IDS, rankAbilities } from "../../heroProfile/abilityRanks";
 import { heroRankView } from "../../heroProfile/view";
+import { COMPARE_COLUMNS, compareRows, sortCompareRows } from "../../heroProfile/compare";
 import { METRIC_COPY, ordinal, rankLabel } from "../../heroProfile/metricCopy";
 import {
   cdrImpact,
@@ -7111,6 +7112,96 @@ console.log("\n42. Hero rank view for the hero page (Milestone O.4)");
   assert(
     HERO_METRICS.every((d) => METRIC_COPY[d.id].help.length > 20),
     "every metric has plain-English help copy",
+  );
+}
+
+console.log("\n43. Roster compare table (Milestone O.5)");
+{
+  const roster = loadFrozenAbilityRoster();
+  const frozen = loadFrozen();
+  const profiles = rankRoster({
+    roster: roster.heroes.map((h) => h.baseStats),
+    accuracy: frozen.heroAccuracy,
+    rankTier: null,
+    kits: new Map(roster.heroes.map((h) => [h.id, kitAtT3(h.id, h.abilitiesRaw, h.heroItems)])),
+  });
+  const heroes = roster.heroes.map((h) => ({ id: h.id, name: h.name, icon: null }));
+  const rows = compareRows(profiles, heroes);
+  const ids = (rs: ReadonlyArray<{ heroId: number }>) => rs.map((r) => r.heroId).join();
+
+  // a. Columns: the lead metrics plus the long-fight spirit lead; three simplified.
+  const leads = HERO_METRICS.filter((d) => d.lead).map((d) => d.id);
+  assert(
+    leads.every((id) => COMPARE_COLUMNS.some((c) => c.id === id)) &&
+      COMPARE_COLUMNS.some((c) => c.id === "kitSpiritLong") &&
+      COMPARE_COLUMNS.filter((c) => c.simplified)
+        .map((c) => c.id)
+        .join() === "landedDps,kitSpiritShort,maxHealth",
+    "compare columns: every lead metric plus the long fight; gun, spirit and health in the simplified view",
+  );
+
+  // b. One row per hero, carrying the profile's own values, ranks and lean.
+  assert(
+    rows.length === roster.heroes.length &&
+      rows.every((r) => {
+        const p = profiles.get(r.heroId);
+        return (
+          p != null &&
+          r.lean === p.lean &&
+          COMPARE_COLUMNS.every(
+            (c) =>
+              r.cells[c.id].value === p.metrics[c.id].value &&
+              r.cells[c.id].rank === (p.metrics[c.id].rank?.rank ?? null),
+          )
+        );
+      }),
+    "compareRows: one row per hero, the profile's values, ranks and lean unchanged",
+  );
+
+  // c. Sorting: best first by value, unknowns last either way, ties by hero id.
+  const byDps = sortCompareRows(rows, "landedDps", "best");
+  const known = byDps.filter((r) => r.cells.landedDps.value != null);
+  let ordered = true;
+  for (let i = 1; i < known.length; i++) {
+    const a = known[i - 1].cells.landedDps.value ?? 0;
+    const b = known[i].cells.landedDps.value ?? 0;
+    if (a < b || (a === b && known[i - 1].heroId > known[i].heroId)) ordered = false;
+  }
+  const spiritWorst = sortCompareRows(rows, "kitSpiritShort", "worst");
+  const solomonLast = spiritWorst[spiritWorst.length - 1];
+  assert(
+    ordered &&
+      byDps[0].cells.landedDps.rank === 1 &&
+      solomonLast.cells.kitSpiritShort.value === null &&
+      sortCompareRows(rows, "kitSpiritShort", "best").at(-1)?.cells.kitSpiritShort.value === null,
+    "sortCompareRows: best value first, ties by hero id, an unknown (Solomon's kit) last in both orders",
+  );
+  const names = sortCompareRows(rows, "name", "best").map((r) => r.name);
+  const leanSorted = sortCompareRows(rows, "lean", "best");
+  const leanOrder = ["gun", "hybrid", "spirit", "flexible"];
+  const leanRanks = leanSorted.flatMap((r) => (r.lean ? [leanOrder.indexOf(r.lean)] : []));
+  assert(
+    names.every((n, i) => i === 0 || names[i - 1].localeCompare(n) <= 0) &&
+      leanRanks.every((v, i) => i === 0 || leanRanks[i - 1] <= v) &&
+      leanSorted.at(-1)?.lean === null,
+    "sortCompareRows: names A to Z, leans grouped gun / hybrid / spirit / flexible, no lean last",
+  );
+
+  // d. Deterministic: shuffled input sorts to the same order, for every key.
+  const shuffled = [...rows].reverse();
+  shuffled.push(shuffled.shift() as (typeof rows)[number]);
+  const keys = ["name", "lean", ...COMPARE_COLUMNS.map((c) => c.id)] as const;
+  assert(
+    keys.every((k) =>
+      (["best", "worst"] as const).every(
+        (o) => ids(sortCompareRows(shuffled, k, o)) === ids(sortCompareRows(rows, k, o)),
+      ),
+    ) && ids(compareRows(profiles, [...heroes].reverse())) === ids(rows),
+    "compare table: input order never changes rows or any sort",
+  );
+  assert(
+    JSON.stringify(JSON.parse(JSON.stringify(rows))) === JSON.stringify(rows),
+    "compareRows: plain data, survives a JSON round trip (server to client)",
   );
 }
 

@@ -58,7 +58,11 @@ import {
 } from "@/app/match/matchMessages";
 import { runStarterBuildFixtures } from "./starterBuildFixtures";
 import { fetchVisibleHeroes } from "@/lib/heroApi";
-import { getRosterProfileInputs, heroRankViewFrom } from "@/lib/heroProfileStore";
+import {
+  getRosterProfileInputs,
+  heroRankViewFrom,
+  rosterCompareFrom,
+} from "@/lib/heroProfileStore";
 import { HERO_METRICS } from "@/lib/heroProfile/metrics";
 import { parseRankParam } from "@/lib/heroProfile/view";
 import { BIG_ITEM_COST, buildCoachContext, VITALITY_ENOUGH_SOULS } from "@/lib/coachContext";
@@ -828,6 +832,8 @@ async function run() {
     "app/match/components/LaneBenchmarkPanel.tsx",
     // Hero roster profile (Milestone O.4).
     "app/heroes/components/HeroRosterRankPanel.tsx",
+    // Roster compare table (Milestone O.5).
+    "app/heroes/compare/components/HeroCompareTable.tsx",
   ];
 
   for (const relPath of SIMPLIFIED_PANELS) {
@@ -859,6 +865,8 @@ async function run() {
     // Hero roster profile (Milestone O.4).
     "app/heroes/components/HeroRosterRankPanel.tsx",
     "app/heroes/components/HeroRosterRankSection.tsx",
+    "app/heroes/components/ProfileRankPicker.tsx",
+    "app/heroes/compare/components/HeroCompareTable.tsx",
   ];
 
   for (const relPath of TOOLTIP_ADOPTERS) {
@@ -3267,6 +3275,32 @@ async function run() {
         heroPage.includes("getRosterProfileInputs") &&
         heroPage.includes("parseRankParam"),
       "/heroes/[id] renders the roster rank section, ranked server-side at ?rank=",
+    );
+
+    // O.5: the compare table.
+    const compare = rosterCompareFrom(inputs, null);
+    const compareTop = rosterCompareFrom(inputs, top);
+    assert(
+      compare.length === n &&
+        new Set(compare.map((r) => r.heroId)).size === n &&
+        compare.every((r) => r.name.length > 0),
+      `/heroes/compare: one named row per live roster hero (${compare.length})`,
+    );
+    assert(
+      compare.some((r, i) => r.cells.landedDps.value !== compareTop[i]?.cells.landedDps.value) &&
+        compare.every((r, i) => r.cells.maxHealth.value === compareTop[i]?.cells.maxHealth.value),
+      "/heroes/compare at a rank: landed DPS moves, health doesn't",
+    );
+    const comparePage = readFileSync("app/heroes/compare/page.tsx", "utf-8");
+    const gridClient = readFileSync("app/heroes/HeroesGridClient.tsx", "utf-8");
+    const rankSection = readFileSync("app/heroes/components/HeroRosterRankSection.tsx", "utf-8");
+    assert(
+      comparePage.includes("rosterCompareFrom") &&
+        comparePage.includes("parseRankParam") &&
+        STATIC_ROUTES.includes("/heroes/compare") &&
+        gridClient.includes('href="/heroes/compare"') &&
+        rankSection.includes("/heroes/compare"),
+      "/heroes/compare ranks server-side at ?rank=, is in the sitemap, and is linked from /heroes and every hero page",
     );
   }
 

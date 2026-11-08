@@ -214,6 +214,7 @@ export function guideMetadata(href: string, title: string): Metadata {
 export const STATIC_ROUTES: ReadonlyArray<string> = [
   "/",
   "/heroes",
+  "/heroes/compare",
   "/items",
   "/build",
   "/match",
