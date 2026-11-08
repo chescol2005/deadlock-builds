@@ -695,6 +695,42 @@ no lead metric has `n < 30`. That catches a broken fetch that drops most of the 
   - engine harness section 42 (6 checks): view shape, the JSON round trip, CDR rows and
     rank labels.
 
+**O.5** (`/heroes/compare`; `lib/heroProfile/compare.ts`, `HeroCompareClient` +
+`HeroCompareTable`):
+
+- **The table.** One row per roster hero. Columns: Hero, Lean, and the lead metrics (landed
+  DPS, ability spirit scaling short and long, max health, heavy melee). Each cell shows the
+  rank and a percentile bar; Advanced adds the raw value, the long-fight note and "est.
+  accuracy".
+- **Simplified view** shows only gun, spirit (short fight) and health.
+- **Sorting.** The server ranks at `?rank=`, the same shared `ProfileRankPicker` as the hero
+  page, and the client only sorts. Every column header sorts; a second click reverses.
+  Unknown values sort last in both directions, and ties break by hero id, so input order
+  never changes the result (§6 Q4).
+- **Linked from** the `/heroes` index and every hero's rank section (carrying `?rank=`), and
+  listed in the sitemap (`STATIC_ROUTES`).
+- **Live check, 2026-11-07, production build:**
+  - 44 rows, server render 0.3–0.9 s;
+  - All ranks: 9 heroes lean gun, 8 spirit, 4 hybrid, the rest flexible. At Eternus it's 8
+    gun, 7 spirit, 4 hybrid;
+  - an invalid `?rank=` falls back to All ranks.
+- **Fixtures:**
+  - engine harness section 43 (6 checks): columns, row fidelity, sort order with unknowns
+    last, name and lean order, shuffle-invariance for every key, the JSON round trip;
+  - app harness Fixture 25 (+3): one named row per live hero, rank moves landed DPS but not
+    health, page wiring, links and sitemap;
+  - Fixture 9 now includes the table.
+- **Shared code** pulled out of O.4: `ProfileRankPicker` and `profileDisplay.tsx` (the
+  percentile bar and lean colours).
+
+**Milestone O is built (O.0–O.5).** Open before it closes, for later in the milestone (the
+user, 2026-11-07):
+
+- Pain Battery's cast model (§6 Q10);
+- the in-game gate checks (§6 Q5).
+
+The scoring follow-ups in §8 are separate PRs.
+
 ## 11. Side item: Vercel Image Optimization off (2026-11-07)
 
 Not hero-profile work; it rides along with O.3 so it ships before the quota resets.

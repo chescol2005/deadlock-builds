@@ -15,6 +15,7 @@ import { rankAbilities } from "@/lib/heroProfile/abilityRanks";
 import { cdrLadder, type CdrSetup } from "@/lib/heroProfile/cdr";
 import { rankRoster } from "@/lib/heroProfile/profile";
 import { heroRankView, type HeroRankView } from "@/lib/heroProfile/view";
+import { compareRows, type CompareHero, type CompareRow } from "@/lib/heroProfile/compare";
 
 export type RosterProfileInputs = {
   roster: HeroBaseStats[];
@@ -24,6 +25,8 @@ export type RosterProfileInputs = {
   /** Rank tiers with accuracy data (tier > 0), for the picker. */
   rankTiers: RankTierRaw[];
   cdrSetups: CdrSetup[];
+  /** Name and small icon per roster hero, for the compare table. */
+  heroes: CompareHero[];
 };
 
 async function loadKit(heroId: number): Promise<AbilityT3[] | null> {
@@ -51,6 +54,13 @@ export async function getRosterProfileInputs(): Promise<RosterProfileInputs> {
     getItems(),
   ]);
   const roster = heroes.flatMap((h) => (h.baseStats ? [h.baseStats] : []));
+  const heroList: CompareHero[] = heroes
+    .filter((h) => h.baseStats)
+    .map((h) => ({
+      id: h.id,
+      name: h.name,
+      icon: h.images?.icon_image_small_webp ?? h.images?.icon_image_small ?? null,
+    }));
   const kitList = await Promise.all(roster.map((s) => loadKit(s.heroId)));
   const kits = new Map<number, AbilityT3[]>();
   roster.forEach((s, i) => {
@@ -67,6 +77,7 @@ export async function getRosterProfileInputs(): Promise<RosterProfileInputs> {
 
   return {
     roster,
+    heroes: heroList,
     kits,
     accuracy,
     rankTiers: tiers.filter((t) => t.tier > 0).sort((a, b) => a.tier - b.tier),
@@ -103,4 +114,18 @@ export function heroRankViewFrom(
     cdrSetups: inputs.cdrSetups,
     rankTier,
   });
+}
+
+/** Every roster hero ranked at `rankTier`, as compare-table rows (O.5). */
+export function rosterCompareFrom(
+  inputs: RosterProfileInputs,
+  rankTier: number | null,
+): CompareRow[] {
+  const profiles = rankRoster({
+    roster: inputs.roster,
+    accuracy: inputs.accuracy,
+    rankTier,
+    kits: inputs.kits,
+  });
+  return compareRows(profiles, inputs.heroes);
 }

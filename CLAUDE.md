@@ -488,11 +488,13 @@ lib/heroProfile/              — hero roster percentiles (Milestone O, docs/mil
                                 at boon 30, Valve-anchored gun DPS), abilities.ts (abilities at
                                 T3 + cast gates, castsInFight), abilityRanks.ts, cdr.ts (live
                                 CDR ladder), profile.ts (rankRoster, lean), view.ts (plain data
-                                for the page), metricCopy.ts (plain-English copy). Pure; engine
-                                harness sections 37–42, snapshot frozen/abilityRoster.json
+                                for the page), metricCopy.ts (plain-English copy), compare.ts (the
+                                /heroes/compare rows + sort). Pure; engine harness sections 37–43,
+                                snapshot frozen/abilityRoster.json
 lib/heroProfileStore.ts       — the roster profile's ONE server loader (live roster, kits,
                                 accuracy, rank tiers, CDR items); /heroes/[id] ranks at ?rank=
-                                (HeroRosterRankSection; Fixture 25)
+                                and /heroes/compare (HeroRosterRankSection, HeroCompareClient,
+                                shared ProfileRankPicker; Fixture 25)
 app/components/                — cross-route shared UI (Milestone C):
   Tooltip.tsx                 — Tooltip, InfoTooltip — sanctioned title= replacement
   AudienceTabs.tsx             — reusable two(+)-audience tab switcher

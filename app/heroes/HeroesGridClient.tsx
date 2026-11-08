@@ -138,6 +138,13 @@ export default function HeroesGridClient({ heroes }: { heroes: DeadlockHeroListI
 
       <p style={{ opacity: 0.8 }}>Loaded {heroes.length} heroes from the Deadlock Assets API.</p>
 
+      <Link
+        href="/heroes/compare"
+        className="mt-2 inline-block text-sm font-medium text-amber-400 hover:text-amber-300"
+      >
+        Compare every hero late game →
+      </Link>
+
       <div
         style={{ marginTop: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}
       >
