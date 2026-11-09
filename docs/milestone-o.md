@@ -752,3 +752,261 @@ Not hero-profile work; it rides along with O.3 so it ships before the quota rese
   mounted in `app/layout.tsx`, so every route reports real-user Core Web Vitals on Vercel.
   It sends nothing in local dev. That makes the effect of turning image optimization off
   measurable. Fixture 16 asserts the root layout mounts it.
+
+---
+
+<!-- Appended 2026-11-09: an earlier, separate Milestone O draft (2026-11-06), before O was
+     scoped to hero roster percentiles. Not approved; kept for the Victor self-damage work. -->
+
+## Milestone O: Victor's self-damage (Aura of Suffering, Jumpstart)
+
+**Status:** DRAFT 2026-11-06, for the user's sign-off (§5). No engine code until then.
+
+Per "Testing Expectations", change this doc first if an expectation needs to change.
+
+**Scope:** Victor's own health cost as an input to item value, on top of Milestone N's
+self-damage model (`docs/milestone-n.md`). Covers:
+
+- the ability parser (`lib/abilityCoefficients.ts`: the aura's damage, the self-damage table,
+  Jumpstart's heal);
+- the trade model for a ramping toggle (`lib/engine/heroBasket.ts`, `lib/engine/heroDamage.ts`);
+- the self-damage model (`lib/engine/kitHeal.ts`);
+- spirit resist's self-damage saving (`lib/engine/heroFight.ts`);
+- an engine fixture.
+
+It does not cover the mid soul budget that keeps Infuser out of Victor's mid build (§3.2);
+that is the same blocker as Berserker for Lady Geist, and gets its own use cases.
+
+### 1. The problem
+
+Victor's kit hurts him, and the engine doesn't know it:
+
+- **Aura of Suffering** damages him for 70% of what it deals, whether or not anyone is in
+  range. It is pure damage: spirit resist doesn't reduce it.
+- **Jumpstart** costs him 15% of his current health (pure damage), then gives him a heal
+  over 4.5s.
+- Both stack **Berserker**, and lifesteal (**Infuser**, Spirit Lifesteal) pays the aura's
+  cost back.
+
+What the engine does today:
+
+- **The aura's damage is about 2× too low.** It reads Min DPS (13 + 0.15 × spirit power),
+  counts it for the full 8s duration, and counts two casts per 10s trade (the toggle's 2s
+  cooldown is treated like a spell's).
+  - That is 1.6 × Min DPS: about 21 DPS at 0 spirit power, 33 at 50.
+  - The real aura ramps to Max DPS (§2.1): about 40 at 0 spirit power, 65 at 50, averaged
+    over a 10s trade.
+- **No self-damage for Victor.** `SelfDamagePercentage` (aura) and `CurrentHealthPercentDamage`
+  (Jumpstart) are not in `KIT_SELF_DAMAGE`, so Berserker gets the roster-average 5 of 10
+  stacks and lifesteal is priced only against enemy damage.
+- **Jumpstart's cost isn't counted.** Its heal (`TotalHealthRegen`, a flat 100 + 1.2 ×
+  spirit power per the API and wiki) is counted as kit healing, but the 15% hit that comes
+  with it is not. So the engine sees Jumpstart as a free heal, and Berserker never stacks
+  from it.
+- **The aura's T2 upgrade is lost.** The API upgrade key is `MinDps` (lower-case) against
+  the property `MinDPS`, so T2's +6 Min DPS doesn't apply. Its +34 Max DPS doesn't either,
+  since Max DPS isn't read at all (data-verifier, 2026-11-06).
+
+47% of Victor's players buy Infuser in mid (`heroPhaseItems.json`, P5). The engine's mid
+build doesn't (§3.2).
+
+### 2. Data
+
+#### 2.1 In-game tests (the user, 2026-11-05, sandbox)
+
+Combat log with Merge Events off. One dummy unless noted.
+
+| Test                                 | Max HP        | Setup                       | Result                                                                   |
+| ------------------------------------ | ------------- | --------------------------- | ------------------------------------------------------------------------ |
+| Aura, Infuser owned, active off      | 1,236         | 8 spirit power              | Dummy ticks 3 → 10 over ~4.25s; self 82 vs dummy 119 (0.69)              |
+| Aura, Infuser active on              | 1,236         | +30 spirit power            | Dummy ticks 5 → 12 over ~3s; self 75 vs dummy 108 (0.69); HP stayed full |
+| Aura, Spirit Resilience              | 1,268         | 37% spirit resist           | First self ticks 2 / 4 / 3 against dummy 4 / 4 / 5                       |
+| Aura, Bullet Resilience              | 1,268         | 10% spirit resist           | First self ticks 2 / 3 / 4 against dummy 4 / 4 / 5 (the same 9 / 13)     |
+| Aura, 3 targets (dummy + 2 Infernus) | 1,268 / 1,367 | Berserker owned             | Self ticks the same as one target; each target takes its own tick        |
+| Aura, nobody in range                | 1,367         | Berserker owned             | Self ticks 2 → 7 over 4s, same ramp; Berserker buff ~3s in               |
+| Jumpstart                            | 2,509         | Berserker owned, late build | Self-hit 377; then heal ticks of 1–2 HP; Berserker buff on hit           |
+| Aura held 12.5s (2026-11-06)         | 800           | No items, 0 spirit power    | Dummy 3 → 14–15 per tick by ~7.75s, then flat; self 3 → 10–11, then flat |
+| Aura off at 3s, on again 2.3s later  | 800           | No items, 0 spirit power    | Before: dummy 7 per tick; after: dummy 4, self 2 (the ramp restarts)     |
+
+What the tests establish:
+
+- **The aura ramps** linearly from Min DPS (13 + 0.15 × spirit power) to Max DPS
+  (58 + 0.72 × spirit power) over its 8s duration (`AbilityDuration`), ticking every 0.25s.
+  Both runs fit the line: at +30 spirit power, Min = 17.5 → 4.4 per tick (log: 5), and
+  2.5s in ≈ 39 DPS (log: 10 per tick).
+  - **It holds at Max DPS** after the ramp. At 0 spirit power: Max 58 → 14.5 per tick
+    (log: 14 / 15 alternating from ~7.75s to 12.5s); self 70% × 14.5 = 10.2 (log: 10 / 11).
+  - **Toggling it off resets the ramp.** On again after the 2s toggle cooldown, it restarts
+    at Min (dummy 4, self 2), not where it stopped (7).
+- **The aura's self-damage is 70% of one target's tick** (`SelfDamagePercentage` 70):
+  - it happens with nobody in range;
+  - it does not grow with the number of targets;
+  - **spirit resist doesn't reduce it** (37% and 10% gave the same ticks). Lady Geist's and
+    Deadman Danny's self-damage is reduced by spirit resist; Victor's aura is not.
+- **Infuser's passive 15% spirit lifesteal** heals from the damage dealt to the dummy only:
+  18 HP healed, 15% × 119 = 17.9. Counting his self-damage too would give about 30.
+- **Infuser's active** (75% + the passive 15% = 90%) is more than the aura's 70% cost, so
+  he stays at full health against one target.
+- **Lifesteal grows with targets; the self-damage doesn't.** Two or three enemies in the aura
+  make it heal him, not cost him.
+- **Jumpstart** hits him for 15% of his current health (`CurrentHealthPercentDamage` 15:
+  15% × 2,509 = 376.4; log 377). Berserker's buff appears on the same tick: 377 / 120 ≈ 3
+  stacks at once. A heal follows over its 4.5s duration. The visible log stops before the heal
+  ends, so its total is unknown (§2.2).
+
+#### 2.2 Still open from the tests
+
+1. **Berserker's first stack came early.** The API says a stack per 120 damage taken
+   (`DamageToStack`). With nobody in range, the buff showed up after about 52 aura
+   self-damage, and after about 21 in the 3-target run. The log was filtered to Attacker:
+   Victor, so damage from the shooting dummy in the background would not show. Proposed
+   rerun: Target: Victor, Attacker: All, and the stack count at the end of 8s.
+2. **Jumpstart's heal: a flat amount, or the hit given back?** The API and wiki say a flat
+   100 + 1.2 × spirit power (+70 at T2, +0.9 × spirit power at T3). With a late build's
+   upgrades and ~100 spirit power that is about 380, close to the 377 hit, so the log can't
+   tell them apart. Proposed test: Jumpstart with no upgrades and little spirit power at
+   high health, and the heal's total. About 100 means flat, about 15% of health means the
+   hit given back. Spirit resist doesn't need a test: the wiki says the hit is pure damage.
+3. ~~Does the aura stay at Max DPS after 8s, and does the ramp reset?~~ **Answered
+   2026-11-06** (§2.1): it holds at Max, and toggling it off resets it. Whether it also
+   resets when enemies leave the radius is untested; the self-damage continues with nobody
+   in range, so the model assumes the ramp continues too.
+4. **Pain Battery** stores damage Victor takes (`BatteryGenerationPercent` 100,
+   `StoredDamageHealthPercentRequired` 40). If his own aura damage charges it, that is one
+   more reason he keeps the aura on. Not in O's scope unless the user wants it.
+
+#### 2.3 API and wiki
+
+`data-verifier` (2026-11-06; deadlock.wiki Victor, Berserker and Infuser pages; live API).
+The MCP patch list was unavailable, so patch history comes from the wiki.
+
+- **Aura:**
+  - The values are confirmed. The API marks it a toggle (`START_COOLDOWN_ON_TOGGLE_OFF`).
+  - The description says the damage "continues to increase the longer the ability is
+    channeled, up to a maximum". The ramp time and shape aren't documented; §2.1 is the only
+    evidence for a linear 8s ramp.
+  - **The wiki says the self-damage is pure damage**, not reduced by spirit resist. That
+    matches the user's test.
+  - Neither source says what the 70% is a percent of, or what `SelfDPS` 15 means.
+  - Upgrades: T1 slow, T2 Min DPS +6 / Max DPS +34, T3 +16% incoming damage and +1m
+    radius. None changes the self-damage.
+- **Jumpstart:**
+  - The hit is pure damage (wiki).
+  - `TotalHealthRegen` is flat HP (wiki: "100 Total HP Regen while the buff is active";
+    spirit scaling 1.2). Upgrades: T2 heal +70 and cooldown −8; T3 a second charge and +0.9
+    spirit scaling on the heal.
+- **Berserker:**
+  - API values are confirmed. The wiki: stacks count damage before resists.
+  - Its "10 damage per stack" disagrees with the API's 120 and is unexplained.
+  - Nothing documents self-damage counting; the user's logs do.
+  - No patch since 2025-07-29.
+- **Infuser:**
+  - Values are confirmed.
+  - The 2026-10-30 patch raised active lifesteal 70% → 75%, passive 13% → 15% and spirit
+    power 6 → 8. The live API already has these; the frozen inputs predate the patch.
+  - Neither source says whether active and passive stack, or whether lifesteal counts
+    self-damage. The user's logs say they stack (about 90%) and it doesn't.
+
+API values (2026-11-06, `/v1/assets/items/by-hero-id/66`):
+
+- Aura of Suffering (`ability_frank_painaura`): `MinDPS` 13 (spirit 0.15), `MaxDPS` 58
+  (spirit 0.72), `SelfDPS` 15 (meaning unknown), `SelfDamagePercentage` 70, `TickRate` 0.25,
+  `AbilityDuration` 8, `AbilityCooldown` 2, `Radius` 8m.
+- Jumpstart (`ability_frank_selfzap`): `CurrentHealthPercentDamage` 15, `TotalHealthRegen`
+  100, `AbilityDuration` 4.5, `AbilityCooldown` 30, `BonusMoveSpeed` 3m.
+- Infuser (`upgrade_infuser`, 6,400): active `AbilityLifestealPercentHero` 75 for 7s on a
+  30s cooldown; `AbilityLifestealPercentHeroPassive` 15; `BonusSpirit` 30 (active);
+  `TechPower` 8, `BonusHealth` 100, `TechResist` 10.
+- Berserker: `DamageToStack` 120, `WeaponPowerPerStack` 7, `MaxStacks` 10, `DamageDuration` 10.
+
+### 3. What changes, and expected effect
+
+#### 3.1 Candidate model (O1)
+
+- **The aura's damage per trade:** the trade starts with the aura at Min DPS. The aura
+  ramps for its 8s duration, then holds at Max DPS for the rest of the 10s trade (§2.1).
+  One activation per trade, not two: toggling resets the ramp, so a player keeps it on.
+  - Average DPS over a 10s trade = (8 × (Min + Max) / 2 + 2 × Max) / 10.
+  - 0 spirit power: 40.0 (engine today 20.8). 50 spirit power: 64.6 (today 32.8).
+- **The aura's self-damage:** 70% of that, not reduced by spirit resist. About 280 HP per
+  trade at 0 spirit power: 23% of a 1,236 HP Victor. It ramps over the trade, so it feeds
+  Berserker's `later` term (N's ramp), not `start`.
+- **The aura's upgrades:** T2's Min / Max DPS bonuses apply to the ramp, matched without
+  regard to the key's case.
+- **Jumpstart's self-damage:** 15% of current health once per trade (30s cooldown), at
+  trade start, so it feeds Berserker's `start` term. Pure damage.
+  - Its heal stays as parsed (flat) unless §2.2 question 2 shows the hit is given back.
+    Either way the kit now pays the hit, so Jumpstart is no longer a free heal.
+- **The self-damage table** gets a "spirit resist applies" field per ability: yes for
+  Malice, Essence Bomb and Close The Deal (N's tests), no for the aura and Jumpstart (pure
+  damage, wiki and the user's test).
+- **Lifesteal** is unchanged: a share of the damage dealt, which the aura now prices
+  correctly. Pricing it against the self-damage (Infuser "cancels" the aura) comes for free
+  through the larger damage dealt; no new term.
+
+#### 3.2 Expected effect, and what it won't fix
+
+- Victor's spirit damage need and the value of spirit power, spirit lifesteal and Berserker
+  go up; spirit resist goes down slightly (no saving on the aura).
+- **Infuser in his mid build is not expected.** At boon 16 it already ranks 7th of 156 for
+  the first pick, and the "save for Infuser" plan loses by 39%. The mid build spends its
+  budget on 1,600-soul items driven by the phase term (Enduring Speed, Spirit Lifesteal,
+  Mystic Vulnerability, Healing Booster). That is the mid budget question, like Berserker
+  for Lady Geist (`docs/milestone-n.md` §3.1).
+- **Recorded builds:** Victor is not one of the 8 reference heroes, so no recorded build is
+  expected to change from the aura or Jumpstart. The resist field keeps N's three abilities
+  exactly as they are. O1 measures this on a scratch copy before asking to ship.
+
+### 4. Acceptance criteria (O1, if approved)
+
+#### 4.1 Engine
+
+- **Parse** (the `KIT_SELF_DAMAGE` table, with the source cited per entry):
+  - Aura of Suffering: 70% of its own damage, spirit resist does not apply, ramping.
+  - Jumpstart: 15% of current health, spirit resist does not apply.
+  - Malice, Essence Bomb, Close The Deal: unchanged, spirit resist applies.
+  - Bebop's Sticky Bomb stays unpriced (untested).
+- **Ramping toggle:** a damage ability with a Min / Max DPS pair ramps over its duration and
+  counts once per trade. Today Victor's aura is the only one in the roster; the parser
+  lists any other match in a comment rather than guessing.
+- **The aura's T2** (`MinDps` / `MaxDPS`) applies; a fixture checks the case-insensitive
+  match.
+- **Jumpstart's heal** is flat (as today) unless §2.2 question 2 says otherwise. Its hit is
+  now counted.
+- **Berserker's stacks:** the aura's self-damage ramps into `later`; Jumpstart's goes into
+  `start`. Today's 5 of 10 for any hero with no self-damage, exactly.
+- **Spirit resist** saves only the self-damage it applies to: 0 on the aura, N's numbers
+  unchanged for Lady Geist and Deadman Danny.
+- **Engine fixture (new section 37)**, from §2.1's numbers:
+  - the ramp average: 40.0 DPS at 0 spirit power, 64.6 at 50;
+  - the self-damage: 70% of it, unchanged by spirit resist;
+  - Jumpstart: 376.4 at 2,509 HP, unchanged by spirit resist;
+  - the aura's T2 raises both Min and Max DPS;
+  - Berserker: neutral with no self-damage, higher for Victor, capped;
+  - N's section 36 still passes unchanged.
+
+#### 4.2 Live guards
+
+- M1, M3, O2, P4, P5, L-L1, L-L2 and K-L1 hold.
+- Recorded builds: no change expected (§3.2). Any change is listed and reviewed.
+- Victor's probe at boon 5 / 16 / 29, before and after, in the PR body.
+
+### 5. Open questions for sign-off
+
+1. **Ship the aura and Jumpstart model (§3.1)?** **Recommendation: yes.** The ramp after
+   8s is answered (§2.1). The other §2.2 questions don't block it:
+   - Berserker's threshold: use the API's 120 until the rerun shows otherwise.
+   - Jumpstart's heal: keep it flat, as the API and wiki say, until the test shows
+     otherwise.
+2. **Infuser in his mid build stays a known gap**, to be taken up with the mid budget
+   (Berserker for Lady Geist). **Recommendation: yes.**
+3. **Pain Battery charging from his own damage:** out of scope. **Recommendation: leave it**
+   unless you see it matter for items.
+
+### 6. Work items
+
+| PR  | What                                                  | Who                                     |
+| --- | ----------------------------------------------------- | --------------------------------------- |
+| O0  | This doc                                              | Opus 5.5; data-verifier review          |
+| O1  | Engine change, engine §37, scratch-measured first     | Opus 5.5; scoring-auditor (Opus) review |
+| O2  | Close: engine design notes, CLAUDE.md, session record | Opus 5.5                                |
