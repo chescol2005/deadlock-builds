@@ -98,8 +98,9 @@ changes have to meet written expectations, not just compile.
   starter build). Engine harness section 25 fails on
   any change; review it with `npm run baseline`, accept it with
   `npm run baseline -- --update`, and describe the diff in the PR body. Live
-  ratchets (M3, O2) carry a 0.01 noise band, and the P4 floor a 1-item band (2026-11-06); M1's mean distance must stay <= 0.13 (0.12
-  until the 2026-10-30 patch; restore it at the post-patch refit). Since Milestone J,
+  ratchets (M3, O2) carry a 0.01 noise band, and the P4 floor a 1-item band (2026-11-06); M1's mean distance must stay <= 0.155 and
+  the P2 floor is 41, both set for the 9-day post-patch refit (2026-11-09); tighten them
+  (M1 back toward 0.13 / 0.12, P2 to 43) at the longer refit around 2026-11-30. Since Milestone J,
   M1's early / mid keys and O2 compare each build with the players who made its own
   early rush choice (`src/scripts/rushGroups.ts`).
 
@@ -768,6 +769,9 @@ results and accepted gaps in `docs/item-scoring-review.md`). Milestone G closed 
 day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
 
 - **PRIORITY: Berserker in Lady Geist's mid build** (the user: a key item for her).
+  - Since the 2026-10-30 patch real Geists went spirit-focused: mid Berserker 37% → 25%,
+    Kinetic Dash 46% → 25% (tables 2026-10-31..11-09). Confirm the priority with the user
+    before working on it.
   - Milestone N priced her self-damage, so Berserker is worth 1.37× to her.
   - It still loses on the mid gun budget: 27.2% of 11,100 souls, so Kinetic Dash +
     Berserker doesn't fit even with the 25% overshoot (`docs/milestone-n.md` §3.1).
@@ -791,11 +795,16 @@ day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
 - **Unmeasured healing constants.** `RECOVERY_WEIGHT`, `GAP_FARM_SHARE` and
   `SITUATIONAL_HEAL_SHARE` are reasoned, not fitted (G2a / G2b).
 - **Unmeasured ambush share.** `AMBUSH_OPEN_SHARE` (Shadow Weave, 2026-10-31) is reasoned.
-- **Post-patch refit (2026-10-30 patch).** Frozen inputs and the committed tables predate
-  it. After 1–2 weeks of matches: fit-pairs, fit-category-split, capture-inputs, baseline.
-  The patch changed Radiant Regeneration: cast heal 65 → 40, boon scaling 1.7 → 1.4, and
-  in combat only. Expect Lady Geist's fitted profile to shift, since her resist now counts
-  the self-damage saving (Milestone N).
+- **Post-patch refit, second half (due ~2026-11-30).** On 2026-11-09 the category split,
+  phase items and rush groups were refit on 9 post-patch days (2026-10-31..11-09) and the
+  frozen inputs recaptured. The pair-lift table was held: a 9-day fit keeps 8 of 3,624
+  pairs (a 9-day pre-patch control keeps 18), so it would switch `pairTerm` off. Around
+  2026-11-30 refit all of it on 30 post-patch days, rerun the post vs pre lift comparison,
+  and tighten M1 (0.155) and P2 (41) again. The window spans Ranked Season 2 (11-05) and
+  the 11-04 minor update.
+- **Lady Geist under-buys vitality after the patch.** Known gaps `M1:Lady Geist:early` /
+  `:late`: her late build is 16/70/14 against a real 18/51/31. Real mid builds added spirit
+  sustain (Spirit Lifesteal 23% → 38%, Healbane 15% → 35%) the engine skips. Own scoring PR.
 - **Unpriced healing.** Parry and kill heals have no measured rate
   (`UNPRICED_HEALING_KEYS`). Heals against creeps between trades are not modelled.
 - **Item tags.** `Item.tags` are slot-derived and only feed the unwired staged pipeline.

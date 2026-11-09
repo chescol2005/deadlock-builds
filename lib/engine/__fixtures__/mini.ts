@@ -4533,9 +4533,10 @@ console.log("\n26. Ability damage per cast (item scoring review C1, frozen live 
     const lightningT3 = calculateAbilityDamage(lightning, 3, 0, 0);
     assert(
       siphonT3 !== null &&
-        Math.abs(siphonT3 - (22 + 0.6 * 100 + 18 + 0.12 * 100)) < 0.11 &&
+        Math.abs(siphonT3 - (22 + 0.6 * 100 + 22 + 0.12 * 100)) < 0.11 &&
         lightningT3 === 75 + 58.5,
-      "C1: DPS upgrades apply (Siphon Life T3 +18 and +0.12 scaling; Lightning Ball T3 +58.5)",
+      // Siphon Life's T3 DPS bonus: 18 -> 22 (frozen capture 2026-11-09, /v1/assets).
+      "C1: DPS upgrades apply (Siphon Life T3 +22 and +0.12 scaling; Lightning Ball T3 +58.5)",
       `siphon ${siphonT3}, lightning ${lightningT3}`,
     );
   }
@@ -6568,7 +6569,11 @@ console.log("\n40. Spirit-scaled hero stats (Milestone O §2.2.1)");
     if (cycle < s.dpsWithReload * 0.95) underCycle += 1;
     const ratio =
       (s.dpsWithReload * (s.bulletDamage + s.bulletDamagePerBoon * 30)) / s.bulletDamage;
-    const dps = sustainedDps(s, 30);
+    // Spirit-scaled gun stats off, as (a) says: the capture now carries them.
+    const dps = sustainedDps(
+      { ...s, bulletDamagePerSpirit: 0, clipPerSpirit: 0, bulletsPerSecondPerSpirit: 0 },
+      30,
+    );
     if (dps != null && near(dps, ratio, 1e-6)) matched += 1;
     else mismatch += ` ${s.heroId}`;
   }

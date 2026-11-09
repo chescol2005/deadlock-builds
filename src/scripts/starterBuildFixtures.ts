@@ -80,6 +80,14 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
   "T1:Wraith",
   // M1:Warden:mid (2026-10-30 patch) closed by Milestone L's slot horizon: Warden's mid
   // build takes Fortitude instead of three cheap items (docs/milestone-l.md §3).
+  //
+  // Post-patch refit (tables 2026-10-31..11-09, user-accepted 2026-11-09): Lady Geist
+  // players went spirit-focused (Radiant Regeneration early 63% -> 34%, rushers 46% ->
+  // 24%), and the engine follows, but under-buys vitality: late 16/70/14 against a real
+  // 18/51/31. Real mid builds added spirit sustain (Spirit Lifesteal 23% -> 38%, Healbane
+  // 15% -> 35%) the engine skips. An engine follow-up, not a data error.
+  "M1:Lady Geist:early",
+  "M1:Lady Geist:late",
 ]);
 
 /**
@@ -109,8 +117,11 @@ const LIVE_NOISE = 0.01;
  * 0.14 for Milestone I's rushes (0.139, user decision 2026-10-31), then 0.13 again
  * since Milestone J: early and mid compare with the players who made the build's own
  * rush choice (0.127, docs/milestone-j.md §3).
+ * 0.155 for the 9-day post-patch refit (0.152, user decision 2026-11-09), until the
+ * longer refit due around 2026-11-30. A pre-patch 9-day control refit measured 0.132,
+ * so about 0.01 of the rise is the short window and about 0.02 the post-patch data.
  */
-const MEAN_L1_MAX = 0.13;
+const MEAN_L1_MAX = 0.155;
 
 /** O1: early picks that must be among the hero's real top 10 early buys. */
 const O1_MIN_HITS = 2;
@@ -153,7 +164,10 @@ const MID_BIG_SHARE_FLOOR = 0.45;
 // I2 cost-scaled phase items (2026-10-31); was P1 1, P4 28 (after #139). P2 is the majority
 // rule since Milestone I's amendment (docs/milestone-i.md §4.1), 43 / 44. P5 lowered 2 -> 1
 // by Milestone L (user-approved 2026-11-02): Calico's Arctic Blast moves from mid to late.
-const BIG_ITEM_FLOORS = { P1: 9, P2: 43, P4: 37, P5: 1 } as const;
+// P2 lowered 43 -> 41 for the 9-day post-patch refit (user decision 2026-11-09): a 9-day
+// pre-patch control refit also gives 41, so it is the short window, not the patch (misses
+// near the 50% line, e.g. Baba and Sinclair at 46%). Re-check at the ~2026-11-30 refit.
+const BIG_ITEM_FLOORS = { P1: 9, P2: 41, P4: 37, P5: 1 } as const;
 /**
  * Live noise band, in items, below a floor (passes with a warning). P4 only: on
  * 2026-11-06 Paige's mid build was a tie between Veil Walker and Guardian Ward +
@@ -1086,18 +1100,11 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     );
   }
 
-  // K-L1 (Milestone K, docs/milestone-k.md §4.2): after rushing Radiant Regeneration,
-  // Lady Geist's mid phase holds Healing Booster, as 69% of the Geists who rush do.
-  // Heal amp multiplies the rush item's own heals.
-  {
-    const geist = builds.get("Lady Geist");
-    const mid = geist ? geist.phases[1].items.map((i) => i.id) : [];
-    assert(
-      mid.includes("upgrade_healing_booster"),
-      "K-L1: Lady Geist's starter mid phase holds Healing Booster",
-      `mid: ${mid.join(", ")}`,
-    );
-  }
+  // K-L1 (Milestone K, docs/milestone-k.md §4.2) retired 2026-11-09 (user decision): it
+  // held Healing Booster in Lady Geist's mid build, as 69% of rushing Geists bought it.
+  // After the 2026-10-30 patch Healing Booster lost its regen and component, and Geist
+  // players went spirit-focused: mid Healing Booster 53% -> 23%, Radiant Regeneration
+  // rushers 46% -> 24% (tables 2026-10-31..11-09).
 
   // L4 — archetypes differ: late-build Jaccard <= 0.5.
   const lateIds = (name: string): Set<string> => {
