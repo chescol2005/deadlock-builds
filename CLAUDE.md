@@ -758,6 +758,7 @@ build; the basket's soul budget is `boonSouls − cost of owned items`.
 | K         | ✅ Closed | Lady Geist's mid build after a rush: heal amp counts owned temporary heals (wiki: only constant regen is excluded), Healing Booster in her mid build; O2 0.712, M3 0.072 (`docs/milestone-k.md`)                                                                 |
 | L         | ✅ Closed | 3,200-soul items in the mid build: slot horizon (mid / late slots priced over the souls still to come) and a 25% mid shop overshoot; Spirit Resilience in Lady Geist's mid build, O2 0.891, mid big-item share 0.35 → 0.49 (`docs/milestone-l.md`)               |
 | N         | ✅ Closed | Self-damage triggers: a kit's own health cost (Lady Geist Malice / Essence Bomb, Deadman Danny Close The Deal, measured in game) stacks Berserker and is cut by spirit resist; Berserker 1.37× for her mid, still out of it (gun budget) (`docs/milestone-n.md`) |
+| O         | 🚧 Built  | Hero roster percentiles (`/heroes/[id]` rank section, `/heroes/compare`): late-game gun, vitality, spirit and per-ability ranks, cast gates, cooldown item impact, rank-aware accuracy; built, not closed (`docs/milestone-o.md`, PRs #157–#161)                 |
 | MR5       | ⏸ Queued  | Optional Anthropic key: a model rewords the lane facts in the browser; needs per-field number checks in the validator first                                                                                                                                      |
 
 ### After Milestones F and G: open follow-ups
@@ -815,6 +816,39 @@ session record `docs/session-2026-10-27-match-review.md`). Open:
 - **Phone layout.** Built: the hero picker collapses once a hero is chosen. The recent
   matches list (10 rows) still sits above the report on phones; collapse it too if it
   gets in the way.
+
+### After Milestone O: open follow-ups
+
+Milestone O's build items (O.0–O.5, PRs #157–#161) merged on 2026-11-07. It stays open until
+the first two items below are settled. Details are in `docs/milestone-o.md`.
+
+- **Pain Battery's cast model** (§3.2.1, §6 item 10). It charges from damage Victor takes, 40%
+  of max HP per charge, and counts one charge per fight for now. Keep that, or add an
+  unmeasured damage-taken-per-fight assumption. The user's call.
+- **In-game checks** (§3.2.1, §3.3, §6 item 5). Each one only changes its gate's formula:
+  - Card Trick: is the bank of 4 cards full when a fight starts, and does cooldown reduction
+    speed up card generation by `1 + 0.85r`?
+  - Jar of Dead: does a charge come back in 13 s?
+  - Aura of Suffering: does its cooldown start when the channel ends, and does it reach max
+    DPS fast enough to rank it at max?
+- **Scoring fix: ability damage the shared mapper misses** (§8).
+  `mapApiAbilityToHeroAbility` reads Solomon's whole kit as utility and misses Drifter's Rend
+  and Stalker's Mark damage, so the engine prices both heroes without that damage.
+- **Scoring fix: anchor the engine's gun model to Valve's DPS** (§3.1, §8). `heroBasket.ts`'s
+  `GunProfile` reads 19–79% low for 12 heroes (Calico, Pocket, Shiv and others), which likely
+  undervalues gun items for them.
+- **Scoring fix: cast gates in the engine** (§3.2.1, §8). The engine still caps every ability
+  at 2 casts per 10 s, counts Pain Battery as a 2 s cooldown, and reads Aura of Suffering at
+  `MinDPS`.
+- **Smaller profile gaps** (§8). Extra charges on cooldown abilities, a fire-rate item ladder,
+  Card Trick's melee and headshot cards, and ability hit rates by rank.
+
+Each scoring fix is its own PR with a baseline review, separate from UI and AI-layer changes.
+
+### Repo maintenance
+
+- **Dependabot alerts on `main`.** 66 open on 2026-11-09: 4 critical, 30 high, 26 medium,
+  6 low. Not triaged yet.
 
 ---
 

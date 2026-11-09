@@ -1385,6 +1385,10 @@ as `runHeroBasket` does.
 - `method.profileUnits` (`"fight-value"`);
 - `method.itemUnitHeroes`: Drifter and Solomon, which have no parseable damage model and
   are fitted in item units with a warning.
+  The cause (found 2026-11-07, `docs/milestone-o.md` §8): `mapApiAbilityToHeroAbility` needs a
+  damage `css_class`, which Solomon's damage properties lack, and skips keys matching
+  `Percent|Pct|Bonus`, which drops Drifter's Rend `BonusDamage` and Stalker's Mark
+  `DotHealthPercent`.
 
 **Safety.** The fitter refuses to run when no shot accuracy loads (it fails open to
 empty, which would mean 100% accuracy).
