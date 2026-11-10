@@ -840,9 +840,14 @@ the first two items below are settled. Details are in `docs/milestone-o.md`.
   - Jar of Dead: does a charge come back in 13 s?
   - Aura of Suffering: does its cooldown start when the channel ends, and does it reach max
     DPS fast enough to rank it at max?
-- **Scoring fix: ability damage the shared mapper misses** (§8).
-  `mapApiAbilityToHeroAbility` reads Solomon's whole kit as utility and misses Drifter's Rend
-  and Stalker's Mark damage, so the engine prices both heroes without that damage.
+- **Scoring fix: % HP ability damage** (§8). The mapper now reads Solomon's kit, Drifter's
+  Rend and Silver's Boot Kick (2026-11-09, engine section 44). Still unread: Drifter's
+  Stalker's Mark (`DotHealthPercent`, % max HP/s) and Victor's Jumpstart
+  (`CurrentHealthPercentDamage`). Both need a new damage unit converted through
+  `enemyHealth.ts` in `heroDamage.ts`, not a mapper rule. Known gap until the ~11-30 refit:
+  Drifter's and Solomon's stat profiles in `heroCategorySplit.json` are still fitted in item
+  units (`method.itemUnitHeroes`), while the engine now values them in fight value. That
+  refit should empty `itemUnitHeroes`.
 - **Scoring fix: anchor the engine's gun model to Valve's DPS** (§3.1, §8). `heroBasket.ts`'s
   `GunProfile` reads 19–79% low for 12 heroes (Calico, Pocket, Shiv and others), which likely
   undervalues gun items for them.
