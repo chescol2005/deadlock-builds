@@ -1388,7 +1388,9 @@ as `runHeroBasket` does.
   The cause (found 2026-11-07, `docs/milestone-o.md` §8): `mapApiAbilityToHeroAbility` needs a
   damage `css_class`, which Solomon's damage properties lack, and skips keys matching
   `Percent|Pct|Bonus`, which drops Drifter's Rend `BonusDamage` and Stalker's Mark
-  `DotHealthPercent`.
+  `DotHealthPercent`. The mapper reads both kits since 2026-11-09 (Stalker's Mark's % HP
+  still unread). Until the next refit, the 2026-11-09 table's profiles for these two
+  heroes are still in item units while the engine values them in fight value.
 
 **Safety.** The fitter refuses to run when no shot accuracy loads (it fails open to
 empty, which would mean 100% accuracy).
@@ -1467,8 +1469,8 @@ raw value), so it only ever set where the curve bends.
   of one slot's coverage (best of 0 / 2 / 5 / 10% with the full stack). Without the threshold every bounded term could promote an item
   whose real gain is ~0 (audit 2026-10-24).
 - **Missing data is not zero:** `deriveHeroDamageModel` returns no model when the weapon or
-  the ability kit does not parse (live 2026-10-24: Solomon only; every spirit item would
-  otherwise price at 0). It sets `survival` only when health and move speed are known, so
+  the ability kit does not parse (live 2026-10-24: Solomon only, who has a model since the
+  2026-11-09 mapper fix; every spirit item would otherwise price at 0). It sets `survival` only when health and move speed are known, so
   defence keeps the heuristic rather than pricing at 0.
 
 **Brought onto the scale by the item scoring review (R2a, 2026-10-25;

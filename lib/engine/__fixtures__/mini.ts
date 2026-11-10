@@ -12,6 +12,7 @@ import {
   calculateAbilityDamage,
   damagePerCastFactor,
   mapApiAbilityToHeroAbility,
+  mapHeroAbilities,
 } from "../../abilityCoefficients";
 import type { HeroAbilityRaw } from "../../api/deadlockApi";
 import { kitHealPerTrade, kitSelfDamagePerTrade, selfHealValue } from "../kitHeal";
@@ -6933,9 +6934,18 @@ console.log("\n41. Ability ranks, cast gates and CDR impact (Milestone O ยง3.2โ€
     "rank tier changes Card Trick's casts and no other ability's values",
   );
 
-  // j. The hero profile with kits: kit metrics, resist anchors, Solomon unknown, lean.
-  const kitMap = new Map(kits.map((k) => [k.heroId, k.abilities]));
+  // j. The hero profile with kits: kit metrics, resist anchors, an unknown kit, lean.
+  // Since the mapper fix (2026-11-09) every real kit reads damage, so the unknown
+  // kit is made up: Solomon's abilities, all read as utility (his kit before it).
   const named = (n: string) => roster.heroes.find((h) => h.name === n)?.id ?? -1;
+  const kitMap = new Map(
+    kits.map((k) => [
+      k.heroId,
+      k.heroId === named("Solomon")
+        ? k.abilities.map((a) => ({ ...a, pool: "utility" as const }))
+        : k.abilities,
+    ]),
+  );
   const profile = rankRoster({
     roster: roster.heroes.map((h) => h.baseStats),
     accuracy: frozen.heroAccuracy,
@@ -6954,7 +6964,7 @@ console.log("\n41. Ability ranks, cast gates and CDR impact (Milestone O ยง3.2โ€
       solomon.lean === null &&
       (profile.get(named("Victor"))?.metrics.kitSpiritShort.rank?.n ?? 0) ===
         roster.heroes.length - 1,
-    "a kit with no readable damage (Solomon) is unknown, not 0: out of the pool, no lean",
+    "a kit with no readable damage (made-up all-utility Solomon) is unknown, not 0: out of the pool, no lean",
   );
   let leanConsistent = true;
   for (const p of profile.values()) {
@@ -7124,11 +7134,21 @@ console.log("\n43. Roster compare table (Milestone O.5)");
 {
   const roster = loadFrozenAbilityRoster();
   const frozen = loadFrozen();
+  // Solomon's kit read as all utility: a made-up unknown, as in section 41 j.
+  const unknownKitHero = roster.heroes.find((h) => h.name === "Solomon")?.id;
   const profiles = rankRoster({
     roster: roster.heroes.map((h) => h.baseStats),
     accuracy: frozen.heroAccuracy,
     rankTier: null,
-    kits: new Map(roster.heroes.map((h) => [h.id, kitAtT3(h.id, h.abilitiesRaw, h.heroItems)])),
+    kits: new Map(
+      roster.heroes.map((h) => {
+        const kit = kitAtT3(h.id, h.abilitiesRaw, h.heroItems);
+        return [
+          h.id,
+          h.id === unknownKitHero ? kit.map((a) => ({ ...a, pool: "utility" as const })) : kit,
+        ];
+      }),
+    ),
   });
   const heroes = roster.heroes.map((h) => ({ id: h.id, name: h.name, icon: null }));
   const rows = compareRows(profiles, heroes);
@@ -7179,7 +7199,7 @@ console.log("\n43. Roster compare table (Milestone O.5)");
       byDps[0].cells.landedDps.rank === 1 &&
       solomonLast.cells.kitSpiritShort.value === null &&
       sortCompareRows(rows, "kitSpiritShort", "best").at(-1)?.cells.kitSpiritShort.value === null,
-    "sortCompareRows: best value first, ties by hero id, an unknown (Solomon's kit) last in both orders",
+    "sortCompareRows: best value first, ties by hero id, an unknown (made-up utility kit) last in both orders",
   );
   const names = sortCompareRows(rows, "name", "best").map((r) => r.name);
   const leanSorted = sortCompareRows(rows, "lean", "best");
@@ -7207,6 +7227,140 @@ console.log("\n43. Roster compare table (Milestone O.5)");
   assert(
     JSON.stringify(JSON.parse(JSON.stringify(rows))) === JSON.stringify(rows),
     "compareRows: plain data, survives a JSON round trip (server to client)",
+  );
+}
+
+console.log("\n44. Ability damage the mapper used to miss (milestone-o.md ยง8, 2026-11-09)");
+{
+  type Props = NonNullable<HeroAbilityRaw["properties"]>;
+  const spirit = (value: number, scale: number, css?: string): Props[string] => ({
+    value,
+    ...(css ? { css_class: css } : {}),
+    scale_function: { class_name: "scale_function_tech_damage", stat_scale: scale },
+  });
+  const map = (properties: Props) =>
+    mapApiAbilityToHeroAbility(
+      { id: 1, class_name: "fix_44", name: "Fix 44", properties, upgrades: [] },
+      "signature1",
+    );
+
+  // a. A spirit-scaled hit with no css_class (Solomon): ImpactDamage over Damage, no DPS.
+  const bishop = map({
+    ImpactDamage: spirit(70, 2),
+    Damage: spirit(25, 0.85),
+    DPS: spirit(30, 0.7),
+  });
+  const rook = map({ Damage: spirit(50, 0.9) });
+  const auraOnly = map({ DPS: spirit(30, 0.7) });
+  const unscaled = map({ Damage: { value: 50 } });
+  const negative = map({ Damage: spirit(-50, 0.9) });
+  // No preferred key: A to Z, whatever order the API lists them in.
+  const zFirst = map({ ShardDamage: spirit(20, 0.5), BlastDamage: spirit(40, 1) });
+  const unclassedOverBonus = map({
+    Damage: spirit(50, 0.9),
+    BonusDamage: spirit(25, 2, "tech_damage"),
+  });
+  assert(
+    negative.damageKey === undefined &&
+      zFirst.damageKey === "BlastDamage" &&
+      unclassedOverBonus.damageKey === "Damage",
+    "no css_class: a negative value never reads, ties go A to Z, and an unclassed hit beats BonusDamage",
+  );
+  assert(
+    bishop.damageKey === "ImpactDamage" &&
+      bishop.baseDamage === 70 &&
+      bishop.spiritScaling === 2 &&
+      bishop.damageType === "spirit" &&
+      rook.damageKey === "Damage" &&
+      rook.spiritScaling === 0.9 &&
+      auraOnly.damageKey === undefined &&
+      unscaled.damageKey === undefined,
+    "no css_class: a spirit-scaled hit reads (ImpactDamage first), a DPS aura or unscaled key does not",
+  );
+
+  // b. BonusDamage counts only when the ability has no other damage (Rend, Boot Kick).
+  const rend = map({
+    Damage: { value: 0, css_class: "melee_damage" },
+    BonusDamage: spirit(40, 1.4, "tech_damage"),
+    SelfDamagePct: { value: 0, css_class: "tech_damage" },
+  });
+  const mina = map({
+    MagicDamagePerBullet: spirit(10, 0.2, "tech_damage"),
+    BonusDamage: spirit(5, 0.1, "tech_damage"),
+  });
+  const plainBonus = map({ BonusDamage: { value: 40, css_class: "tech_damage" } });
+  const haze = map({ DamageBonusFixedPerStack: spirit(5, 0.1, "tech_damage") });
+  assert(
+    rend.damageKey === "BonusDamage" &&
+      rend.baseDamage === 40 &&
+      rend.spiritScaling === 1.4 &&
+      mina.damageKey === "MagicDamagePerBullet" &&
+      plainBonus.damageKey === undefined &&
+      haze.damageKey === undefined,
+    "BonusDamage: the hit when nothing else is (Rend), never over a real key (Mina) or unscaled; modifiers stay out",
+  );
+
+  // c. Real kits: the fallbacks read exactly these five abilities, wiki-checked values.
+  // An ability reaches the fallbacks when the damage-class rule finds nothing: no
+  // positive damage-class key and no zero-base one an upgrade raises.
+  const roster = loadFrozenAbilityRoster();
+  const classRuleFinds = (raw: HeroAbilityRaw) => {
+    const upgraded = new Set(
+      (raw.upgrades ?? []).flatMap((u) => (u.property_upgrades ?? []).map((pu) => pu.name)),
+    );
+    return Object.entries(raw.properties ?? {}).some(([key, p]) => {
+      const css = typeof p.css_class === "string" ? p.css_class : "";
+      if (!/tech_damage|bullet_damage/.test(css) || /(Percent|Pct|Bonus)/.test(key)) return false;
+      const v = Number(p.value);
+      return (
+        (Number.isFinite(v) && v > 0) || (!(Number.isFinite(v) && v !== 0) && upgraded.has(key))
+      );
+    });
+  };
+  const fallbackHits = new Map<string, string>();
+  for (const h of roster.heroes) {
+    for (const a of mapHeroAbilities(h.abilitiesRaw, h.heroItems)) {
+      const raw = h.abilitiesRaw.find((r) => r.class_name === a.classname);
+      if (raw && a.damageKey && !classRuleFinds(raw)) {
+        fallbackHits.set(
+          `${h.name}: ${a.name}`,
+          `${a.damageKey} ${a.baseDamage} x${a.spiritScaling}`,
+        );
+      }
+    }
+  }
+  const expected = [
+    "Drifter: Rend=BonusDamage 40 x1.4",
+    "Silver: Boot Kick=BonusDamage 25 x2",
+    "Solomon: Develop Queen=Damage 120 x1.6",
+    "Solomon: Rook Battery=Damage 50 x0.9",
+    "Solomon: Setup Bishop=ImpactDamage 70 x2",
+  ].join("; ");
+  const got = [...fallbackHits.entries()]
+    .map(([k, v]) => `${k}=${v}`)
+    .sort()
+    .join("; ");
+  assert(
+    got === expected,
+    "frozen roster: the fallbacks read Solomon's three hits, Rend and Boot Kick, and nothing else",
+    got,
+  );
+
+  // d. The profile follows: Solomon's kit is known, every hero is in the spirit pool.
+  const profile = rankRoster({
+    roster: roster.heroes.map((h) => h.baseStats),
+    accuracy: loadFrozen().heroAccuracy,
+    rankTier: null,
+    kits: new Map(roster.heroes.map((h) => [h.id, kitAtT3(h.id, h.abilitiesRaw, h.heroItems)])),
+  });
+  const solomon = [...profile.values()].find(
+    (p) => p.heroId === roster.heroes.find((h) => h.name === "Solomon")?.id,
+  );
+  assert(
+    (solomon?.metrics.kitSpiritShort.value ?? 0) > 0 &&
+      solomon?.lean != null &&
+      [...profile.values()].every((p) => p.metrics.kitSpiritShort.value !== null),
+    "hero profile: Solomon's kit now ranks, and no real kit is unknown",
   );
 }
 

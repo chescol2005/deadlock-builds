@@ -636,6 +636,20 @@ no lead metric has `n < 30`. That catches a broken fetch that drops most of the 
   Fixing the mapper changes engine inputs, so it's a scoring PR with baseline review. The
   profile reads the same mapper, so its ranks follow the fix automatically.
 
+  **Fixed for flat damage (2026-11-09).** Two fallbacks run only when the damage-class rule
+  finds nothing: a spirit-scaled `…Damage` key with no `css_class` (`ImpactDamage` first, no
+  `DPS` keys), then a spirit-scaled `BonusDamage`. On the frozen roster they change exactly 5
+  of 176 abilities, each checked against deadlock.wiki:
+  - Solomon: Setup Bishop `ImpactDamage 70` ×2.0 (its `Damage 25` is the on-square follow-up),
+    Rook Battery `Damage 50` ×0.9, Develop Queen `Damage 120` ×1.6;
+  - Drifter: Rend `BonusDamage 40` ×1.4;
+  - Silver: Boot Kick `BonusDamage 25` ×2.0, found by the same survey.
+
+  The 72 baselines are unchanged, since none of these is a reference hero. Engine section 44
+  pins it. Still open: % HP damage, which is Stalker's Mark `DotHealthPercent` and Victor's
+  Jumpstart `CurrentHealthPercentDamage`. It needs a damage unit converted through
+  `enemyHealth.ts`, so it is its own scoring PR.
+
 - **The engine's Pain Battery and Aura of Suffering.** The engine counts Pain Battery as a
   2 s cooldown (capped at 2 casts per trade) and Aura at `MinDPS`. That belongs with the
   cast-gates scoring PR above.
@@ -666,7 +680,7 @@ no lead metric has `n < 30`. That catches a broken fetch that drops most of the 
 - **top kit spirit scaling (short):** Victor 8.4, Infernus 7.0, Lady Geist 6.8, Ivy 6.7;
 - **lean, all ranks:** Abrams, Lady Geist, Yamato and Seven lean hybrid. Drifter, Apollo,
   Venator and others lean gun. Infernus, Ivy, Warden and Wraith lean spirit. Solomon has no
-  lean (kit unknown, §8);
+  lean (kit unknown, §8; fixed 2026-11-09, his kit now ranks);
 - **resist anchors hold:** Dynamo tops bullet resist and Kelvin spirit resist, 18.75 each;
 - **engine harness section 41:** 24 checks.
 

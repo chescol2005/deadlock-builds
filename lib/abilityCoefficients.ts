@@ -332,6 +332,52 @@ function selfHealsOf(raw: HeroAbilityRaw): SelfHeal[] {
   return out.sort((a, b) => a.key.localeCompare(b.key));
 }
 
+type RawProperty = NonNullable<HeroAbilityRaw["properties"]>[string];
+type DamageEntry = [string, RawProperty];
+
+// Fallbacks for kits the damage-class rule reads as having no damage (mapper fix,
+// 2026-11-09; roster survey of the frozen abilityRoster.json: these change exactly
+// Solomon's Setup Bishop / Rook Battery / Develop Queen, Drifter's Rend and Silver's
+// Boot Kick, and no other ability). Both run only when the rule above finds nothing.
+
+/**
+ * A spirit-scaled hit with no css_class. Solomon's whole kit carries none
+ * (live API, 2026-11-09). Per-second keys (DPS) are left out: the wiki lists no
+ * DPS for Setup Bishop or Develop Queen (a ground aura, unverified). ImpactDamage
+ * wins over Damage: Setup Bishop's 70 x2.0 is the cast's hit, its Damage 25 the
+ * on-square follow-up (deadlock.wiki/Solomon, 2026-11-09). Otherwise the first
+ * key A to Z, so the pick never depends on the API's property order.
+ */
+function unclassedDamageOf(props: Record<string, RawProperty>): DamageEntry | undefined {
+  const hits = Object.entries(props)
+    .filter(
+      ([key, p]) =>
+        !p.css_class &&
+        /Damage$/.test(key) &&
+        !NOT_ABILITY_DAMAGE.test(key) &&
+        isSpiritScaled(p) &&
+        (safeNum(p.value) ?? 0) > 0,
+    )
+    .sort(([a], [b]) => a.localeCompare(b));
+  return (
+    hits.find(([key]) => key === "ImpactDamage") ??
+    hits.find(([key]) => key === "Damage") ??
+    hits[0]
+  );
+}
+
+/**
+ * A spirit-scaled BonusDamage, when the ability has no other damage. Drifter's
+ * Rend (40 x1.4, its Damage is the melee part, 0 in the API) and Silver's Boot
+ * Kick (25 x2.0 on the marked target) deal their spirit damage only through it
+ * (deadlock.wiki/Drifter, /Silver, 2026-11-09). Elsewhere the key is a modifier
+ * and the Bonus exclusion stands (Mina's Love Bites keeps MagicDamagePerBullet).
+ */
+function bonusOnlyDamageOf(props: Record<string, RawProperty>): DamageEntry | undefined {
+  const p = props["BonusDamage"];
+  return p && isSpiritScaled(p) && (safeNum(p.value) ?? 0) > 0 ? ["BonusDamage", p] : undefined;
+}
+
 export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureSlot): HeroAbility {
   const props = raw.properties ?? {};
 
@@ -360,7 +406,9 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
     positive.find(([key]) => key === "Damage") ??
     positive.find(([, p]) => isSpiritScaled(p)) ??
     positive[0] ??
-    damageClass.find(([key, p]) => safeNum(p.value) == null && upgraded.has(key));
+    damageClass.find(([key, p]) => safeNum(p.value) == null && upgraded.has(key)) ??
+    unclassedDamageOf(props) ??
+    bonusOnlyDamageOf(props);
   const damageKey = damageEntry?.[0];
   const damageProp = damageEntry?.[1];
   const damageSeconds =
