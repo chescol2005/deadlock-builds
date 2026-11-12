@@ -778,7 +778,8 @@ day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
   - More value alone can't fix it. Look at the mid gun budget for rushers, or M1 against
     per-player builds (`docs/milestone-l.md` §3).
 - **Self-damage on other heroes.** Victor's Aura of Suffering and Bebop's Sticky Bomb have
-  self-damage keys but no in-game test, so they stay unpriced. Add them to
+  self-damage keys but no in-game test, so they stay unpriced. So does Victor's Jumpstart
+  (`CurrentHealthPercentDamage 15`: its description says it damages Victor himself). Add them to
   `KIT_SELF_DAMAGE` once tested (the method is in `docs/milestone-n.md` §2).
 - **Slot horizon between checkpoints.** Calibrated at 16,700 / 30,000 souls only; slider
   22 → 23 switches from the mid to the late horizon (6,650 → 31,200 souls). Add baseline
@@ -840,11 +841,11 @@ the first two items below are settled. Details are in `docs/milestone-o.md`.
   - Jar of Dead: does a charge come back in 13 s?
   - Aura of Suffering: does its cooldown start when the channel ends, and does it reach max
     DPS fast enough to rank it at max?
-- **Scoring fix: % HP ability damage** (§8). The mapper now reads Solomon's kit, Drifter's
-  Rend and Silver's Boot Kick (2026-11-09, engine section 44). Still unread: Drifter's
-  Stalker's Mark (`DotHealthPercent`, % max HP/s) and Victor's Jumpstart
-  (`CurrentHealthPercentDamage`). Both need a new damage unit converted through
-  `enemyHealth.ts` in `heroDamage.ts`, not a mapper rule. Known gap until the ~11-30 refit:
+- **Ability damage the mapper missed: fixed** (§8). Flat damage: Solomon's kit, Drifter's Rend
+  and Silver's Boot Kick (2026-11-09, engine section 44). % target health (2026-11-11, section
+  45): Stalker's Mark and Crow Familiar bleeds (current health), Rake (missing health), at
+  `TARGET_HEALTH_SHARE` 0.6, reasoned, not measured. Still unpriced: Shiv's full-rage bleed and
+  Silver's Slam Fire (% current health per shot, a gun buff). Known gap until the ~11-30 refit:
   Drifter's and Solomon's stat profiles in `heroCategorySplit.json` are still fitted in item
   units (`method.itemUnitHeroes`), while the engine now values them in fight value. That
   refit should empty `itemUnitHeroes`.

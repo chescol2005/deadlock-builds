@@ -15,7 +15,8 @@ import type { HeroAbility } from "../abilityCoefficients";
 import type { HeroBaseStats } from "../heroStats";
 import { calculateStatsAtBoon } from "../heroStats";
 import type { HeroDamageModel } from "./heroDamage";
-import { abilityChargeCredit, heroDps } from "./heroDamage";
+import { abilityChargeCredit, healthDamagePerCast, heroDps } from "./heroDamage";
+import { REFERENCE_ENEMY_HEALTH } from "./effectEstimator";
 import { ownedGapHeal, ownedTradeHealHp } from "./heroFight";
 import { kitHealPerTrade, kitSelfDamagePerTrade } from "./kitHeal";
 import { BOON_THRESHOLDS } from "../boonSystem";
@@ -442,6 +443,11 @@ export function deriveHeroDamageModel(input: {
    * passes phaseForSouls(souls); omitted, it is the boon level's own souls.
    */
   phase?: GamePhase;
+  /**
+   * A typical enemy's max health (enemyHealth.ts), for abilities that deal % of
+   * the target's health (HeroAbility.healthDamage). Omitted = REFERENCE_ENEMY_HEALTH.
+   */
+  enemyHealth?: number;
 }): HeroDamageModel | undefined {
   const { baseStats } = input;
   const phase = input.phase ?? phaseForSouls(BOON_THRESHOLDS[input.boonLevel]?.souls ?? 0);
@@ -451,7 +457,12 @@ export function deriveHeroDamageModel(input: {
   const clip = baseStats.ammo;
   const reload = baseStats.reloadTime;
   if (!(perShot > 0 && rate > 0 && clip > 0 && reload >= 0)) return undefined;
-  const damaging = input.abilities.some((a) => (a.baseDamage ?? 0) > 0 && (a.cooldown ?? 0) > 0);
+  const enemyHealth = input.enemyHealth ?? REFERENCE_ENEMY_HEALTH;
+  const damaging = input.abilities.some(
+    (a) =>
+      ((a.baseDamage ?? 0) > 0 || healthDamagePerCast(a, enemyHealth) !== undefined) &&
+      (a.cooldown ?? 0) > 0,
+  );
   if (!damaging) return undefined;
   const maxHealth = atBoon.maxHealth;
   const moveSpeed = baseStats.moveSpeed;
@@ -468,14 +479,22 @@ export function deriveHeroDamageModel(input: {
     accuracy: input.accuracy,
     // Per cast: a DPS ability deals its rate for `damageSeconds` (item scoring
     // review C1; Siphon Life 22 DPS x 4 s, not 22).
+    // % target-health damage (Stalker's Mark, Crow Familiar, Rake; 2026-11-11)
+    // folds in as flat HP at a typical enemy's health. A bleed's seconds count
+    // only when it is the whole hit: Crow Familiar stays one impact for Mystic
+    // Reverb and amp stacks (accepted simplification).
     abilities: input.abilities.map((a) => {
       const perCast = damagePerCastFactor(a);
       const chargeCredit = abilityChargeCredit(a, phase);
+      const hp = healthDamagePerCast(a, enemyHealth);
+      const flat = a.baseDamage != null ? a.baseDamage * perCast : null;
+      const scaling = a.spiritScaling != null ? a.spiritScaling * perCast : null;
+      const seconds = a.damageSeconds ?? (!((flat ?? 0) > 0) ? hp?.seconds : undefined);
       return {
-        baseDamage: a.baseDamage != null ? a.baseDamage * perCast : null,
-        spiritScaling: a.spiritScaling != null ? a.spiritScaling * perCast : null,
+        baseDamage: hp ? (flat ?? 0) + hp.base : flat,
+        spiritScaling: hp && hp.spiritScaling > 0 ? (scaling ?? 0) + hp.spiritScaling : scaling,
         cooldown: a.cooldown,
-        ...(a.damageSeconds != null ? { seconds: a.damageSeconds } : {}),
+        ...(seconds != null ? { seconds } : {}),
         ...(chargeCredit > 0 ? { chargeCredit } : {}),
       };
     }),
