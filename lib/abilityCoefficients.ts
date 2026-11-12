@@ -136,7 +136,9 @@ export type SelfDamage = { percent: number; of: "health" | "ownDamage" };
  * - Close The Deal: 25% of its damage (logs: 28 for a 160 hit at 30% resist).
  * Left out on purpose: Deadman Danny's Chimera Mk1 (MaxHealthSelfDamagePercent)
  * only hits him when he overheats, a misplay. Unchecked, so unpriced: Victor Aura of
- * Suffering, Bebop Sticky Bomb.
+ * Suffering, Bebop Sticky Bomb. Victor's Aura of Suffering and Jumpstart are PURE
+ * damage (spirit resist does not cut them: the user's logs and the wiki), so adding
+ * them needs a flag that stops heroFight.ts crediting spirit resist for them.
  */
 export const KIT_SELF_DAMAGE: Readonly<Record<string, { key: string; of: SelfDamage["of"] }>> = {
   ability_blood_shards: { key: "SelfDamagePct", of: "health" },

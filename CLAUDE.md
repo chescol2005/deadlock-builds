@@ -777,10 +777,13 @@ day (PRs #108–#114; `docs/milestone-g.md`). Open, in no fixed order:
     Berserker doesn't fit even with the 25% overshoot (`docs/milestone-n.md` §3.1).
   - More value alone can't fix it. Look at the mid gun budget for rushers, or M1 against
     per-player builds (`docs/milestone-l.md` §3).
-- **Self-damage on other heroes.** Victor's Aura of Suffering and Bebop's Sticky Bomb have
-  self-damage keys but no in-game test, so they stay unpriced. So does Victor's Jumpstart
-  (`CurrentHealthPercentDamage 15`: its description says it damages Victor himself). Add them to
-  `KIT_SELF_DAMAGE` once tested (the method is in `docs/milestone-n.md` §2).
+- **Self-damage on other heroes.** Bebop's Sticky Bomb has a self-damage key but no in-game
+  test, so it stays unpriced. Victor's two are partly tested and also unpriced: Aura of
+  Suffering (about 70% of the damage it deals) and Jumpstart (`CurrentHealthPercentDamage 15`,
+  15% of his current health). Both are **pure damage**: spirit resist does not cut them (the
+  user's logs and the wiki). Today every `KIT_SELF_DAMAGE` rule is spirit-type, and
+  `heroFight.ts` credits spirit resist for cutting it, so Victor's rules need a flag that turns
+  that credit off. Add them once tested (the method is in `docs/milestone-n.md` §2).
 - **Slot horizon between checkpoints.** Calibrated at 16,700 / 30,000 souls only; slider
   22 → 23 switches from the mid to the late horizon (6,650 → 31,200 souls). Add baseline
   rows at slider 23–28 if the /build basket there looks wrong.
