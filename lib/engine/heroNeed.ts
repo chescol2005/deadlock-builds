@@ -26,6 +26,8 @@ import type { HeroBaseStats } from "../heroStats";
 import { calculateStatsAtBoon } from "../heroStats";
 import type { HeroNeedVector, ScoreCategory } from "./types";
 import { SCORE_CATEGORIES } from "./types";
+import { healthDamagePerCast } from "./heroDamage";
+import { REFERENCE_ENEMY_HEALTH } from "./effectEstimator";
 
 // ─── Named constants ────────────────────────────────────────────────────────
 
@@ -214,6 +216,9 @@ function deriveAbilitySpiritShare(abilities: ReadonlyArray<HeroAbility>): number
     // Per cast (C1): a DPS ability's coefficient applies for `damageSeconds`.
     const perCast = damagePerCastFactor(ability);
     if (ability.spiritScaling != null) spiritTotal += Math.abs(ability.spiritScaling) * perCast;
+    // % target-health damage's spirit part, at the reference enemy (2026-11-11:
+    // Stalker's Mark is Drifter's only spirit-scaled bleed).
+    spiritTotal += healthDamagePerCast(ability, REFERENCE_ENEMY_HEALTH)?.spiritScaling ?? 0;
     if (ability.weaponScaling != null) weaponTotal += Math.abs(ability.weaponScaling) * perCast;
   }
 

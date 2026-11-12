@@ -61,7 +61,65 @@ export type HeroAbility = {
    * per trade by lib/engine/kitHeal.ts (kitSelfDamagePerTrade).
    */
   selfDamage?: SelfDamage;
+  /**
+   * Damage in % of the TARGET's health, beside (or instead of) the flat hit:
+   * HEALTH_DAMAGE_KEYS. Converted to HP by lib/engine/heroDamage.ts
+   * (healthDamagePerCast) at a typical enemy's health; absent = none.
+   */
+  healthDamage?: HealthDamage;
 };
+
+/** See HeroAbility.healthDamage. Base values (before upgrades), percent units. */
+export interface HealthDamage {
+  /** Whose health the percent is of: the target's current or missing health. */
+  of: "current" | "missing";
+  /** % per second when `seconds` is set (a bleed), else % per hit. */
+  percent: number;
+  /** Percentage points added per spirit point (the key's stat_scale); 0 = none. */
+  spiritScaling: number;
+  /** Seconds a bleed lasts per cast; absent = one hit. */
+  seconds?: number;
+}
+
+/**
+ * Damage keys in % of the target's health (roster survey of the frozen
+ * abilityRoster.json, 2026-11-11; data-verifier against deadlock.wiki /Drifter,
+ * /Vindicta, /Mina the same day). DotHealthPercent: a bleed of % current health
+ * per second ("% DPS" postfix), on Stalker's Mark (2.0, x0.015, AbilityDuration 5)
+ * and Crow Familiar (2.2, DebuffDuration 5). MissingHealthDamagePercentage: Rake's
+ * 6% of missing health on each hero hit. Not here on purpose: Shiv's full-rage
+ * bleed (needs his rage state), Silver's Slam Fire (a gun buff), Victor's
+ * Jumpstart (CurrentHealthPercentDamage hits Victor himself: self-damage).
+ */
+const HEALTH_DAMAGE_KEYS: Readonly<
+  Record<string, { of: HealthDamage["of"]; durationKeys?: readonly string[] }>
+> = {
+  DotHealthPercent: { of: "current", durationKeys: ["AbilityDuration", "DebuffDuration"] },
+  MissingHealthDamagePercentage: { of: "missing" },
+};
+
+// One key per ability: the first match. No ability carries both (frozen roster,
+// engine section 45 d).
+function healthDamageOf(props: Record<string, RawProperty>): HealthDamage | undefined {
+  for (const [key, spec] of Object.entries(HEALTH_DAMAGE_KEYS)) {
+    const p = props[key];
+    const percent = p ? safeNum(p.value) : null;
+    if (!p || percent == null || percent <= 0) continue;
+    const scale = isSpiritScaled(p) ? (p.scale_function?.stat_scale ?? 0) : 0;
+    const seconds = spec.durationKeys
+      ?.map((k) => safeNum(props[k]?.value))
+      .find((v): v is number => v != null && v > 0);
+    // A bleed with no readable duration is unknown, not one second of it.
+    if (spec.durationKeys && seconds == null) continue;
+    return {
+      of: spec.of,
+      percent,
+      spiritScaling: scale,
+      ...(seconds != null ? { seconds } : {}),
+    };
+  }
+  return undefined;
+}
 
 /** See HeroAbility.selfDamage. */
 export type SelfDamage = { percent: number; of: "health" | "ownDamage" };
@@ -78,7 +136,9 @@ export type SelfDamage = { percent: number; of: "health" | "ownDamage" };
  * - Close The Deal: 25% of its damage (logs: 28 for a 160 hit at 30% resist).
  * Left out on purpose: Deadman Danny's Chimera Mk1 (MaxHealthSelfDamagePercent)
  * only hits him when he overheats, a misplay. Unchecked, so unpriced: Victor Aura of
- * Suffering, Bebop Sticky Bomb.
+ * Suffering, Bebop Sticky Bomb. Victor's Aura of Suffering and Jumpstart are PURE
+ * damage (spirit resist does not cut them: the user's logs and the wiki), so adding
+ * them needs a flag that stops heroFight.ts crediting spirit resist for them.
  */
 export const KIT_SELF_DAMAGE: Readonly<Record<string, { key: string; of: SelfDamage["of"] }>> = {
   ability_blood_shards: { key: "SelfDamagePct", of: "health" },
@@ -452,6 +512,7 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
 
   const selfHeals = selfHealsOf(raw);
   const selfDamage = selfDamageOf(raw);
+  const healthDamage = healthDamageOf(props);
 
   const upgrades: [AbilityUpgradeTier, AbilityUpgradeTier, AbilityUpgradeTier] = [
     buildUpgradeTier(raw.upgrades, 0, desc),
@@ -480,6 +541,7 @@ export function mapApiAbilityToHeroAbility(raw: HeroAbilityRaw, slot: SignatureS
     ...(baseCharges >= 1 ? { charges: baseCharges } : upgradeCharges ? { upgradeCharges } : {}),
     ...(selfHeals.length > 0 ? { selfHeals } : {}),
     ...(selfDamage ? { selfDamage } : {}),
+    ...(healthDamage ? { healthDamage } : {}),
   };
 }
 

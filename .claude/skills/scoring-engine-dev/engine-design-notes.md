@@ -1824,6 +1824,49 @@ changed. Toxic Bullets enters three boon-29 baskets (Abrams, Haze owning early, 
 and leaves Infernus at boon 16. Engine section 31 holds the calibration: 3,300–4,600 at a 45k-soul
 build, and mid within 15% of 2,500.
 
+## % target-health ability damage (2026-11-11)
+
+Some abilities deal % of the target's health, not a flat number. The mapper records these as
+`HeroAbility.healthDamage` (`HEALTH_DAMAGE_KEYS` in `abilityCoefficients.ts`):
+
+- `DotHealthPercent` is a bleed of % **current** health per second. It covers Stalker's Mark
+  (Drifter's only unread damage, 2%/s +0.015 per spirit for 5 s) and Crow Familiar (2.2%/s for
+  `DebuffDuration` 5 s).
+- `MissingHealthDamagePercentage` is % **missing** health per hit: Rake, 6%.
+
+**Conversion.** `heroDamage.healthDamagePerCast` turns it into HP at the model's typical enemy
+max health (`enemyHealthAt`, or `REFERENCE_ENEMY_HEALTH`). Current health counts
+`TARGET_HEALTH_SHARE` (0.6, reasoned: a trade from full to ~20%), and missing health counts
+the rest. `deriveHeroDamageModel` then folds it into `DamagingAbility.baseDamage` and
+`spiritScaling`, so every `DamagingAbility` consumer prices it with no changes of its own:
+`abilityDps`, `damageValues`, Reverb and amp stacks.
+
+**Readers of the raw `HeroAbility`** don't see it. `kitHeal.ts` reads it for ability
+lifesteal and own-damage self-damage, and so does the hero profile. That is inert today: none
+of the three abilities has a self-heal or self-damage entry (checked 2026-11-11).
+
+**The need vector** (`heroNeed`'s spirit share) counts the bleed's spirit part at
+`REFERENCE_ENEMY_HEALTH` (2,500), while the value model uses `enemyHealthAt`. That is about
+1,340 at boon 5 and 3,540 at boon 29. Only Stalker's Mark's 0.015 scaling enters, so the gap
+is small.
+
+**Trade depth is set separately on purpose.** `TARGET_HEALTH_SHARE` (the target averages 60%)
+is not kitHeal's `TRADE_DAMAGE_TAKEN_SHARE` / `MISSING_HP_SHARE` for the caster: the target
+is the side losing the trade. Rake is mostly a finisher, so its 40% missing health errs low.
+
+**Accepted simplifications:**
+
+- A bleed carries its `seconds` only when it is the whole ability. Crow Familiar stays one
+  impact for Mystic Reverb's "first instance" and for amp stacks.
+- Base values only (no T3 +1.5% on Stalker's Mark), like all engine ability damage.
+- The hero profile (display) doesn't read `healthDamage` yet.
+
+**Not priced:**
+
+- Shiv's `FullRageCurrentHealthDamagePct`, because it needs his rage state.
+- Silver's Slam Fire (`CurrentHealthDamagePercentage`, % per shot, a gun buff).
+- Victor's Jumpstart `CurrentHealthPercentDamage`, which is self-damage.
+
 ## What players on this hero buy (phaseItems.ts, phaseItemTerm)
 
 Value scale and shop budgets decide how much of each shop and which items are strong in

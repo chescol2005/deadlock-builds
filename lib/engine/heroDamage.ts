@@ -181,6 +181,36 @@ export function castsPerTrade(cooldown: number): number {
     : Math.min(1, TRADE_GAP_SECONDS / cooldown);
 }
 
+/**
+ * The target's average share of its max health while a trade's damage lands:
+ * a trade taking an enemy from full to ~20% (2026-11-11, reasoned, not measured,
+ * like AMBUSH_OPEN_SHARE; the user's call). Current-health damage reads this
+ * share of max health, missing-health damage the rest.
+ */
+export const TARGET_HEALTH_SHARE = 0.6;
+
+/**
+ * An ability's % target-health damage as flat HP per cast at a typical enemy's
+ * max health (enemyHealth.ts): base and per-spirit-point parts, so it folds into
+ * DamagingAbility's baseDamage / spiritScaling and every DamagingAbility consumer
+ * prices it (kitHeal.ts and the hero profile read HeroAbility and do not).
+ * A bleed's per-second percent counts for its seconds.
+ */
+export function healthDamagePerCast(
+  ability: Pick<HeroAbility, "healthDamage">,
+  enemyHealth: number,
+): { base: number; spiritScaling: number; seconds?: number } | undefined {
+  const h = ability.healthDamage;
+  if (!h || !(enemyHealth > 0)) return undefined;
+  const share = h.of === "current" ? TARGET_HEALTH_SHARE : 1 - TARGET_HEALTH_SHARE;
+  const hp = (enemyHealth * share * (h.seconds ?? 1)) / 100;
+  return {
+    base: h.percent * hp,
+    spiritScaling: h.spiritScaling * hp,
+    ...(h.seconds != null ? { seconds: h.seconds } : {}),
+  };
+}
+
 /** Σ (base + coefficient × spirit power) × casts per trade ÷ trade, over damaging abilities. */
 export function abilityDps(abilities: ReadonlyArray<DamagingAbility>, spiritPower: number): number {
   let dps = 0;

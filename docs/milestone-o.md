@@ -646,9 +646,23 @@ no lead metric has `n < 30`. That catches a broken fetch that drops most of the 
   - Silver: Boot Kick `BonusDamage 25` ×2.0, found by the same survey.
 
   The 72 baselines are unchanged, since none of these is a reference hero. Engine section 44
-  pins it. Still open: % HP damage, which is Stalker's Mark `DotHealthPercent` and Victor's
-  Jumpstart `CurrentHealthPercentDamage`. It needs a damage unit converted through
-  `enemyHealth.ts`, so it is its own scoring PR.
+  pins it.
+
+  **% target-health damage (2026-11-11).** `HeroAbility.healthDamage` reads two keys:
+  - `DotHealthPercent`, a bleed of % **current** health per second (the "% DPS" postfix);
+  - `MissingHealthDamagePercentage`, % **missing** health per hit.
+
+  `heroDamage.healthDamagePerCast` converts it to HP at a typical enemy's max health, using
+  `TARGET_HEALTH_SHARE` 0.6 (reasoned): current health counts 0.6 of max, missing health
+  0.4. It then folds into the model's per-cast damage. The roster has exactly three such
+  abilities, each wiki-checked:
+  - Stalker's Mark: 2%/s +0.015 per spirit, 5 s. This was Drifter's only unpriced damage.
+  - Crow Familiar: 2.2%/s for `DebuffDuration` 5 s, on top of its `ImpactDamage`.
+  - Rake: 6%, on top of its `Damage`.
+
+  Victor's Jumpstart is not enemy damage: its `CurrentHealthPercentDamage` hits Victor, so it
+  is a self-damage item (Milestone N method). Engine section 45 pins it, and the 72 baselines
+  are unchanged.
 
 - **The engine's Pain Battery and Aura of Suffering.** The engine counts Pain Battery as a
   2 s cooldown (capped at 2 casts per trade) and Aura at `MinDPS`. That belongs with the

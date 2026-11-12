@@ -153,7 +153,10 @@ import {
   damageValues,
   HEADSHOT_IN_TRADE,
   MAX_CASTS_PER_TRADE,
+  healthDamagePerCast,
+  heroDps,
   sustainedGunDps,
+  TARGET_HEALTH_SHARE,
   TRADE_GAP_SECONDS,
   TRADE_SECONDS,
 } from "../heroDamage";
@@ -7361,6 +7364,146 @@ console.log("\n44. Ability damage the mapper used to miss (milestone-o.md §8, 2
       solomon?.lean != null &&
       [...profile.values()].every((p) => p.metrics.kitSpiritShort.value !== null),
     "hero profile: Solomon's kit now ranks, and no real kit is unknown",
+  );
+}
+
+console.log("\n45. % target-health ability damage (milestone-o.md §8, 2026-11-11)");
+{
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  type Props = NonNullable<HeroAbilityRaw["properties"]>;
+  const map = (properties: Props) =>
+    mapApiAbilityToHeroAbility(
+      { id: 1, class_name: "fix_45", name: "Fix 45", properties, upgrades: [] },
+      "signature1",
+    );
+  const dot = (value: number, scale?: number): Props[string] => ({
+    value,
+    css_class: "tech_damage",
+    ...(scale != null
+      ? { scale_function: { class_name: "scale_function_tech_damage", stat_scale: scale } }
+      : {}),
+  });
+
+  // a. The mapper: a current-health bleed with its seconds, a missing-health hit.
+  const mark = map({ DotHealthPercent: dot(2, 0.015), AbilityDuration: { value: 5 } });
+  const crow = map({
+    ImpactDamage: dot(40, 0.744),
+    DotHealthPercent: dot(2.2),
+    AbilityDuration: { value: 0 },
+    DebuffDuration: { value: 5 },
+  });
+  const rake = map({ Damage: dot(60, 1), MissingHealthDamagePercentage: dot(6) });
+  const noSeconds = map({ DotHealthPercent: dot(2) });
+  const zero = map({ MissingHealthDamagePercentage: dot(0) });
+  assert(
+    JSON.stringify(mark.healthDamage) ===
+      JSON.stringify({ of: "current", percent: 2, spiritScaling: 0.015, seconds: 5 }) &&
+      mark.baseDamage === null &&
+      crow.healthDamage?.seconds === 5 &&
+      crow.healthDamage.spiritScaling === 0 &&
+      crow.damageKey === "ImpactDamage" &&
+      JSON.stringify(rake.healthDamage) ===
+        JSON.stringify({ of: "missing", percent: 6, spiritScaling: 0 }) &&
+      rake.damageKey === "Damage" &&
+      noSeconds.healthDamage === undefined &&
+      zero.healthDamage === undefined,
+    "mapper: bleeds keep their seconds (AbilityDuration, else DebuffDuration), a hit has none; no duration or 0 = none",
+  );
+
+  // b. HP per cast at a typical enemy: current = TARGET_HEALTH_SHARE of max, missing = the rest.
+  const H = 3000;
+  const markHp = healthDamagePerCast(mark, H);
+  const rakeHp = healthDamagePerCast(rake, H);
+  assert(
+    TARGET_HEALTH_SHARE === 0.6 &&
+      markHp != null &&
+      near(markHp.base, (2 * 0.6 * 5 * H) / 100) &&
+      near(markHp.spiritScaling, (0.015 * 0.6 * 5 * H) / 100) &&
+      markHp.seconds === 5 &&
+      rakeHp != null &&
+      near(rakeHp.base, (6 * 0.4 * H) / 100) &&
+      rakeHp.seconds === undefined &&
+      healthDamagePerCast(mark, 0) === undefined &&
+      healthDamagePerCast({}, H) === undefined,
+    "healthDamagePerCast: % x share x seconds x enemy health; no health or no field = nothing",
+    `mark ${markHp?.base}, rake ${rakeHp?.base}`,
+  );
+
+  // c. The model: a kit whose only damage is a bleed now prices, and grows with
+  //    enemy health and spirit power; a flat hit keeps its one-hit shape.
+  const hero = mkHero(45, 800, 7);
+  const model = (abilities: HeroAbility[], enemyHealth?: number) =>
+    deriveHeroDamageModel({
+      baseStats: hero,
+      abilities,
+      boonLevel: 10,
+      spiritPower: 20,
+      accuracy: 1,
+      ...(enemyHealth != null ? { enemyHealth } : {}),
+    });
+  const withCd = (a: HeroAbility): HeroAbility => ({ ...a, cooldown: 26 });
+  const bleedOnly = model([withCd(mark)], H);
+  const bleedRich = model([withCd(mark)], 2 * H);
+  const bleedNone = model([withCd({ ...mark, healthDamage: undefined })], H);
+  const crowModel = model([withCd(crow)], H)?.abilities[0];
+  assert(
+    bleedNone === undefined &&
+      bleedOnly != null &&
+      bleedRich != null &&
+      near(bleedOnly.abilities[0].baseDamage ?? 0, markHp?.base ?? -1) &&
+      bleedOnly.abilities[0].seconds === 5 &&
+      heroDps(bleedRich).ability > heroDps(bleedOnly).ability &&
+      damageValues({ TechPower: 20 }, bleedOnly).spiritDamage > 0 &&
+      crowModel != null &&
+      near(crowModel.baseDamage ?? 0, 40 + (2.2 * 0.6 * 5 * H) / 100) &&
+      crowModel.seconds === undefined,
+    "model: a bleed-only kit prices (none before), more enemy health = more damage, spirit power counts; Crow stays one hit",
+  );
+
+  // d. Real kits: exactly the three abilities, and no other hero's model moves
+  //    with enemy health.
+  const roster = loadFrozenAbilityRoster();
+  const tagged: string[] = [];
+  let othersSteady = true;
+  for (const h of roster.heroes) {
+    const kit = mapHeroAbilities(h.abilitiesRaw, h.heroItems);
+    for (const a of kit) {
+      if (a.healthDamage) tagged.push(`${h.name}: ${a.name} ${a.healthDamage.of}`);
+    }
+    if (kit.some((a) => a.healthDamage)) continue;
+    const at = (enemyHealth: number) =>
+      JSON.stringify(
+        deriveHeroDamageModel({
+          baseStats: h.baseStats,
+          abilities: kit,
+          boonLevel: 16,
+          spiritPower: 30,
+          accuracy: 0.5,
+          enemyHealth,
+        }),
+      );
+    if (at(2000) !== at(5000)) othersSteady = false;
+  }
+  assert(
+    tagged.sort().join("; ") ===
+      "Drifter: Stalker's Mark current; Mina: Rake missing; Vindicta: Crow Familiar current" &&
+      othersSteady,
+    "frozen roster: Stalker's Mark, Crow Familiar and Rake carry % health damage; every other kit ignores enemy health",
+    tagged.join("; "),
+  );
+
+  // e. The need vector: a bleed's spirit scaling counts toward the kit's spirit
+  //    share (at the reference enemy), so a gun kit with one leans more spirit.
+  const needRoster = [mkHero(1, 500, 7), mkHero(2, 700, 8), mkHero(3, 900, 9)];
+  const gunKit = mkAbility(null, 1);
+  const needOf = (abilities: HeroAbility[]) =>
+    deriveHeroNeedVector({ abilities, baseStats: needRoster[1], roster: needRoster });
+  const withBleed = needOf([gunKit, withCd(mark)]);
+  const withoutBleed = needOf([gunKit, withCd({ ...mark, healthDamage: undefined })]);
+  assert(
+    withBleed.spiritDamage > withoutBleed.spiritDamage,
+    "need vector: a spirit-scaled bleed raises the kit's spirit need",
+    `with ${withBleed.spiritDamage}, without ${withoutBleed.spiritDamage}`,
   );
 }
 
