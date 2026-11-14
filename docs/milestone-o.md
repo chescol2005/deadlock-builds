@@ -774,7 +774,8 @@ Not hero-profile work; it rides along with O.3 so it ships before the quota rese
 
 ## Milestone O: Victor's self-damage (Aura of Suffering, Jumpstart)
 
-**Status:** DRAFT 2026-11-06, for the user's sign-off (§5). No engine code until then.
+**Status:** DRAFT 2026-11-06, updated 2026-11-14 with the dry Jumpstart and Berserker
+reruns (§2.1, §2.2), for the user's sign-off (§5). No engine code until then.
 
 Per "Testing Expectations", change this doc first if an expectation needs to change.
 
@@ -841,6 +842,8 @@ Combat log with Merge Events off. One dummy unless noted.
 | Jumpstart                            | 2,509         | Berserker owned, late build | Self-hit 377; then heal ticks of 1–2 HP; Berserker buff on hit           |
 | Aura held 12.5s (2026-11-06)         | 800           | No items, 0 spirit power    | Dummy 3 → 14–15 per tick by ~7.75s, then flat; self 3 → 10–11, then flat |
 | Aura off at 3s, on again 2.3s later  | 800           | No items, 0 spirit power    | Before: dummy 7 per tick; after: dummy 4, self 2 (the ramp restarts)     |
+| Dry Jumpstart (2026-11-06)           | 800           | No items, no upgrades       | Self-hit 120; HUD regen ~110 HP/s; the 120 back in ~0.8s, then full HP   |
+| Aura, log on Target: Victor (11-06)  | —             | Berserker, 0 spirit power   | Buff from 03:09.218; 2nd stack 5.5s in, after ~110 self-damage           |
 
 What the tests establish:
 
@@ -867,20 +870,33 @@ What the tests establish:
   15% × 2,509 = 376.4; log 377). Berserker's buff appears on the same tick: 377 / 120 ≈ 3
   stacks at once. A heal follows over its 4.5s duration. The visible log stops before the heal
   ends, so its total is unknown (§2.2).
+  - **The heal is a regen buff, not a flat 100.** Dry, at 800 HP with no upgrades and 0
+    spirit power: the hit was 120 (15% × 800), and the HUD showed about 110 HP/s of regen.
+    It gave back the full 120 in about 0.8s and then stopped at full health. That is more
+    than the API's 100 total, so "100 over the buff" is ruled out at 0 spirit power.
 
 #### 2.2 Still open from the tests
 
 1. **Berserker's first stack came early.** The API says a stack per 120 damage taken
    (`DamageToStack`). With nobody in range, the buff showed up after about 52 aura
    self-damage, and after about 21 in the 3-target run. The log was filtered to Attacker:
-   Victor, so damage from the shooting dummy in the background would not show. Proposed
-   rerun: Target: Victor, Attacker: All, and the stack count at the end of 8s.
-2. **Jumpstart's heal: a flat amount, or the hit given back?** The API and wiki say a flat
-   100 + 1.2 × spirit power (+70 at T2, +0.9 × spirit power at T3). With a late build's
-   upgrades and ~100 spirit power that is about 380, close to the 377 hit, so the log can't
-   tell them apart. Proposed test: Jumpstart with no upgrades and little spirit power at
-   high health, and the heal's total. About 100 means flat, about 15% of health means the
-   hit given back. Spirit resist doesn't need a test: the wiki says the hit is pure damage.
+   Victor, so damage from the shooting dummy in the background would not show.
+   - **Rerun 2026-11-06** (Target: Victor, 0 spirit power, nobody in range): the 2nd stack
+     came 5.5s into the aura. The ramp gives 0.7 × (13 + 43.9) / 2 × 5.5 ≈ 110 self-damage
+     by then, so about **55 per stack**, against the API's plain 120 (no scale function).
+   - Still open: either the game's threshold is lower than the API says, or the aura's
+     self-damage counts more toward Berserker than its HP. Next test: Berserker owned, the
+     hero tool's Damage button at 60 once, 60 twice, then 120 once, noting when each stack
+     appears. A stack at 60 means the threshold is lower; a stack only at 120 means the
+     aura counts extra.
+2. **Jumpstart's heal: how much in total?** The API and wiki say a flat 100 + 1.2 × spirit
+   power (+70 at T2, +0.9 × spirit power at T3). With a late build's upgrades and ~100
+   spirit power that is about 380, close to the 377 hit, so the first log couldn't tell.
+   - **The dry test (§2.1) rules out a flat 100:** it healed back at least the 120 hit at
+     0 spirit power, at about 110 HP/s, and only stopped because Victor was at full health.
+   - Still open: its full size. At 110 HP/s for 4.5s it could be up to about 500. Next test:
+     set Victor's health to about 200 of 800, cast Jumpstart, and add up every heal tick until
+     the buff ends. Spirit resist doesn't need a test: the wiki says the hit is pure damage.
 3. ~~Does the aura stay at Max DPS after 8s, and does the ramp reset?~~ **Answered
    2026-11-06** (§2.1): it holds at Max, and toggling it off resets it. Whether it also
    resets when enemies leave the radius is untested; the self-damage continues with nobody
@@ -949,8 +965,10 @@ API values (2026-11-06, `/v1/assets/items/by-hero-id/66`):
   regard to the key's case.
 - **Jumpstart's self-damage:** 15% of current health once per trade (30s cooldown), at
   trade start, so it feeds Berserker's `start` term. Pure damage.
-  - Its heal stays as parsed (flat) unless §2.2 question 2 shows the hit is given back.
-    Either way the kit now pays the hit, so Jumpstart is no longer a free heal.
+  - Its heal: the larger of the parsed flat amount and the hit itself, since the dry test
+    (§2.1) shows it gives back at least the hit. Replaced by the measured total once
+    §2.2 question 2's test is in. Either way the kit now pays the hit, so Berserker stacks
+    from it.
 - **The self-damage table** gets a "spirit resist applies" field per ability: yes for
   Malice, Essence Bomb and Close The Deal (N's tests), no for the aura and Jumpstart (pure
   damage, wiki and the user's test).
@@ -985,19 +1003,23 @@ API values (2026-11-06, `/v1/assets/items/by-hero-id/66`):
   lists any other match in a comment rather than guessing.
 - **The aura's T2** (`MinDps` / `MaxDPS`) applies; a fixture checks the case-insensitive
   match.
-- **Jumpstart's heal** is flat (as today) unless §2.2 question 2 says otherwise. Its hit is
-  now counted.
+- **Jumpstart's heal** is the larger of the parsed flat amount and the hit (§3.1), until
+  §2.2 question 2's total is measured. Its hit is now counted.
 - **Berserker's stacks:** the aura's self-damage ramps into `later`; Jumpstart's goes into
   `start`. Today's 5 of 10 for any hero with no self-damage, exactly.
 - **Spirit resist** saves only the self-damage it applies to: 0 on the aura, N's numbers
   unchanged for Lady Geist and Deadman Danny.
-- **Engine fixture (new section 37)**, from §2.1's numbers:
+- **Engine fixture (a new section, the next free number; 37–45 are the roster sections
+  above)**, from §2.1's numbers:
   - the ramp average: 40.0 DPS at 0 spirit power, 64.6 at 50;
   - the self-damage: 70% of it, unchanged by spirit resist;
-  - Jumpstart: 376.4 at 2,509 HP, unchanged by spirit resist;
+  - Jumpstart: 376.4 at 2,509 HP, unchanged by spirit resist; its heal at least the hit
+    (120 at 800 HP);
   - the aura's T2 raises both Min and Max DPS;
   - Berserker: neutral with no self-damage, higher for Victor, capped;
   - N's section 36 still passes unchanged.
+- **Berserker's threshold** stays the API's 120 (§5). If §2.2 question 1's test shows a
+  lower threshold, that is its own change, since it moves Berserker for every hero.
 
 #### 4.2 Live guards
 
@@ -1009,9 +1031,10 @@ API values (2026-11-06, `/v1/assets/items/by-hero-id/66`):
 
 1. **Ship the aura and Jumpstart model (§3.1)?** **Recommendation: yes.** The ramp after
    8s is answered (§2.1). The other §2.2 questions don't block it:
-   - Berserker's threshold: use the API's 120 until the rerun shows otherwise.
-   - Jumpstart's heal: keep it flat, as the API and wiki say, until the test shows
-     otherwise.
+   - Berserker's threshold: use the API's 120. Your rerun measured about 55 per stack,
+     but it can't yet tell a lower threshold from the aura counting extra (§2.2 question 1).
+     120 gives fewer stacks, so it can only under-price Berserker for Victor.
+   - Jumpstart's heal: at least the hit (the dry test), until its total is measured.
 2. **Infuser in his mid build stays a known gap**, to be taken up with the mid budget
    (Berserker for Lady Geist). **Recommendation: yes.**
 3. **Pain Battery charging from his own damage:** out of scope. **Recommendation: leave it**
