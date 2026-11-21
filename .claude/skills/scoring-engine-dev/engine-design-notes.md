@@ -891,6 +891,58 @@ which is finding 6 of the spike. The term in PR 3 will reward these pairs
 anyway. Bound it like `synergyTerm` (a small fraction of a slot), and phrase
 its reason as what was measured.
 
+### Within-match pair signal: tried and dropped (2026-11-21)
+
+Win rate is a blunt outcome, so we tried a second signal for pair synergy:
+does a player's fighting get better right after buying B, more when they
+already hold A? It found nothing usable. Don't repeat it at this data
+resolution.
+
+**Method** (ad-hoc DuckDB queries on the `deadlock` MCP server, no code
+committed):
+
+- For each purchase of B, take the change in a per-minute rate from the
+  `match_player` stats snapshot before the purchase to the one after it.
+- Compare players who held A for that whole window with players who never held
+  it in that window. Drop partial holds and B sold before the window ended.
+- Match on day and snapshot index, and in the last run also on net worth in
+  3,000-soul buckets.
+- Pool by inverse variance, remove each item's own effect (per-A and per-B
+  weighted means), then read the leftover pair spread as mean z² (1.0 = pure
+  noise).
+- Measures: damage per minute, deaths per minute, and trade quality,
+  100·Δln((damage + 200) / (taken + 200)).
+
+**Results** (mean z² after removing each item's own effect):
+
+| Run                                        | Damage | Deaths | Trade |
+| ------------------------------------------ | ------ | ------ | ----- |
+| Infernus, 7 days (11-14..11-20), 173 pairs | 1.61   | 1.54   | n/a   |
+| Lady Geist, 7 days, no wealth match        | 2.24   | 2.01   | 1.54  |
+| Lady Geist, 11-18..11-20, no wealth match  | 1.22   | 1.46   | 1.04  |
+| Lady Geist, 11-18..11-20, wealth-matched   | 1.18   | 1.44   | 1.08  |
+
+**Why it is not synergy:**
+
+- **Wealth.** Matching on net worth cut Lady Geist's raw damage spread from
+  2.98 to 1.75. Holders of late items (Greater Expansion, Spirit Burn,
+  Tankbuster) showed large positive item-wide effects before the match: richer
+  players simply fight more.
+- **Fight volume.** Damage and deaths move together (+0.21 on Infernus, +0.27
+  to +0.41 on Lady Geist). A real synergy would raise damage and lower deaths.
+  Deaths stay near 1.45 in every run because they are small, uneven counts, not
+  because of pairs.
+- **No agreement between orders.** "B while holding A" and "A while holding B"
+  should agree in sign. Correlations were −0.24 to +0.19, and the wealth match
+  leaves only 2 pairs measured both ways.
+- **Too coarse to see real effects.** Snapshots are 3 minutes apart early and 5
+  minutes apart later. The leftover trade spread caps a typical pair effect at
+  about 1–2%, while one pair needs a 10–15% shift to stand out.
+
+Untried alternatives: sell and co-hold behaviour, from exact purchase and sell
+times (`items.game_time_s` / `items.sold_time_s`), and checks specific to one
+pair's stats.
+
 ## Pair term in the basket (Milestone F, PR 3)
 
 **What fires.** `pairTerm` (termId `pair-lift`, in `DEFAULT_BASKET_TERMS`
