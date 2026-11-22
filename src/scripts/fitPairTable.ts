@@ -1,9 +1,10 @@
 // src/scripts/fitPairTable.ts — Milestone F: fit the committed pair-lift table
-// Run: npm run fit-pairs [-- --heroes a,b] [--min-rank T] [--days N] [--min N] [--z Z] [--dry]
+// Run: npm run fit-pairs [-- --heroes a,b] [--min-rank T] [--days N] [--min N] [--q Q] [--dry]
 //
 // OFFLINE fitter. For every visible hero, loads the same strata as
 // pairProbe.ts (./pairData.ts), fits every pair with fitHeroPairs
-// (lib/engine/pairLift.ts), keeps only clear pair-specific effects, and writes
+// (lib/engine/pairLift.ts), keeps pair-specific effects at a false discovery
+// rate (Benjamini-Hochberg per hero, on the unshrunk pair z), and writes
 // lib/engine/data/pairLiftTable.json. That file is committed. The app reads
 // the file and never calls these endpoints at page load: a full fit costs
 // about 600 calls and hundreds of MB, which is affordable offline but not per
@@ -17,12 +18,12 @@
 // item patch. Review the diff like any data change: the per-hero summary this
 // prints is the thing to compare.
 
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fetchVisibleHeroesEnriched } from "@/lib/heroApi";
 import { getItems } from "@/lib/itemStore";
 import { fetchRankTiers } from "@/lib/api/analyticsApi";
-import { fitHeroPairs, pairLiftKey } from "@/lib/engine/pairLift";
+import { fdrZCutoff, fitHeroPairs, pairLiftKey } from "@/lib/engine/pairLift";
 import { SYNERGY_RULES } from "@/lib/engine/synergy";
 import { ANTI_SYNERGY_RULES } from "@/lib/scoring/antiSynergy";
 import type { FitItem, PairLiftEntry, PairLiftTable } from "@/lib/engine/pairLift";
@@ -38,9 +39,13 @@ Options:
                   A partial run still REPLACES the whole file, so use it with --dry
   --days N        window length in days, ending at today 00:00 UTC (default 90)
   --min N         minimum matches with BOTH items to fit a pair (default 300)
-  --z Z           keep a pair only if |lift| / se >= Z (default 3)
+  --q Q           false discovery rate for kept pairs, per hero (default 0.1)
   --min-rank T    only matches whose average badge is rank tier T or above
                   (0-11; 8 = Oracle, 10 = Ascendant; default 8). -1 = all ranks
+  --end-days-ago N  end the window N days before today (default 0), e.g. to
+                  fit two halves of a window separately for a replication check
+  --dump FILE     also write every tested pair (z, lift, se, n, kept) as JSON
+                  lines to FILE, for offline checks; the table is unaffected
   --dry           fit and print the summary, but do not write the file
 `;
 
@@ -49,7 +54,9 @@ interface FitArgs {
   minRank: number | null;
   days: number;
   min: number;
-  z: number;
+  q: number;
+  endDaysAgo: number;
+  dump: string | null;
   dry: boolean;
 }
 
@@ -67,7 +74,16 @@ function parseNumArg(flag: string, raw: string | undefined, min: number, max: nu
 }
 
 function parseArgs(argv: string[]): FitArgs {
-  const out: FitArgs = { heroes: [], minRank: 8, days: 90, min: 300, z: 3, dry: false };
+  const out: FitArgs = {
+    heroes: [],
+    minRank: 8,
+    days: 90,
+    min: 300,
+    q: 0.1,
+    endDaysAgo: 0,
+    dump: null,
+    dry: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--help" || a === "-h") {
@@ -82,11 +98,15 @@ function parseArgs(argv: string[]): FitArgs {
       out.days = Math.round(parseNumArg(a, argv[++i], 1, 90));
     } else if (a === "--min") {
       out.min = Math.round(parseNumArg(a, argv[++i], 1, 10_000_000));
-    } else if (a === "--z") {
-      out.z = parseNumArg(a, argv[++i], 0.1, 20);
+    } else if (a === "--q") {
+      out.q = parseNumArg(a, argv[++i], 0.001, 0.5);
     } else if (a === "--min-rank") {
       const t = Math.round(parseNumArg(a, argv[++i], -1, 11));
       out.minRank = t < 0 ? null : t;
+    } else if (a === "--end-days-ago") {
+      out.endDaysAgo = Math.round(parseNumArg(a, argv[++i], 0, 365));
+    } else if (a === "--dump") {
+      out.dump = argv[++i] ?? fail("--dump needs a file path");
     } else if (a === "--dry") {
       out.dry = true;
     } else {
@@ -109,8 +129,7 @@ const MIN_ITEM_PAIRS = 10;
 /**
  * A hand-authored SYNERGY_RULES pair's measurement is recorded in rulePairs
  * (whatever its z) only when its se is at most this: precise enough that a
- * real effect of about 0.15 log odds (roughly 4 win-rate points) would have
- * cleared 3 se. Below that precision, "measured about 0" is just "no
+ * real effect of about 0.15 log odds (roughly 4 win-rate points) is 3 se. Below that precision, "measured about 0" is just "no
  * information", and the hand rule should keep firing.
  */
 const RULE_MAX_SE = 0.05;
@@ -190,6 +209,7 @@ async function main(): Promise<void> {
 
   const strata = buildStrata({
     days: args.days,
+    endDaysAgo: args.endDaysAgo,
     rank: null,
     minRank: args.minRank,
     bands: DEFAULT_NET_WORTH_BANDS,
@@ -197,18 +217,18 @@ async function main(): Promise<void> {
   console.log(
     `Fitting ${heroes.length} heroes over ${strata.from} to ${strata.to}; ` +
       `${1 + strata.bands.length} strata each, ${minRankName === null ? "all ranks" : `${minRankName}+`}, ` +
-      `keep |lift|/se >= ${args.z}, >= ${args.min} matches`,
+      `false discovery rate ${args.q}, >= ${args.min} matches`,
   );
 
   const table: PairLiftTable = {
-    version: 3,
+    version: 4,
     generated: new Date().toISOString().slice(0, 10),
     window: { from: strata.from, to: strata.to },
     method: {
       gameMode: "normal",
       netWorthBands: [...DEFAULT_NET_WORTH_BANDS],
       minPairMatches: args.min,
-      minAbsZ: args.z,
+      fdrQ: args.q,
       minItemPairs: MIN_ITEM_PAIRS,
       minRank: args.minRank,
       minRankName,
@@ -226,6 +246,7 @@ async function main(): Promise<void> {
   const ruleKeys = new Set(SYNERGY_RULES.map((r) => pairLiftKey(r.itemIds[0], r.itemIds[1])));
 
   let totalKept = 0;
+  if (args.dump !== null) writeFileSync(args.dump, "", "utf8"); // one run per dump file
   for (const hero of heroes) {
     const heroId = Number(hero.id);
     const started = Date.now();
@@ -234,19 +255,41 @@ async function main(): Promise<void> {
     for (const b of strata.bands) bands.push(await loadStratum(heroId, b));
 
     const fit = fitHeroPairs(raw, bands, itemsByNumericId, args.min);
+    const entryOf = (p: (typeof fit.pairs)[number]): PairLiftEntry => ({
+      lift: round3(p.pairOnly),
+      se: round3(p.banded.se),
+      z: round3(p.z),
+      n: p.raw.pairMatches,
+    });
+    const itemPairsOk = (p: (typeof fit.pairs)[number]) =>
+      (fit.itemEffects.byItem.get(p.a)?.pairs ?? 0) >= MIN_ITEM_PAIRS &&
+      (fit.itemEffects.byItem.get(p.b)?.pairs ?? 0) >= MIN_ITEM_PAIRS;
+    // The false-discovery family: every pair whose items' effects are well
+    // determined. The cut-off is on the ROUNDED z (what the file stores), so the
+    // table-integrity fixture can check |z| >= zCut exactly.
+    const tested = fit.pairs.filter((p) => itemPairsOk(p) && round3(p.banded.se) > 0);
+    const rawCut = fdrZCutoff(
+      tested.map((p) => round3(p.z)),
+      args.q,
+    );
+    const zCut = rawCut === null ? null : round3(rawCut);
     const entries: Record<string, PairLiftEntry> = {};
     let pos = 0;
-    for (const p of fit.pairs) {
-      // Threshold on the ROUNDED values, so the committed file satisfies its own
-      // minAbsZ exactly (the table-integrity fixture checks it strictly).
-      const pa = fit.itemEffects.byItem.get(p.a)?.pairs ?? 0;
-      const pb = fit.itemEffects.byItem.get(p.b)?.pairs ?? 0;
-      if (pa < MIN_ITEM_PAIRS || pb < MIN_ITEM_PAIRS) continue;
-      const lift = round3(p.pairOnly);
-      const se = round3(p.banded.se);
-      if (se <= 0 || Math.abs(lift) / se < args.z) continue;
-      entries[pairLiftKey(p.a, p.b)] = { lift, se, n: p.raw.pairMatches };
-      if (p.pairOnly > 0) pos += 1;
+    for (const p of tested) {
+      const e = entryOf(p);
+      if (zCut === null || Math.abs(e.z) < zCut) continue;
+      // Shrinking can move a pair's residual across 0; keep only pairs whose
+      // stored lift points the same way as the evidence.
+      if (e.lift === 0 || Math.sign(e.lift) !== Math.sign(e.z)) continue;
+      entries[pairLiftKey(p.a, p.b)] = e;
+      if (e.lift > 0) pos += 1;
+    }
+    if (args.dump !== null) {
+      const lines = tested.map((p) => {
+        const key = pairLiftKey(p.a, p.b);
+        return JSON.stringify({ hero: heroId, key, ...entryOf(p), kept: key in entries });
+      });
+      if (lines.length > 0) appendFileSync(args.dump, lines.join("\n") + "\n", "utf8");
     }
     // Hand-rule pairs: record the measurement when it is precise enough to
     // override the rule ("measured wins"), whatever its sign or z.
@@ -261,11 +304,9 @@ async function main(): Promise<void> {
         rules[key] = significant;
         continue;
       }
-      const pa = fit.itemEffects.byItem.get(p.a)?.pairs ?? 0;
-      const pb = fit.itemEffects.byItem.get(p.b)?.pairs ?? 0;
-      const se = round3(p.banded.se);
-      if (pa < MIN_ITEM_PAIRS || pb < MIN_ITEM_PAIRS || se <= 0 || se > RULE_MAX_SE) continue;
-      rules[key] = { lift: round3(p.pairOnly), se, n: p.raw.pairMatches };
+      const e = entryOf(p);
+      if (!itemPairsOk(p) || e.se <= 0 || e.se > RULE_MAX_SE) continue;
+      rules[key] = e;
     }
     if (Object.keys(rules).length > 0) table.rulePairs[String(heroId)] = rules;
 
@@ -274,7 +315,7 @@ async function main(): Promise<void> {
     for (const p of fit.pairs) {
       const key = pairLiftKey(p.a, p.b);
       if (!handKeys.has(key)) continue;
-      hand[key] = { lift: round3(p.pairOnly), se: round3(p.banded.se), n: p.raw.pairMatches };
+      hand[key] = entryOf(p);
     }
     if (Object.keys(hand).length > 0) table.handPairs[String(heroId)] = hand;
 
@@ -284,13 +325,15 @@ async function main(): Promise<void> {
     table.fits[String(heroId)] = {
       matches: raw.hero.matches,
       pairsFitted: fit.pairs.length,
+      tested: tested.length,
+      zCut,
       kept,
       tau: round3(Math.sqrt(fit.tau2)),
     };
     console.log(
       `  ${hero.name.padEnd(18)} ${String(raw.hero.matches).padStart(9)} matches  ` +
         `${String(fit.pairs.length).padStart(5)} fitted  ${String(kept).padStart(4)} kept ` +
-        `(${pos} +, ${kept - pos} -)  rules ${Object.keys(rules).length}  ` +
+        `(${pos} +, ${kept - pos} -)  z >= ${zCut === null ? "none" : zCut.toFixed(2)} of ${tested.length}  rules ${Object.keys(rules).length}  ` +
         `tau ${Math.sqrt(fit.tau2).toFixed(3)}  ${((Date.now() - started) / 1000).toFixed(0)}s`,
     );
   }

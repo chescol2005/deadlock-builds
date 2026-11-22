@@ -77,6 +77,8 @@ export interface StratumFilter {
  */
 export function buildStrata(opts: {
   days: number;
+  /** End the window this many whole days before today 00:00 UTC (default 0). */
+  endDaysAgo?: number;
   /** One rank tier only (badge T0-T9). */
   rank: number | null;
   /** This rank tier and above (badge >= T0). Ignored if `rank` is set. */
@@ -88,7 +90,7 @@ export function buildStrata(opts: {
   all: StratumFilter;
   bands: StratumFilter[];
 } {
-  const maxTs = Math.floor(Date.now() / 1000 / DAY_S) * DAY_S;
+  const maxTs = (Math.floor(Date.now() / 1000 / DAY_S) - (opts.endDaysAgo ?? 0)) * DAY_S;
   const minTs = maxTs - opts.days * DAY_S;
   const base: Params = {
     game_mode: "normal",
