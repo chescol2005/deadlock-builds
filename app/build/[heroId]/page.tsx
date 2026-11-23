@@ -9,7 +9,7 @@ import { getHeroAccuracy, getRankTiers } from "@/lib/analyticsStore";
 import { getHeroStats } from "@/lib/heroStore";
 import { fetchHeroAbilityItems } from "@/lib/api/deadlockApi";
 import { mapHeroAbilities } from "@/lib/abilityCoefficients";
-import { heroMatchedWinRate } from "@/lib/engine/matchedWinRate";
+import { heroMatchedWinRateBrackets } from "@/lib/engine/matchedWinRate";
 import type { MatchedWinRateTable } from "@/lib/engine/matchedWinRate";
 import matchedWinRateJson from "@/lib/engine/data/matchedWinRate.json";
 import { heroPairLift } from "@/lib/engine/pairLift";
@@ -100,9 +100,10 @@ export default async function BuildHeroPage({
   const pairLift = heroPairLift(pairLiftTableJson as unknown as PairLiftTable, heroIdNum);
 
   // Matched item win rates (npm run fit-matched-wr): each item against the other
-  // purchases at the same net worth and game time, Oracle+ (the rank picker is
-  // not mapped to a bracket yet). Sliced the same way; null => the term is inert.
-  const matchedWinRate = heroMatchedWinRate(
+  // purchases at the same net worth and game time, one slice per fitted rank
+  // bracket so the client's rank picker can choose (matchedWinRateForRank).
+  // Empty => the basket's win-rate term is inert.
+  const matchedWinRateBrackets = heroMatchedWinRateBrackets(
     matchedWinRateJson as unknown as MatchedWinRateTable,
     heroIdNum,
   );
@@ -133,7 +134,7 @@ export default async function BuildHeroPage({
       initialState={initialState}
       allItems={allItems}
       heroRoster={heroRoster}
-      matchedWinRate={matchedWinRate}
+      matchedWinRateBrackets={matchedWinRateBrackets}
       heroAccuracy={heroAccuracy}
       rankTiers={rankTiers}
       pairLift={pairLift}

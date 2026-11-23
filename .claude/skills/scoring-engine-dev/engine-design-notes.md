@@ -2210,9 +2210,19 @@ at q = 0.1 on the unshrunk z, as the pair table does.
 **The table.** `npm run fit-matched-wr` writes `data/matchedWinRate.json`: hero ->
 rank bracket (minimum match-average tier) -> kept items. First fit: Oracle+, 23 post-
 patch days, 1,292 items kept across 44 heroes, tau 0.016-0.038. `--brackets 8,9,11`
-adds Phantom+ / Eternus+; `heroMatchedWinRate` takes the bracket (default 8). The
-planner already has a rank picker (`selectedRankTier`, used for gun accuracy); mapping it
-to a bracket is a follow-up.
+adds Phantom+ / Eternus+; `heroMatchedWinRate` takes the bracket (default 8).
+
+**Rank picker (2026-11-23).** The table is fitted for Ritualist+, Oracle+ and Phantom+
+(`--brackets 6,8,9`). Kept items over 23 post-patch days: Ritualist+ 2,221, Oracle+ 1,293,
+Phantom+ 830, Eternus+ 4 (0-2 per hero). Eternus+ is left out: it would switch the term
+off for Eternus picks, while Phantom+ already includes their matches. Retry it at the
+30-day refit. The page passes every bracket of the hero
+(`heroMatchedWinRateBrackets`); BuildClient's rank picker, which already set gun
+accuracy, now also picks the bracket with `matchedWinRateForRank`: the highest bracket at
+or below the picked rank, the lowest one for ranks below every bracket, and Oracle+ when
+no rank is picked, so the default /build basket and the baselines are unchanged.
+Brackets are cumulative (Phantom+ includes Eternus), as the API's minimum average badge
+filters. Only this term follows the picker: the other tables stay Oracle+ (follow-up).
 
 **Same weight, better signal.** `ANALYTICS_EDGE_CLAMP` is 0.10, the raw term's scale.
 Kept edges run mostly within +/-5 points, from -13.6 (Metal Skin, Warden) to +8.5; 12 of 1,292 reach the clamp. A

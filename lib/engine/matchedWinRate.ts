@@ -93,9 +93,8 @@ export interface HeroMatchedWinRate {
 }
 
 /**
- * The bracket the planner reads: Oracle (tier 8) and above. The planner's rank
- * picker (BuildClient's selectedRankTier) feeds gun accuracy only; mapping it to
- * a bracket waits until the table is fitted for more brackets.
+ * The bracket the planner reads when no rank is picked ("All ranks"): Oracle
+ * (tier 8) and above, the population the other committed tables are fitted on.
  */
 export const DEFAULT_MATCHED_MIN_RANK = 8;
 
@@ -220,4 +219,46 @@ export function heroMatchedWinRate(
   const items = table.heroes[String(heroId)]?.[bracket];
   if (label === undefined || items === undefined) return null;
   return { minRank, label, days: table.window.days, to: table.window.to, items };
+}
+
+/**
+ * Every fitted bracket for one hero, lowest minimum rank first. The server
+ * passes this (a few KB per bracket) so the planner's rank picker can switch
+ * brackets without a reload. Empty when the hero is unfitted.
+ */
+export function heroMatchedWinRateBrackets(
+  table: MatchedWinRateTable,
+  heroId: number,
+): HeroMatchedWinRate[] {
+  return Object.keys(table.method.brackets)
+    .map(Number)
+    .filter((t) => Number.isInteger(t))
+    .sort((a, b) => a - b)
+    .flatMap((t) => {
+      const slice = heroMatchedWinRate(table, heroId, t);
+      return slice ? [slice] : [];
+    });
+}
+
+/**
+ * The bracket for the planner's rank picker:
+ *  - no rank picked (null): the default bracket (Oracle+), or the lowest fitted
+ *    one if the default is missing;
+ *  - a rank: the highest bracket whose minimum is at or below it (an Eternus
+ *    player reads Eternus+, a Phantom player Phantom+);
+ *  - a rank below every bracket: the lowest one (its label says which).
+ * null only when the hero has no fitted bracket (the basket term stays inert).
+ */
+export function matchedWinRateForRank(
+  brackets: ReadonlyArray<HeroMatchedWinRate>,
+  rankTier: number | null,
+): HeroMatchedWinRate | null {
+  if (brackets.length === 0) return null;
+  const sorted = [...brackets].sort((a, b) => a.minRank - b.minRank);
+  if (rankTier === null || !Number.isFinite(rankTier)) {
+    return sorted.find((b) => b.minRank === DEFAULT_MATCHED_MIN_RANK) ?? sorted[0];
+  }
+  let pick = sorted[0];
+  for (const b of sorted) if (b.minRank <= rankTier) pick = b;
+  return pick;
 }
