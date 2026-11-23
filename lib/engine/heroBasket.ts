@@ -19,7 +19,7 @@ import { abilityChargeCredit, heroDps } from "./heroDamage";
 import { ownedGapHeal, ownedTradeHealHp } from "./heroFight";
 import { kitHealPerTrade, kitSelfDamagePerTrade } from "./kitHeal";
 import { BOON_THRESHOLDS } from "../boonSystem";
-import type { HeroAccuracy, ItemAnalytics } from "../analyticsStore";
+import type { HeroAccuracy } from "../analyticsStore";
 import { resolveAccuracyAtRank } from "../analyticsStore";
 import { MAX_ACTIVE_ITEMS } from "../buildUtils";
 import { constructBasket, makeBasketContext } from "./basketSelect";
@@ -29,6 +29,7 @@ import {
   deriveProcPlatformFactor,
 } from "./heroNeed";
 import { toItemCandidates } from "./itemAdapter";
+import type { HeroMatchedWinRate } from "./matchedWinRate";
 import type { HeroPairLift } from "./pairLift";
 import {
   adjustSplitForAccuracy,
@@ -96,7 +97,8 @@ export interface HeroBasketInputs {
   boonLevel: number;
   /** The hero's total spirit power including owned items; scales candidates. */
   spiritPower: number;
-  itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
+  /** This hero's matched item win rates (heroMatchedWinRate); omitted => analyticsTerm inert. */
+  matchedWinRate?: HeroMatchedWinRate;
   /** Omitted => no accuracy discount (nominal gun DPS), as before. */
   heroAccuracy?: ReadonlyMap<number, HeroAccuracy>;
   /** Rank tier for accuracy; null = pooled across ranks. */
@@ -277,7 +279,7 @@ export function runHeroBasket(input: HeroBasketInputs): HeroBasketRun | null {
     needVector,
     soulBudget: Math.max(0, input.souls - committed),
     maxItems: Math.max(0, MAX_ACTIVE_ITEMS - ownedItems.length),
-    itemAnalytics: input.itemAnalytics,
+    matchedWinRate: input.matchedWinRate,
     procPlatformFactor,
     hitReliabilityFactor,
     // Lets synergyTerm and pairTerm credit a pair whose other half the

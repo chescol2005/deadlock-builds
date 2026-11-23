@@ -24,8 +24,8 @@
 //
 // Design constraints (CLAUDE.md + scoring-engine-dev skill, non-negotiable):
 // - PURE. Same inputs → same output. No Date.now(), no Math.random(), no
-//   network, no global mutable state. Analytics data is PASSED IN via
-//   `ctx.itemAnalytics` — this module never fetches it.
+//   network, no global mutable state. Win-rate data is PASSED IN via
+//   `ctx.matchedWinRate` — this module never fetches it.
 // - DETERMINISTIC. Ties are broken by the same total order as engine.ts:
 //   value desc → cost asc → itemId asc. Input array order is never
 //   load-bearing.
@@ -39,7 +39,6 @@
 // `pairTerm`, plugged in this way as one more `MarginalTermFn` with no change
 // to the loop.
 
-import type { ItemAnalytics } from "../analyticsStore";
 import { MAX_ACTIVE_ITEMS } from "../buildUtils";
 import {
   CATEGORY_BONUS_TIERS,
@@ -180,22 +179,16 @@ const CROSS_TIER_FRACTION = 0.08;
 const APPROACH_SIGNIFICANT_FRACTION = 0.05;
 
 /**
- * Minimum observed matches before an item's win rate is trusted at all.
- *
- * Below this the rate is dominated by sampling noise: at 200 matches the
- * standard error of a ~50% rate is ~3.5pp, which is already the same order as
- * the entire real spread between items. Anything thinner would let a handful of
- * games move a build.
+ * Matched edge at which the analytics term saturates (10 win-rate points), the
+ * same scale as the raw-rate term it replaced (10 points from 50%), so the
+ * switch changes the signal, not the term's weight. Kept matched edges run
+ * mostly within +/-5 points, from -13.6 (Metal Skin for Warden) to +8.5
+ * (Oracle+, 2026-10-31..11-23): 12 of 1,292 reach the clamp.
+ * A 5-point clamp was tried first: it made win rate about twice as strong in
+ * the build (Warden's mid build tipped into vitality) — a weight change, which
+ * would be its own decision.
  */
-const ANALYTICS_MIN_MATCHES = 200;
-
-/**
- * Win-rate deviation (from 50%) at which the analytics term saturates.
- * Real item win rates cluster within a few points of even; ±10pp is well past
- * the plausible range, so this clamp only ever fires on outliers or
- * unrepresentative samples.
- */
-const ANALYTICS_WINRATE_CLAMP = 0.1;
+const ANALYTICS_EDGE_CLAMP = 0.1;
 
 /**
  * Hard ceiling on `analyticsTerm`, as a fraction of one slot's coverage scale.
@@ -353,7 +346,8 @@ export function makeBasketContext(opts: {
   soulBudget: number;
   maxItems?: number;
   coverageTargetPerSlot?: number;
-  itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
+  /** See BasketContext.matchedWinRate. Omitted => analyticsTerm inert. */
+  matchedWinRate?: BasketContext["matchedWinRate"];
   /** See BasketContext.procPlatformFactor. Omitted => procPlatformTerm inert. */
   procPlatformFactor?: number;
   /** See BasketContext.hitReliabilityFactor. Omitted => the term is inert. */
@@ -437,7 +431,7 @@ export function makeBasketContext(opts: {
     target,
     soulBudget,
     maxItems,
-    itemAnalytics: opts.itemAnalytics,
+    matchedWinRate: opts.matchedWinRate,
     // Sanitized here so a non-finite factor degrades to "inert" rather than
     // poisoning every candidate's marginal value with NaN.
     procPlatformFactor:
@@ -808,59 +802,56 @@ export const categoryBonusTerm: MarginalTermFn = {
 };
 
 /**
- * Real empirical win rate — deliberately the smallest term in the system.
+ * Matched item win rate — deliberately the smallest term in the system.
  *
- * IMPORTANT INTERPRETATION CAVEAT: this is OBSERVATIONAL data, not causal. An
- * item's win rate reflects WHO buys it (which heroes, which skill brackets) and
- * WHEN they buy it (a 6,300-soul item is disproportionately bought by players
- * who were already ahead), not the item's isolated contribution to winning.
- * Treating it as a causal effect would systematically over-rank expensive
- * late-game items. It is therefore centred on 0.5 (a 50%-win-rate item
- * contributes exactly nothing), clamped, and capped at a small fraction of a
- * slot's coverage scale so it nudges ranking between stat-equivalent items
- * instead of overriding the deterministic stat-based terms.
+ * Reads `ctx.matchedWinRate`: this hero's items at one rank bracket, each
+ * compared with the OTHER purchases made at the same net worth at purchase and
+ * in the same game-time window (lib/engine/matchedWinRate.ts). Until 2026-11-23
+ * this term read one raw win rate per item, pooled over every hero and rank,
+ * minus 50%. That mostly measured who could afford the item: 6,400-soul items
+ * sat ~5.6 points above their hero's win rate raw, ~1 point matched.
  *
- * Returns null — contributing nothing — when there is no analytics map, no
- * entry for this item, the sample is thinner than ANALYTICS_MIN_MATCHES, the
- * rate is exactly even, or the candidate delivers no un-met coverage. That last
- * gate matches `categoryBonusTerm`'s: a win-rate nudge is a tiebreaker between
- * useful items, never grounds for buying an item the hero has no need for.
+ * Still OBSERVATIONAL, not causal: players who choose an item can differ in
+ * ways the bands can't see. So the edge is shrunk and FDR-selected by the
+ * fitter, clamped at ANALYTICS_EDGE_CLAMP here, and capped at
+ * ANALYTICS_MAX_FRACTION of a slot: a nudge between useful items, never the
+ * reason to buy one.
+ *
+ * Returns null when there is no slice, the item has no kept entry (not
+ * measured, or not distinguishable from its peers), the edge is 0, or the
+ * candidate covers no un-met need (same relevance gate as categoryBonusTerm).
  */
 export const analyticsTerm: MarginalTermFn = {
   termId: "analytics",
 
   evaluate(candidate: ItemCandidate, state: BasketState, ctx: BasketContext): MarginalTerm | null {
-    const analytics = ctx.itemAnalytics;
-    if (!analytics) return null;
+    const matched = ctx.matchedWinRate;
+    if (!matched) return null;
 
     if (!coversNeed(candidate, state, ctx)) return null;
 
-    const entry = analytics.get(candidate.numericId);
+    const entry = matched.items[candidate.itemId];
     if (!entry) return null;
 
-    const matches = entry.matches;
-    if (!Number.isFinite(matches) || matches < ANALYTICS_MIN_MATCHES) return null;
+    const edge = entry.edge;
+    if (!Number.isFinite(edge) || edge === 0) return null;
 
-    const winRate = entry.winRate;
-    if (!Number.isFinite(winRate)) return null;
-
-    const rawSignal = winRate - 0.5;
-    const clamped = Math.max(
-      -ANALYTICS_WINRATE_CLAMP,
-      Math.min(ANALYTICS_WINRATE_CLAMP, rawSignal),
-    );
-    if (clamped === 0) return null;
+    const clamped = Math.max(-ANALYTICS_EDGE_CLAMP, Math.min(ANALYTICS_EDGE_CLAMP, edge));
 
     const scale = coverageScalePerSlot(ctx);
     if (scale <= 0) return null;
 
-    const value = (clamped / ANALYTICS_WINRATE_CLAMP) * ANALYTICS_MAX_FRACTION * scale;
+    const value = (clamped / ANALYTICS_EDGE_CLAMP) * ANALYTICS_MAX_FRACTION * scale;
     const sign = value >= 0 ? "+" : "";
+    const points = (Math.abs(edge) * 100).toFixed(1);
 
     return {
       termId: "analytics",
       value,
-      reason: `${(winRate * 100).toFixed(1)}% win rate over ${formatSouls(matches)} matches (${sign}${value.toFixed(2)}) — observational, not causal`,
+      reason:
+        `wins ${points} points ${edge > 0 ? "more" : "less"} often than other items bought at the same ` +
+        `net worth and game time (${matched.label}, ${matched.days} days to ${matched.to}, ${formatSouls(entry.n)} purchases) ` +
+        `(${sign}${value.toFixed(2)}) — observational, not causal`,
     };
   },
 };

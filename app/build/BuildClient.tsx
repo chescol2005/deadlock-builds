@@ -45,8 +45,9 @@ import { AudienceTabs } from "@/app/components/AudienceTabs";
 import { BuildEmptyState } from "@/app/build/components/BuildEmptyState";
 import { HeroStatsPanel } from "@/app/build/components/HeroStatsPanel";
 import { HeroBasketSuggestion } from "@/app/build/components/HeroBasketSuggestion";
-import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
+import type { HeroAccuracy } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
+import type { HeroMatchedWinRate } from "@/lib/engine/matchedWinRate";
 import type { HeroPairLift } from "@/lib/engine/pairLift";
 import type { HeroCategorySplit } from "@/lib/engine/categorySplit";
 import type { HeroPhaseItems } from "@/lib/engine/phaseItems";
@@ -82,7 +83,7 @@ export default function BuildClient({
   initialState = null,
   allItems = [],
   heroRoster = [],
-  itemAnalytics,
+  matchedWinRate = null,
   heroAccuracy,
   rankTiers = [],
   pairLift = null,
@@ -101,10 +102,10 @@ export default function BuildClient({
    * normalizes against. Empty is safe: deriveHeroNeedVector degrades to a
    * neutral tankiness/mobility need rather than failing. */
   heroRoster?: HeroBaseStats[];
-  /** Real per-item win rates, keyed by Item.numericId. Optional by design —
-   * the analytics fetcher fails open, and the basket engine treats a missing
-   * map as "no empirical signal" rather than an error. */
-  itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
+  /** This hero's matched item win rates (lib/engine/matchedWinRate.ts), sliced
+   * server-side from the committed table. null => the basket's analyticsTerm
+   * is inert. */
+  matchedWinRate?: HeroMatchedWinRate | null;
   /** Observed shot accuracy per hero, overall and by rank tier. Optional —
    * the analytics fetchers fail open, and gun need falls back to nominal DPS. */
   heroAccuracy?: ReadonlyMap<number, HeroAccuracy>;
@@ -480,7 +481,7 @@ export default function BuildClient({
         souls: boonSouls,
         boonLevel: manualBoonLevel,
         spiritPower: totalSpiritPower,
-        itemAnalytics,
+        matchedWinRate: matchedWinRate ?? undefined,
         heroAccuracy,
         rankTier: selectedRankTier,
         pairLift: pairLift ?? undefined,
@@ -496,7 +497,7 @@ export default function BuildClient({
     allItems,
     buildItems,
     boonSouls,
-    itemAnalytics,
+    matchedWinRate,
     heroAccuracy,
     selectedRankTier,
     totalSpiritPower,
@@ -517,7 +518,7 @@ export default function BuildClient({
       heroBaseStats,
       heroRoster,
       allItems,
-      itemAnalytics,
+      matchedWinRate: matchedWinRate ?? undefined,
       heroAccuracy,
       rankTier: selectedRankTier,
       pairLift: pairLift ?? undefined,
@@ -530,7 +531,7 @@ export default function BuildClient({
     heroAbilities,
     heroRoster,
     allItems,
-    itemAnalytics,
+    matchedWinRate,
     heroAccuracy,
     selectedRankTier,
     pairLift,

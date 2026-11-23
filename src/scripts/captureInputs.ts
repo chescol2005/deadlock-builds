@@ -5,7 +5,7 @@
 // Run: npm run capture-inputs [-- --tables-only | --ability-roster]
 //   --ability-roster  write abilityRoster.json only: every visible hero's kit and
 //                  base stats, for the roster profile (Milestone O §7.1)
-//   --tables-only  refresh only the copies of the three committed data tables
+//   --tables-only  refresh only the copies of the four committed data tables
 //                  (after `npm run fit-pairs` / `fit-category-split`), keeping
 //                  the pinned API data as it was
 //
@@ -23,6 +23,8 @@ import type { PhaseItemsTable } from "@/lib/engine/phaseItems";
 import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 import categorySplitTableJson from "@/lib/engine/data/heroCategorySplit.json";
 import phaseItemsTableJson from "@/lib/engine/data/heroPhaseItems.json";
+import type { MatchedWinRateTable } from "@/lib/engine/matchedWinRate";
+import matchedWinRateJson from "@/lib/engine/data/matchedWinRate.json";
 import {
   FROZEN_ABILITY_ROSTER_FILE,
   FROZEN_INPUTS_FILE,
@@ -58,6 +60,7 @@ function tablesFor(heroIds: ReadonlySet<number>): FrozenInputsFile["tables"] {
     pairLift: sliceTable(pairLiftTableJson as unknown as PairLiftTable, heroIds),
     categorySplit: sliceTable(categorySplitTableJson as unknown as CategorySplitTable, heroIds),
     phaseItems: sliceTable(phaseItemsTableJson as unknown as PhaseItemsTable, heroIds),
+    matchedWinRate: sliceTable(matchedWinRateJson as unknown as MatchedWinRateTable, heroIds),
   };
 }
 
@@ -160,7 +163,7 @@ async function main() {
     const file = JSON.parse(readFileSync(FROZEN_INPUTS_FILE, "utf-8")) as FrozenInputsFile;
     const tables = tablesFor(new Set(file.heroes.map((h) => h.id)));
     writeFileSync(FROZEN_INPUTS_FILE, JSON.stringify({ ...file, tables }) + "\n");
-    console.log("refreshed the three table copies; API data unchanged");
+    console.log("refreshed the four table copies; API data unchanged");
     return;
   }
 

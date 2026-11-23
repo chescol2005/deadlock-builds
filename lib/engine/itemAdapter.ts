@@ -53,8 +53,8 @@ import { SCORE_CATEGORIES } from "./types";
 // swamp every percent-based item sharing its category. These three weight
 // classes are a first-pass, explicitly documented heuristic that brings
 // stats onto a roughly comparable order of magnitude — they are NOT derived
-// from real win-rate/impact data (that's the Milestone F `itemAnalytics`
-// seam described in types.ts's `BasketContext`). Retune per-key once that
+// from real win-rate/impact data (the basket's win-rate input is a separate,
+// capped term: BasketContext.matchedWinRate). Retune per-key once impact
 // data exists; until then, keep the reasoning visible here rather than
 // burying magic numbers at each call site.
 const WEIGHT_LARGE_FLAT = 0.1; // hundreds-scale flat stats (e.g. BonusHealth ~150-400) — scaled down to match percent-stat magnitude

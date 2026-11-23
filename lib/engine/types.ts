@@ -1,5 +1,5 @@
-import type { ItemAnalytics } from "../analyticsStore";
 import type { ItemCategory } from "../items";
+import type { HeroMatchedWinRate } from "./matchedWinRate";
 import type { HeroPairLift } from "./pairLift";
 
 export const INTENT_KEYS = ["burst", "sustain", "tank", "mobility", "utility"] as const;
@@ -199,10 +199,13 @@ export interface BasketContext {
   soulBudget: number;
   maxItems: number;
   /**
-   * Optional real win-rate data, keyed by `ItemCandidate.numericId`.
-   * ALWAYS passed in — never fetched inside the engine, which must stay pure.
+   * This hero's matched item win rates at one rank bracket (matchedWinRate.ts):
+   * each item against the other purchases made at the same net worth and game
+   * time, keyed by `ItemCandidate.itemId`. ALWAYS passed in, sliced server-side
+   * from the committed table; never fetched inside the engine. Omitted =>
+   * analyticsTerm is inert.
    */
-  itemAnalytics?: ReadonlyMap<number, ItemAnalytics>;
+  matchedWinRate?: HeroMatchedWinRate;
   /**
    * How good this hero is as a platform for per-hit effects, relative to the
    * roster: shots landed per second versus peers. 1 = roster-average, >1 better.

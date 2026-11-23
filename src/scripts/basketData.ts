@@ -9,14 +9,16 @@ import { fetchVisibleHeroesEnriched } from "@/lib/heroApi";
 import type { DeadlockHeroListItemEnriched } from "@/lib/heroApi";
 import { getItems } from "@/lib/itemStore";
 import type { Item } from "@/lib/items";
-import { getHeroAccuracy, getItemAnalytics, getRankTiers } from "@/lib/analyticsStore";
-import type { HeroAccuracy, ItemAnalytics } from "@/lib/analyticsStore";
+import { getHeroAccuracy, getRankTiers } from "@/lib/analyticsStore";
+import type { HeroAccuracy } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
 import { getHeroStats } from "@/lib/heroStore";
 import type { HeroBaseStats } from "@/lib/heroStats";
 import { fetchHeroAbilityItems } from "@/lib/api/deadlockApi";
 import { mapHeroAbilities } from "@/lib/abilityCoefficients";
 import type { HeroAbility } from "@/lib/abilityCoefficients";
+import type { MatchedWinRateTable } from "@/lib/engine/matchedWinRate";
+import matchedWinRateJson from "@/lib/engine/data/matchedWinRate.json";
 import type { PairLiftTable } from "@/lib/engine/pairLift";
 import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
 import type { CategorySplitTable } from "@/lib/engine/categorySplit";
@@ -27,12 +29,12 @@ import phaseItemsTableJson from "@/lib/engine/data/heroPhaseItems.json";
 export interface LiveBasketData {
   heroes: DeadlockHeroListItemEnriched[];
   allItems: Item[];
-  itemAnalytics: Map<number, ItemAnalytics>;
   heroAccuracy: Map<number, HeroAccuracy>;
   rankTiers: RankTierRaw[];
   /** Base stats of every visible hero that has them (need-vector z-scores). */
   heroRoster: HeroBaseStats[];
   pairLiftTable: PairLiftTable;
+  matchedWinRateTable: MatchedWinRateTable;
   categorySplitTable: CategorySplitTable;
   phaseItemsTable: PhaseItemsTable;
 }
@@ -44,21 +46,20 @@ export interface LiveHeroKit {
 }
 
 export async function loadLiveBasketData(): Promise<LiveBasketData> {
-  const [heroes, allItems, itemAnalytics, heroAccuracy, rankTiers] = await Promise.all([
+  const [heroes, allItems, heroAccuracy, rankTiers] = await Promise.all([
     fetchVisibleHeroesEnriched(),
     getItems(),
-    getItemAnalytics(),
     getHeroAccuracy(),
     getRankTiers(),
   ]);
   return {
     heroes,
     allItems,
-    itemAnalytics,
     heroAccuracy,
     rankTiers,
     heroRoster: heroes.flatMap((h) => (h.baseStats ? [h.baseStats] : [])),
     pairLiftTable: pairLiftTableJson as unknown as PairLiftTable,
+    matchedWinRateTable: matchedWinRateJson as unknown as MatchedWinRateTable,
     categorySplitTable: categorySplitTableJson as unknown as CategorySplitTable,
     phaseItemsTable: phaseItemsTableJson as unknown as PhaseItemsTable,
   };
