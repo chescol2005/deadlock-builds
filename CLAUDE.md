@@ -297,8 +297,10 @@ all players from `item-flow-stats`; only Fixture 13's M1 / O2 read it, never the
 (writes the committed per-hero gun/spirit/vitality split), their shared loader
 `pairData.ts`, `heroRoleCheck.ts` (`npm run role-check`: checks `lib/heroRoles.ts` against
 measured net worth, jungle share and damage, M6.0b), `synergyReport.ts` (+ `synergyReport.client.js`; writes the
-gitignored `reports/synergy-audit.html`, published as a private artifact), and
-`syncBoonData.ts`.
+gitignored `reports/synergy-audit.html`, published as a private artifact),
+`basketMapReport.ts` (+ `basketMapReport.template.html`; `npm run basket-map` writes the
+gitignored `reports/basket-map.html` from the frozen engine inputs, its picks matching
+`baselines.json`; published as a private artifact), and `syncBoonData.ts`.
 
 ```
 lib/items.ts                  — Item, ItemAssignment, ItemPhase, BuildCategory types
