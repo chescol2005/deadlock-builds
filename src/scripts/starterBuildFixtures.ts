@@ -21,6 +21,7 @@ import {
 import type { Item } from "@/lib/items";
 import { MAX_ACTIVE_ITEMS } from "@/lib/buildUtils";
 import { componentClosure, heroPairLift } from "@/lib/engine/pairLift";
+import { heroMatchedWinRate } from "@/lib/engine/matchedWinRate";
 import { heroCategorySplit, heroPhaseSplits } from "@/lib/engine/categorySplit";
 import { enemyHealthRates, heroPhaseItems } from "@/lib/engine/phaseItems";
 import type { CategoryShares } from "@/lib/engine/categorySplit";
@@ -235,7 +236,7 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     heroRoster: d.heroRoster,
     allItems: d.allItems,
     ownedItems: [],
-    itemAnalytics: d.itemAnalytics,
+    matchedWinRate: heroMatchedWinRate(d.matchedWinRateTable, kit.hero.id) ?? undefined,
     heroAccuracy: d.heroAccuracy,
     rankTier: null,
     pairLift: heroPairLift(d.pairLiftTable, kit.hero.id) ?? undefined,
@@ -712,7 +713,7 @@ export async function runStarterBuildFixtures(assert: Assert): Promise<void> {
     if (!kit) continue;
     const b = buildStarterBuild(
       inputsFor(kit, {
-        itemAnalytics: new Map(),
+        matchedWinRate: undefined,
         heroAccuracy: undefined,
         pairLift: undefined,
         categorySplit: undefined,

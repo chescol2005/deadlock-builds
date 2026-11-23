@@ -5,10 +5,13 @@ import { fetchHeroById, fetchUpgradeItems, normalizeUpgradeItems } from "@/lib/d
 import { fetchVisibleHeroesEnriched } from "@/lib/heroApi";
 import type { BuildState } from "@/lib/buildSerializer";
 import { getItems } from "@/lib/itemStore";
-import { getHeroAccuracy, getItemAnalytics, getRankTiers } from "@/lib/analyticsStore";
+import { getHeroAccuracy, getRankTiers } from "@/lib/analyticsStore";
 import { getHeroStats } from "@/lib/heroStore";
 import { fetchHeroAbilityItems } from "@/lib/api/deadlockApi";
 import { mapHeroAbilities } from "@/lib/abilityCoefficients";
+import { heroMatchedWinRate } from "@/lib/engine/matchedWinRate";
+import type { MatchedWinRateTable } from "@/lib/engine/matchedWinRate";
+import matchedWinRateJson from "@/lib/engine/data/matchedWinRate.json";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import type { PairLiftTable } from "@/lib/engine/pairLift";
 import pairLiftTableJson from "@/lib/engine/data/pairLiftTable.json";
@@ -67,7 +70,6 @@ export default async function BuildHeroPage({
     heroData,
     rawAbilities,
     heroBaseStats,
-    itemAnalytics,
     heroAccuracy,
     rankTiers,
   ] = await Promise.all([
@@ -77,14 +79,10 @@ export default async function BuildHeroPage({
     fetchHeroById(heroId),
     fetchHeroAbilityItems(heroIdNum),
     getHeroStats(heroIdNum),
-    getItemAnalytics(),
     getHeroAccuracy(),
     getRankTiers(),
   ]);
 
-  // Real per-item win rates feed the basket's (deliberately small) empirical
-  // term. `getItemAnalytics` fails open with an empty map, which the engine
-  // treats as "no empirical signal" rather than an error.
   const heroRoster = heroes.flatMap((h) => (h.baseStats ? [h.baseStats] : []));
 
   // If someone navigates to a non-visible heroId, bounce them back
@@ -100,6 +98,14 @@ export default async function BuildHeroPage({
   // this hero's few dozen KB, never the whole file. null when the hero was not
   // fitted (the basket's pairTerm is then inert).
   const pairLift = heroPairLift(pairLiftTableJson as unknown as PairLiftTable, heroIdNum);
+
+  // Matched item win rates (npm run fit-matched-wr): each item against the other
+  // purchases at the same net worth and game time, Oracle+ (the rank picker is
+  // not mapped to a bracket yet). Sliced the same way; null => the term is inert.
+  const matchedWinRate = heroMatchedWinRate(
+    matchedWinRateJson as unknown as MatchedWinRateTable,
+    heroIdNum,
+  );
 
   // Measured gun / spirit / vitality split (npm run fit-category-split), sliced
   // the same way. null when the hero's data is too thin (kit-only need vector).
@@ -127,7 +133,7 @@ export default async function BuildHeroPage({
       initialState={initialState}
       allItems={allItems}
       heroRoster={heroRoster}
-      itemAnalytics={itemAnalytics}
+      matchedWinRate={matchedWinRate}
       heroAccuracy={heroAccuracy}
       rankTiers={rankTiers}
       pairLift={pairLift}

@@ -26,6 +26,7 @@ import {
 } from "@/lib/engine/basketSelect";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { ANCHOR_MARGIN, basketPlans } from "@/lib/engine/basketSelect";
+import { heroMatchedWinRate } from "@/lib/engine/matchedWinRate";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import { heroCategorySplit } from "@/lib/engine/categorySplit";
 import { enemyHealthRates, heroPhaseItems } from "@/lib/engine/phaseItems";
@@ -177,7 +178,7 @@ async function main(): Promise<void> {
 
   // ── Load: same sources as app/build/[heroId]/page.tsx ────────────────────
   const data = await loadLiveBasketData();
-  const { allItems, itemAnalytics, heroAccuracy, rankTiers } = data;
+  const { allItems, heroAccuracy, rankTiers } = data;
 
   const hero = findHero(data.heroes, args.hero);
   if (!hero) fail(`no visible hero matches "${args.hero}"`);
@@ -198,6 +199,8 @@ async function main(): Promise<void> {
     itemStatTotals.spiritPowerPercent,
   );
 
+  const matchedWinRate = heroMatchedWinRate(data.matchedWinRateTable, hero.id);
+
   // The pipeline itself is shared with BuildClient (lib/engine/heroBasket.ts).
   const run = runHeroBasket({
     heroAbilities: kit.heroAbilities,
@@ -208,7 +211,8 @@ async function main(): Promise<void> {
     souls: boonSouls,
     boonLevel: manualBoonLevel,
     spiritPower: totalSpiritPower,
-    itemAnalytics,
+    // Sliced like app/build/[heroId]/page.tsx does (Oracle+ bracket).
+    matchedWinRate: matchedWinRate ?? undefined,
     heroAccuracy,
     rankTier: args.rank,
     // Sliced like app/build/[heroId]/page.tsx does on the server.
@@ -288,7 +292,7 @@ async function main(): Promise<void> {
   );
   console.log(
     `proc platform ${fmt(procPlatformFactor, 3)}, hit reliability ${fmt(hitReliabilityFactor, 3)}` +
-      ` | analytics rows ${itemAnalytics.size}, accuracy rows ${heroAccuracy.size}`,
+      ` | matched win-rate items ${matchedWinRate ? Object.keys(matchedWinRate.items).length : 0}, accuracy rows ${heroAccuracy.size}`,
   );
 
   console.log("\nNeed vector (target per category):");

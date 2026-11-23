@@ -17,6 +17,7 @@ import { calculateStatsAtBoon } from "@/lib/heroStats";
 import { heroCategorySplit } from "@/lib/engine/categorySplit";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { toItemCandidates } from "@/lib/engine/itemAdapter";
+import { heroMatchedWinRate } from "@/lib/engine/matchedWinRate";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import { enemyHealthRates, heroPhaseItems } from "@/lib/engine/phaseItems";
 import { SCORE_CATEGORIES, SCORE_CATEGORY_PLAIN } from "@/lib/engine/types";
@@ -63,7 +64,7 @@ const heroes = data.kits.map((kit) => {
       souls,
       boonLevel: boon,
       spiritPower: calculateStatsAtBoon(kit.heroBaseStats, boon).spiritPower,
-      itemAnalytics: data.itemAnalytics,
+      matchedWinRate: heroMatchedWinRate(data.tables.matchedWinRate, kit.id) ?? undefined,
       heroAccuracy: data.heroAccuracy,
       rankTier: null,
       pairLift: heroPairLift(data.tables.pairLift, kit.id) ?? undefined,

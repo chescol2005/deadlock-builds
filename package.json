@@ -16,6 +16,7 @@
     "pair-probe": "npx tsx src/scripts/pairProbe.ts",
     "sync-boon-data": "npx tsx src/scripts/syncBoonData.ts",
     "fit-pairs": "npx tsx src/scripts/fitPairTable.ts",
+    "fit-matched-wr": "npx tsx src/scripts/fitMatchedWinRate.ts",
     "fit-category-split": "npx tsx src/scripts/fitCategorySplit.ts",
     "fit-rush-groups": "npx tsx src/scripts/fitRushGroups.ts",
     "role-check": "npx tsx src/scripts/heroRoleCheck.ts",

@@ -21,6 +21,7 @@ import type { Item } from "../../../items";
 import type { PairLiftTable } from "../../pairLift";
 import type { CategorySplitTable } from "../../categorySplit";
 import type { PhaseItemsTable } from "../../phaseItems";
+import type { MatchedWinRateTable } from "../../matchedWinRate";
 
 export const FROZEN_DIR = join(process.cwd(), "lib/engine/__fixtures__/frozen");
 export const FROZEN_ITEMS_FILE = join(FROZEN_DIR, "items.json");
@@ -50,6 +51,8 @@ export interface FrozenInputsFile {
     pairLift: PairLiftTable;
     categorySplit: CategorySplitTable;
     phaseItems: PhaseItemsTable;
+    /** Added 2026-11-23 (the basket's win-rate term); captured with --tables-only. */
+    matchedWinRate: MatchedWinRateTable;
   };
 }
 

@@ -14,6 +14,7 @@ import { calculateStatTotals, combineStatTotal } from "../../../buildCalculation
 import { calculateStatsAtBoon } from "../../../heroStats";
 import type { Item } from "../../../items";
 import { headlineTerm } from "../../../basketReasons";
+import { heroMatchedWinRate } from "../../matchedWinRate";
 import { heroPairLift } from "../../pairLift";
 import { heroCategorySplit } from "../../categorySplit";
 import { enemyHealthRates, heroPhaseItems } from "../../phaseItems";
@@ -44,7 +45,7 @@ function baseInputs(data: FrozenData, kit: FrozenKit): BaseInputs {
     heroBaseStats: kit.heroBaseStats,
     heroRoster: data.roster,
     allItems: data.allItems,
-    itemAnalytics: data.itemAnalytics,
+    matchedWinRate: heroMatchedWinRate(data.tables.matchedWinRate, kit.id) ?? undefined,
     heroAccuracy: data.heroAccuracy,
     rankTier: null,
     pairLift: heroPairLift(data.tables.pairLift, kit.id) ?? undefined,

@@ -81,7 +81,8 @@ output, not just the exit code.
   threshold gain (reusing `lib/categoryBonuses.ts`'s
   `isApproachingSignificantBonus`/`getCurrentBonusTier`, the same logic
   `scoreItems.ts` already applies) + an optional, small, explicitly-bounded
-  empirical term from `ItemAnalytics.winRate` (via the join above) — this is
+  empirical term from `ItemAnalytics.winRate` (via the join above; superseded
+  2026-11-23 by "Matched item win rate") — this is
   what makes the algorithm trade off concentrating souls in one category
   (game-native bonus ladder) against diversifying for a multi-category hero
   need, instead of hand-waving a "risk" number, while also folding in real
@@ -2186,11 +2187,56 @@ enemies. The user measured the rules in game, from combat logs (docs/milestone-n
 - **Refit.** `fitCategorySplit.ts` builds `heroValuationModel`, so the next refit values
   Lady Geist's resist with the saving, and her fitted profile will shift.
 
+## Matched item win rate (matchedWinRate.ts, 2026-11-23)
+
+**The problem.** `analyticsTerm` read one raw win rate per item from
+`/v1/analytics/item-stats` with no parameters: every hero, every rank, all time, minus
+50%. Raw item win rate mostly measures who could afford the item. On the 8 reference
+heroes (Oracle+, 2026-10-31..11-23), 6,400-soul items sat +5.6 points above their hero's
+win rate raw; matched as below, +1.0. Some items collapse once matched (Abrams'
+Healing Tempo +7.8 -> 0.0; Haze's Leech +12.1 -> +2.1).
+
+**The method.** item-stats' `net_worth_by_5000` bucket is net worth AT PURCHASE, not
+final net worth (verified 2026-11-23: 800-soul items sit almost entirely in 0-5k,
+Boundless Spirit in 15-30k; the `min_networth` filter, by contrast, is final net worth).
+One call per buy-time window (0, 10, 15, 20, 25, 30, 40 min) bucketed that way gives
+(window x band) strata. In each stratum an item is compared with the OTHER purchases
+(leave-one-out), pooled by purchases (`matchedExcess`): a benchmark-relative return,
+not a raw one. Wealth does most of the work: wealth-only and wealth + time edges
+correlate 0.96. `fitMatchedWinRate` shrinks by empirical Bayes (method of moments: the
+spread around the tested items' own mean) and keeps items by Benjamini-Hochberg
+at q = 0.1 on the unshrunk z, as the pair table does.
+
+**The table.** `npm run fit-matched-wr` writes `data/matchedWinRate.json`: hero ->
+rank bracket (minimum match-average tier) -> kept items. First fit: Oracle+, 23 post-
+patch days, 1,292 items kept across 44 heroes, tau 0.016-0.038. `--brackets 8,9,11`
+adds Phantom+ / Eternus+; `heroMatchedWinRate` takes the bracket (default 8). The
+planner already has a rank picker (`selectedRankTier`, used for gun accuracy); mapping it
+to a bracket is a follow-up.
+
+**Same weight, better signal.** `ANALYTICS_EDGE_CLAMP` is 0.10, the raw term's scale.
+Kept edges run mostly within +/-5 points, from -13.6 (Metal Skin, Warden) to +8.5; 12 of 1,292 reach the clamp. A
+0.05 clamp was tried first: matched edges are smaller than raw deviations, so it made
+win rate about twice as strong in the build, tipped Warden's mid build into vitality
+(M1 0.36) and moved M1's mean to 0.164. At 0.10: 12 baseline cases change and M1's mean
+improves 0.156 -> 0.153. Raising the weight is a separate decision.
+
+**Limits.** Observational: within a rank bracket, players who choose an item can still
+differ in skill or game state the bands can't see. The clearest residual: reactive and
+defensive buys (Metal Skin, Debuff Remover, Health Stimpak, Pristine Emblem) carry the
+strongest NEGATIVE edges, because a 5,000-soul band can't see "bought while under
+pressure". High keep rates (Lady Geist 54 of 75 tested, Bebop 68 of 114 at q = 0.1) point
+the same way: some of what is kept is remaining confounding, not item value. The 6% cap
+bounds it. A rank bracket controls skill between
+brackets, not within a match (both teams share the match-average badge). The stronger
+control, each player against their own matches with and without the item, needs the
+match dumps and is untried.
+
 ## Roadmap: Milestones F and G (full scope, moved from CLAUDE.md's history table)
 
 **F — item-combination / covariance layer (in progress).** Single-item empirical
 win rate is already handled in Milestone E via `lib/analyticsStore.ts`
-(`ItemAnalytics.winRate`). F is specifically pairwise correlation. The original
+(`ItemAnalytics.winRate`; superseded 2026-11-23 by "Matched item win rate"). F is specifically pairwise correlation. The original
 plan (ingest `/v1/matches/{id}/metadata` and regress offline) is superseded: the
 pre-aggregated pair endpoint above gives the same per-hero counts without
 ingestion. See "Milestone F spike" for the method, results and guardrails.

@@ -6,7 +6,7 @@
 // Run with:  npx ts-node --project tsconfig.json lib/engine/__fixtures__/mini.ts
 // or wire into a test runner script if added to package.json.
 
-import type { HeroAccuracy, ItemAnalytics } from "../../analyticsStore";
+import type { HeroAccuracy } from "../../analyticsStore";
 import type { HeroAbility, AbilityUpgradeTier } from "../../abilityCoefficients";
 import {
   calculateAbilityDamage,
@@ -79,6 +79,14 @@ import {
   synergyTerm,
 } from "../basketSelect";
 import pairLiftTableJson from "../data/pairLiftTable.json";
+import matchedWinRateJson from "../data/matchedWinRate.json";
+import {
+  DEFAULT_MATCHED_MIN_RANK,
+  fitMatchedWinRate,
+  heroMatchedWinRate,
+  matchedExcess,
+} from "../matchedWinRate";
+import type { HeroMatchedWinRate, MatchedWinRateTable } from "../matchedWinRate";
 import { loadFrozen, loadFrozenAbilityRoster } from "./frozen/frozenInputs";
 import { computeBaselines, diffBaselines, readBaselines } from "./frozen/baselines";
 import categorySplitTableJson from "../data/heroCategorySplit.json";
@@ -1543,59 +1551,77 @@ const splitNeed = { ...zeroValues(), gunDamage: 1, spiritDamage: 1 };
   );
 }
 
-// ── analytics term: real data, but only when the sample supports it ──────────
-console.log("\n9. basketSelect: empirical analytics term gating");
+// ── analytics term: matched win rate, a nudge only ─────────────────────────
+console.log("\n9. basketSelect: matched win-rate term (analyticsTerm)");
 {
-  const analytics = new Map<number, ItemAnalytics>([
-    // Thin sample — must be ignored no matter how flattering the win rate.
-    [1, { itemId: 1, matches: 50, wins: 45, losses: 5, winRate: 0.9 }],
-    // Sample large enough to trust.
-    [2, { itemId: 2, matches: 5000, wins: 3000, losses: 2000, winRate: 0.6 }],
-    // Exactly even — carries no signal by construction.
-    [3, { itemId: 3, matches: 5000, wins: 2500, losses: 2500, winRate: 0.5 }],
-  ]);
-
+  const matched: HeroMatchedWinRate = {
+    minRank: 8,
+    label: "Oracle+",
+    days: 23,
+    to: "2026-11-23",
+    items: {
+      gun_b: { edge: 0.03, se: 0.005, z: 6, n: 5000 },
+      spirit_a: { edge: -0.2, se: 0.01, z: -20, n: 5000 },
+      spirit_b: { edge: 0, se: 0.01, z: 0, n: 5000 },
+    },
+  };
   const ctx = makeBasketContext({
     needVector: splitNeed,
     soulBudget: 10000,
     maxItems: 12,
-    itemAnalytics: analytics,
+    matchedWinRate: matched,
   });
-
   const state: BasketState = {
     picked: [],
     coverage: zeroValues(),
     soulsPerCategory: { gun: 0, spirit: 0, vitality: 0 },
     spent: 0,
   };
-
-  const thin = analyticsTerm.evaluate(basketCandidates[0], state, ctx);
-  const thick = analyticsTerm.evaluate(basketCandidates[1], state, ctx);
-  const even = analyticsTerm.evaluate(basketCandidates[2], state, ctx);
-  const missing = analyticsTerm.evaluate(basketCandidates[3], state, ctx);
-
-  assert(thin === null, "win rate from too few matches is ignored (sampling noise)");
-  assert(thick !== null && thick.value > 0, "a well-sampled above-even win rate contributes");
-  assert(even === null, "an exactly-even win rate contributes nothing");
-  assert(missing === null, "an item absent from the analytics map contributes nothing");
-
-  // The empirical nudge must stay smaller than the deterministic stat signal —
-  // it is observational, not causal, and must never dominate ranking.
+  const missing = analyticsTerm.evaluate(basketCandidates[0], state, ctx);
+  const plus = analyticsTerm.evaluate(basketCandidates[1], state, ctx);
+  const minus = analyticsTerm.evaluate(basketCandidates[2], state, ctx);
+  const zero = analyticsTerm.evaluate(basketCandidates[3], state, ctx);
+  assert(
+    missing === null,
+    "an item with no kept matched entry contributes nothing (not measured is not 0)",
+  );
+  assert(
+    plus !== null &&
+      plus.value > 0 &&
+      plus.reason.includes("3.0 points more") &&
+      plus.reason.includes("Oracle+"),
+    "a positive matched edge contributes, and its reason names the edge and the bracket",
+    plus?.reason,
+  );
+  assert(zero === null, "a zero edge contributes nothing");
+  // spirit_a's -20 points is past the 10-point clamp, so it sits exactly at the cap.
+  assert(
+    minus !== null &&
+      plus !== null &&
+      minus.value < 0 &&
+      Math.abs(plus.value / -minus.value - 0.3) < 1e-9,
+    "the term is clamped at 10 points and linear below it: a 3-point edge is 3/10 of the cap",
+    `Got: ${plus?.value} / ${minus?.value}`,
+  );
   const coverageScale = 50; // default coverageTargetPerSlot
   assert(
-    thick !== null && Math.abs(thick.value) < coverageScale * 0.1,
-    "the analytics nudge stays small relative to one slot of coverage",
-    `Got: ${thick?.value}`,
+    minus !== null && Math.abs(minus.value) < coverageScale * 0.1,
+    "the win-rate nudge stays small relative to one slot of coverage",
+    `Got: ${minus?.value}`,
   );
-
-  const noAnalyticsCtx = makeBasketContext({
+  const gunCovered: BasketState = { ...state, coverage: { ...zeroValues(), gunDamage: 1e6 } };
+  assert(
+    analyticsTerm.evaluate(basketCandidates[1], gunCovered, ctx) === null,
+    "relevance gate: no value when the item covers no un-met need",
+  );
+  const noMatchedCtx = makeBasketContext({
     needVector: splitNeed,
     soulBudget: 10000,
     maxItems: 12,
   });
   assert(
-    analyticsTerm.evaluate(basketCandidates[1], state, noAnalyticsCtx) === null,
-    "with no analytics map supplied the term is inert (engine stays pure/offline)",
+    analyticsTerm.evaluate(basketCandidates[1], state, noMatchedCtx) === null,
+    "with no matched slice supplied the term is inert (engine stays pure/offline)",
   );
 }
 
@@ -5382,7 +5408,7 @@ console.log("\n30. A hero's own self-healing (Milestone G3, docs/milestone-g.md 
       heroBaseStats: abrams.heroBaseStats,
       heroRoster: frozenData.roster,
       allItems: frozenData.allItems,
-      itemAnalytics: frozenData.itemAnalytics,
+      matchedWinRate: heroMatchedWinRate(frozenData.tables.matchedWinRate, abrams.id) ?? undefined,
       heroAccuracy: frozenData.heroAccuracy,
       rankTier: null,
       ...(profiled && split ? { categorySplit: split } : {}),
@@ -7415,6 +7441,164 @@ console.log("\n44. Ability damage the mapper used to miss (milestone-o.md §8, 2
       solomon?.lean != null &&
       [...profile.values()].every((p) => p.metrics.kitSpiritShort.value !== null),
     "hero profile: Solomon's kit now ranks, and no real kit is unknown",
+  );
+}
+
+console.log("\n45. Matched item win rate (matchedWinRate.ts, 2026-11-23)");
+{
+  // Stratum A: x 60/100, y 40/100, z 100/200. Peers are leave-one-out.
+  // Stratum B: x 30/50, y 50/100.
+  const ex = matchedExcess([
+    [
+      { itemId: "y", wins: 40, matches: 100 },
+      { itemId: "x", wins: 60, matches: 100 },
+      { itemId: "z", wins: 100, matches: 200 },
+    ],
+    [
+      { itemId: "x", wins: 30, matches: 50 },
+      { itemId: "y", wins: 50, matches: 100 },
+    ],
+  ]);
+  // x in A: 0.6 - (140/300); in B: 0.6 - 0.5. Pooled by purchases.
+  const xExpected = (100 * (0.6 - 140 / 300) + 50 * (0.6 - 0.5)) / 150;
+  const x = ex.get("x");
+  assert(
+    x !== undefined && Math.abs(x.excess - xExpected) < 1e-12 && x.n === 150,
+    "matchedExcess: each item against the OTHER purchases in its stratum, pooled by purchases",
+    JSON.stringify(x),
+  );
+  const xSe = Math.sqrt(100 * 0.6 * 0.4 + 50 * 0.6 * 0.4) / 150;
+  assert(
+    x !== undefined && Math.abs(x.se - xSe) < 1e-12,
+    "matchedExcess: se from the item's own binomial variance",
+  );
+  const reversed = matchedExcess([
+    [
+      { itemId: "z", wins: 100, matches: 200 },
+      { itemId: "x", wins: 60, matches: 100 },
+      { itemId: "y", wins: 40, matches: 100 },
+    ],
+    [
+      { itemId: "y", wins: 50, matches: 100 },
+      { itemId: "x", wins: 30, matches: 50 },
+    ],
+  ]);
+  assert(
+    JSON.stringify([...reversed]) === JSON.stringify([...ex]),
+    "matchedExcess: row order inside a stratum does not change the result",
+  );
+  const alone = matchedExcess([[{ itemId: "solo", wins: 9, matches: 10 }]]);
+  assert(alone.size === 0, "matchedExcess: an item with no peers in its stratum is not compared");
+
+  // fitMatchedWinRate: shrinkage and false-discovery selection.
+  const fam = new Map([
+    ["big", { excess: 0.05, se: 0.005, n: 4000 }],
+    ["neg", { excess: -0.04, se: 0.005, n: 4000 }],
+    ["noise", { excess: 0.002, se: 0.01, n: 2000 }],
+    ["thin", { excess: 0.3, se: 0.05, n: 50 }],
+  ]);
+  const f = fitMatchedWinRate(fam, { minMatches: 300, fdrQ: 0.1, strata: 9 });
+  assert(
+    f.fit.tested === 3 && f.fit.strata === 9 && f.entries.thin === undefined,
+    "fitMatchedWinRate: items below minMatches are not tested",
+  );
+  assert(
+    f.entries.big !== undefined && f.entries.neg !== undefined && f.entries.noise === undefined,
+    "fitMatchedWinRate: clear edges (both signs) are kept, noise is not",
+    JSON.stringify(f.entries),
+  );
+  const famMean = (0.05 - 0.04 + 0.002) / 3;
+  const tau2 =
+    ((0.05 - famMean) ** 2 +
+      (-0.04 - famMean) ** 2 +
+      (0.002 - famMean) ** 2 -
+      (0.005 ** 2 + 0.005 ** 2 + 0.01 ** 2)) /
+    3;
+  assert(
+    Math.abs(f.fit.tau - Math.sqrt(tau2)) < 1e-12 &&
+      f.entries.big !== undefined &&
+      Math.abs(f.entries.big.edge - (0.05 * tau2) / (tau2 + 0.005 ** 2)) < 1e-12 &&
+      f.entries.big.edge < 0.05 &&
+      Math.abs(f.entries.big.z - 10) < 1e-9,
+    "fitMatchedWinRate: edge is shrunk toward 0 by tau^2 / (tau^2 + se^2), tau^2 around the mean; z is unshrunk",
+  );
+  const flat = fitMatchedWinRate(
+    new Map([
+      ["a", { excess: 0.001, se: 0.01, n: 1000 }],
+      ["b", { excess: -0.001, se: 0.01, n: 1000 }],
+    ]),
+    { minMatches: 300, fdrQ: 0.1, strata: 1 },
+  );
+  assert(
+    flat.fit.kept === 0 && flat.fit.zCut === null && flat.fit.tau === 0,
+    "fitMatchedWinRate: pure noise keeps nothing",
+  );
+
+  // The committed table (integrity, like the pair table's).
+  const table = matchedWinRateJson as unknown as MatchedWinRateTable;
+  const bracket = String(DEFAULT_MATCHED_MIN_RANK);
+  const bad: string[] = [];
+  let kept = 0;
+  for (const [hero, byBracket] of Object.entries(table.heroes)) {
+    for (const [br, items] of Object.entries(byBracket)) {
+      const fit = table.fits[hero]?.[br];
+      if (!fit) {
+        bad.push(`${hero}/${br}: no fit`);
+        continue;
+      }
+      const ids = Object.keys(items);
+      kept += ids.length;
+      if (fit.kept !== ids.length || fit.kept > fit.tested) bad.push(`${hero}/${br}: counts`);
+      if (ids.length > 0 && !(fit.zCut !== null && fit.zCut > 0)) bad.push(`${hero}/${br}: zCut`);
+      for (const [id, e] of Object.entries(items)) {
+        if (
+          !Number.isFinite(e.edge) ||
+          e.edge === 0 ||
+          !(e.se > 0) ||
+          !Number.isFinite(e.z) ||
+          Math.sign(e.edge) !== Math.sign(e.z) ||
+          (fit.zCut !== null && Math.abs(e.z) < fit.zCut) ||
+          !(e.n >= table.method.minMatches) ||
+          Math.abs(e.edge) > Math.abs(e.z * e.se) + 1e-3
+        ) {
+          bad.push(`${hero}/${br}/${id}`);
+        }
+      }
+    }
+  }
+  assert(
+    table.version === 1 &&
+      table.method.brackets[bracket] !== undefined &&
+      table.method.fdrQ > 0 &&
+      table.method.fdrQ < 1 &&
+      table.method.netWorthBand > 0 &&
+      table.method.buyTimeWindowsS[0] === 0,
+    "matched table: version 1, the planner's Oracle+ bracket fitted, sane method",
+    JSON.stringify(table.method),
+  );
+  assert(
+    bad.length === 0 && kept > 0,
+    "matched table: every kept item passes its hero's FDR cut-off, edge no larger than its raw value (rounding tolerance), n >= minMatches",
+    bad.slice(0, 8).join("; "),
+  );
+  const shopIds = new Set(loadFrozen().allItems.map((i) => i.id));
+  const unknown = Object.values(table.heroes).flatMap((b) =>
+    Object.values(b).flatMap((items) => Object.keys(items).filter((id) => !shopIds.has(id))),
+  );
+  assert(
+    unknown.length === 0,
+    "matched table: every item key is a real Item.id",
+    unknown.slice(0, 5).join(", "),
+  );
+  const anyHero = Number(Object.keys(table.heroes)[0]);
+  const slice = heroMatchedWinRate(table, anyHero);
+  assert(
+    slice !== null &&
+      slice.minRank === DEFAULT_MATCHED_MIN_RANK &&
+      slice.label === table.method.brackets[bracket] &&
+      heroMatchedWinRate(table, anyHero, 3) === null &&
+      heroMatchedWinRate(table, -1) === null,
+    "heroMatchedWinRate: slices by hero and bracket; an unfitted bracket or hero is null (inert)",
   );
 }
 
