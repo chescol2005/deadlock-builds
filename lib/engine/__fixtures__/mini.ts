@@ -84,7 +84,9 @@ import {
   DEFAULT_MATCHED_MIN_RANK,
   fitMatchedWinRate,
   heroMatchedWinRate,
+  heroMatchedWinRateBrackets,
   matchedExcess,
+  matchedWinRateForRank,
 } from "../matchedWinRate";
 import type { HeroMatchedWinRate, MatchedWinRateTable } from "../matchedWinRate";
 import { loadFrozen, loadFrozenAbilityRoster } from "./frozen/frozenInputs";
@@ -7599,6 +7601,51 @@ console.log("\n45. Matched item win rate (matchedWinRate.ts, 2026-11-23)");
       heroMatchedWinRate(table, anyHero, 3) === null &&
       heroMatchedWinRate(table, -1) === null,
     "heroMatchedWinRate: slices by hero and bracket; an unfitted bracket or hero is null (inert)",
+  );
+
+  // ── Rank picker -> bracket (matchedWinRateForRank) ─────────────────────
+  const fake = (minRank: number): HeroMatchedWinRate => ({
+    minRank,
+    label: `tier ${minRank}+`,
+    days: 23,
+    to: "2026-11-23",
+    items: {},
+  });
+  const ladder = [fake(9), fake(6), fake(11), fake(8)]; // deliberately unsorted
+  const at = (r: number | null): number | undefined => matchedWinRateForRank(ladder, r)?.minRank;
+  assert(
+    at(null) === DEFAULT_MATCHED_MIN_RANK && at(11) === 11 && at(10) === 9 && at(9) === 9,
+    "matchedWinRateForRank: no rank -> Oracle+; otherwise the highest bracket at or below the rank",
+    `null ${at(null)}, 11 ${at(11)}, 10 ${at(10)}, 9 ${at(9)}`,
+  );
+  assert(
+    at(8) === 8 && at(7) === 6 && at(6) === 6 && at(2) === 6 && at(0) === 6,
+    "matchedWinRateForRank: a rank between brackets reads the one below; below every bracket, the lowest",
+    `8 ${at(8)}, 7 ${at(7)}, 2 ${at(2)}, 0 ${at(0)}`,
+  );
+  assert(
+    matchedWinRateForRank([], 9) === null &&
+      matchedWinRateForRank([], null) === null &&
+      matchedWinRateForRank([fake(9), fake(11)], null)?.minRank === 9 &&
+      matchedWinRateForRank([...ladder].reverse(), 10)?.minRank === 9,
+    "matchedWinRateForRank: no brackets -> null (inert); no Oracle+ -> the lowest; order of input ignored",
+  );
+  const fittedBrackets = Object.keys(table.method.brackets)
+    .map(Number)
+    .sort((a, b) => a - b);
+  const missingBracket = Object.keys(table.heroes).filter((h) =>
+    fittedBrackets.some((t) => table.heroes[h][String(t)] === undefined),
+  );
+  const slices = heroMatchedWinRateBrackets(table, anyHero);
+  assert(
+    missingBracket.length === 0 &&
+      slices.map((s) => s.minRank).join(",") === fittedBrackets.join(",") &&
+      slices.every(
+        (s) => s.items === heroMatchedWinRate(table, anyHero, s.minRank)?.items && s.label !== "",
+      ) &&
+      heroMatchedWinRateBrackets(table, -1).length === 0,
+    "heroMatchedWinRateBrackets: every hero has every fitted bracket, lowest first, same slices as heroMatchedWinRate; unfitted hero -> []",
+    `brackets ${fittedBrackets.join(",")}; missing on ${missingBracket.slice(0, 5).join(",")}`,
   );
 }
 

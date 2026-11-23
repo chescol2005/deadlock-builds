@@ -1332,6 +1332,20 @@ async function run() {
     (buildClientSrc.match(/className="order-\d/g) ?? []).length === 4,
     "/build: all four panels carry a stacking order for narrow screens",
   );
+  // UC3 under the rank picker: the rank picks both gun accuracy and the matched
+  // win-rate bracket, so the applied build's rebuild must pin both to the rank
+  // it was applied at, or a later rank change re-offers it as a new suggestion.
+  const appliedMemo = /const appliedBaseBuild = useMemo\(\(\) => \{[\s\S]*?\}, \[[^\]]*\]\);/.exec(
+    buildClientSrc,
+  )?.[0];
+  assert(
+    appliedMemo !== undefined &&
+      appliedMemo.includes("rankTier: starterBase.rankTier") &&
+      /matchedWinRateForRank\(\s*matchedWinRateBrackets,\s*starterBase\.rankTier\s*\)/.test(
+        appliedMemo,
+      ),
+    "/build: the applied starter build is rebuilt at the rank it was applied at (accuracy and win-rate bracket, UC3)",
+  );
   const dndSrc = readFileSync("app/build/components/CategoryManager/index.tsx", "utf-8");
   assert(
     /useSensor\(TouchSensor, \{ activationConstraint: \{ delay: \d+, tolerance: \d+ \} \}\)/.test(

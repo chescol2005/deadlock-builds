@@ -47,6 +47,7 @@ import { HeroStatsPanel } from "@/app/build/components/HeroStatsPanel";
 import { HeroBasketSuggestion } from "@/app/build/components/HeroBasketSuggestion";
 import type { HeroAccuracy } from "@/lib/analyticsStore";
 import type { RankTierRaw } from "@/lib/api/analyticsApi";
+import { matchedWinRateForRank } from "@/lib/engine/matchedWinRate";
 import type { HeroMatchedWinRate } from "@/lib/engine/matchedWinRate";
 import type { HeroPairLift } from "@/lib/engine/pairLift";
 import type { HeroCategorySplit } from "@/lib/engine/categorySplit";
@@ -83,7 +84,7 @@ export default function BuildClient({
   initialState = null,
   allItems = [],
   heroRoster = [],
-  matchedWinRate = null,
+  matchedWinRateBrackets = [],
   heroAccuracy,
   rankTiers = [],
   pairLift = null,
@@ -102,10 +103,11 @@ export default function BuildClient({
    * normalizes against. Empty is safe: deriveHeroNeedVector degrades to a
    * neutral tankiness/mobility need rather than failing. */
   heroRoster?: HeroBaseStats[];
-  /** This hero's matched item win rates (lib/engine/matchedWinRate.ts), sliced
-   * server-side from the committed table. null => the basket's analyticsTerm
-   * is inert. */
-  matchedWinRate?: HeroMatchedWinRate | null;
+  /** This hero's matched item win rates (lib/engine/matchedWinRate.ts), one
+   * slice per fitted rank bracket, sliced server-side from the committed table.
+   * The rank picker chooses one (matchedWinRateForRank); empty => the basket's
+   * analyticsTerm is inert. */
+  matchedWinRateBrackets?: HeroMatchedWinRate[];
   /** Observed shot accuracy per hero, overall and by rank tier. Optional —
    * the analytics fetchers fail open, and gun need falls back to nominal DPS. */
   heroAccuracy?: ReadonlyMap<number, HeroAccuracy>;
@@ -133,6 +135,13 @@ export default function BuildClient({
   // gun DPS by. null = "don't know / all ranks", which uses each hero's pooled
   // accuracy — so stating a rank can only refine the estimate, never break it.
   const [selectedRankTier, setSelectedRankTier] = useState<number | null>(null);
+
+  // The same rank also picks the matched win-rate bracket: the highest fitted
+  // bracket at or below it (Oracle+ when no rank is picked).
+  const matchedWinRate = useMemo(
+    () => matchedWinRateForRank(matchedWinRateBrackets, selectedRankTier),
+    [matchedWinRateBrackets, selectedRankTier],
+  );
 
   const [buildItems, setBuildItems] = useState<Item[]>(() => {
     if (!initialState) return [];
@@ -541,8 +550,9 @@ export default function BuildClient({
   ]);
 
   // The last applied build, recomputed from its base (pure, so identical) with
-  // the rank it was applied at: changing the rank afterwards must not turn the
-  // applied build back into a new suggestion (UC3). Three basket runs, so it
+  // the rank it was applied at, for accuracy AND the win-rate bracket: changing
+  // the rank afterwards must not turn the applied build back into a new
+  // suggestion (UC3). Three basket runs, so it
   // only reruns when the base or the hero data changes, never on a build edit.
   const appliedBaseBuild = useMemo(() => {
     if (!starterBase || !starterInputs) return null;
@@ -551,9 +561,11 @@ export default function BuildClient({
     return buildStarterBuild({
       ...starterInputs,
       rankTier: starterBase.rankTier,
+      matchedWinRate:
+        matchedWinRateForRank(matchedWinRateBrackets, starterBase.rankTier) ?? undefined,
       ownedItems: owned,
     });
-  }, [starterBase, starterInputs, allItems]);
+  }, [starterBase, starterInputs, allItems, matchedWinRateBrackets]);
 
   // Cheap: is the build still exactly what was applied?
   const appliedStarter = useMemo(() => {
@@ -1036,14 +1048,15 @@ export default function BuildClient({
                 elsewhere in this file predate that convention — don't copy them
                 into new markup. */}
             <div>
-              {rankTiers.length > 0 && heroAccuracy && heroAccuracy.size > 0 && (
+              {rankTiers.length > 0 &&
+                ((heroAccuracy && heroAccuracy.size > 0) || matchedWinRateBrackets.length > 1) && (
                 <div className="mb-2.5">
                   <label
                     htmlFor="rank-tier"
                     className="mb-1 flex items-center gap-1.5 text-xs text-zinc-300"
                   >
                     Your rank
-                    <InfoTooltip content="Higher-ranked players land a larger share of their shots, so gun items are worth more to them. Setting your rank re-scores how much this hero's gun is worth investing in, using real hit-rate data for players at that rank. Leave on 'All ranks' if you're not sure." />
+                    <InfoTooltip content="Higher-ranked players land a larger share of their shots, so gun items are worth more to them. Setting your rank re-scores how much this hero's gun is worth investing in, using real hit-rate data for players at that rank. It also picks whose wins the suggestions learn from: the closest measured rank group at or below yours (Ritualist and up, Oracle and up, or Phantom and up; Oracle and up when left on 'All ranks'). Leave on 'All ranks' if you're not sure." />
                   </label>
                   <select
                     id="rank-tier"

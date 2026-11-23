@@ -26,7 +26,7 @@ import {
 } from "@/lib/engine/basketSelect";
 import { runHeroBasket } from "@/lib/engine/heroBasket";
 import { ANCHOR_MARGIN, basketPlans } from "@/lib/engine/basketSelect";
-import { heroMatchedWinRate } from "@/lib/engine/matchedWinRate";
+import { heroMatchedWinRateBrackets, matchedWinRateForRank } from "@/lib/engine/matchedWinRate";
 import { heroPairLift } from "@/lib/engine/pairLift";
 import { heroCategorySplit } from "@/lib/engine/categorySplit";
 import { enemyHealthRates, heroPhaseItems } from "@/lib/engine/phaseItems";
@@ -41,7 +41,8 @@ const USAGE = `Usage: npm run probe -- <hero> [options]
 Options:
   --owned a,b     items already in the build: item ids or names, comma-separated
   --boon N        boon level 0-${BOON_THRESHOLDS.length - 1} (default 15); sets souls exactly as the UI slider does
-  --rank T        rank tier 0-11 for accuracy (default: pooled across ranks)
+  --rank T        rank tier 0-11 for accuracy and the win-rate bracket
+                  (default: pooled accuracy, Oracle+ win rates)
   --item x        also report this item's first-pick rank and terms (repeatable)
   --top N         rows of the first-pick ranking to print (default 15)
   --no-pair-lift  omit the measured pair table (pairTerm inert, hand synergy rules
@@ -199,7 +200,11 @@ async function main(): Promise<void> {
     itemStatTotals.spiritPowerPercent,
   );
 
-  const matchedWinRate = heroMatchedWinRate(data.matchedWinRateTable, hero.id);
+  // MIRRORS BuildClient: --rank picks the win-rate bracket as the rank picker does.
+  const matchedWinRate = matchedWinRateForRank(
+    heroMatchedWinRateBrackets(data.matchedWinRateTable, hero.id),
+    args.rank,
+  );
 
   // The pipeline itself is shared with BuildClient (lib/engine/heroBasket.ts).
   const run = runHeroBasket({
@@ -211,7 +216,7 @@ async function main(): Promise<void> {
     souls: boonSouls,
     boonLevel: manualBoonLevel,
     spiritPower: totalSpiritPower,
-    // Sliced like app/build/[heroId]/page.tsx does (Oracle+ bracket).
+    // The bracket for --rank (Oracle+ without it), as BuildClient picks it.
     matchedWinRate: matchedWinRate ?? undefined,
     heroAccuracy,
     rankTier: args.rank,
@@ -292,7 +297,7 @@ async function main(): Promise<void> {
   );
   console.log(
     `proc platform ${fmt(procPlatformFactor, 3)}, hit reliability ${fmt(hitReliabilityFactor, 3)}` +
-      ` | matched win-rate items ${matchedWinRate ? Object.keys(matchedWinRate.items).length : 0}, accuracy rows ${heroAccuracy.size}`,
+      ` | matched win-rate items ${matchedWinRate ? `${Object.keys(matchedWinRate.items).length} (${matchedWinRate.label})` : 0}, accuracy rows ${heroAccuracy.size}`,
   );
 
   console.log("\nNeed vector (target per category):");
