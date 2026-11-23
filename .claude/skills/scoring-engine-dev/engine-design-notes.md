@@ -824,16 +824,30 @@ hand.
 
 - at least `minPairMatches` co-owning matches (default 300 since PR 3; 500 in
   PR 2's fit);
-- `|lift| / se >= minAbsZ` (default 3);
-- both items in at least `minItemPairs` fitted pairs (10).
+- both items in at least `minItemPairs` fitted pairs (10): these pairs, with
+  se > 0, are the hero's "tested" family (`fits[hero].tested`);
+- `|z| >= zCut`, where `z` is the UNSHRUNK pair effect (`pairOnlyRaw`: the banded
+  log odds ratio with item-wide effects removed, no shrinkage) over the banded se,
+  and `zCut` is the Benjamini-Hochberg cut-off at `fdrQ` (default 0.1) over the
+  tested family (`fdrZCutoff`, version 4, 2026-11-22);
+- the shrunk `lift` non-zero and of the same sign as `z`.
+
+Before version 4 the rule was `|shrunk lift| / se >= 3`. That counted the noise
+twice: shrinkage already scales lift by `tau² / (tau² + se²)`, so a pair needed a
+raw z of about 4-8 (depending on se), and a 9-day post-patch fit kept 8 pairs. On 22 post-patch days
+the FDR rule keeps 1,106 pairs on 33 heroes. Split-half check (10-31..11-10 vs
+11-10..11-21): kept pairs keep their sign in the other half 76-77% of the time
+(noise: 50%), and sign agreement rises with |z| (53% at 0-1, 85% at 4+). 75% of
+the pre-patch table's pairs keep their sign post-patch. The pair table moves about
+1 pick in 17 of the 72 baseline cases (29 of 491 picks).
 
 `lift` is `pairOnly`: the log odds ratio, banded by net worth, shrunk toward
 zero, with item-wide effects removed. Keys are `pairLiftKey` over `Item.id`
 (class_name), lower id first. `fits` records each hero's matches, pairs fitted,
-pairs kept and tau, which is what to compare when reviewing a refresh.
+pairs kept, tau, tested pairs and the FDR cut-off `zCut`, which is what to compare when reviewing a refresh.
 
 **`se` belongs to the banded estimate, not to `lift`.** `lift` has been
-shrunk and centred, so `|lift| / se` is a ranking threshold, not a z-score, and
+shrunk and centred, so `|lift| / se` is not a z-score (the stored `z` is), and
 `lift ± se` is not a confidence interval. Don't call it "significance" in UI
 copy or reasons.
 
@@ -957,7 +971,8 @@ gives approximate win-rate points and the measurement's scope, and never says
 "synergy".
 
 **Higher-rank data only (product decision).** The table is fitted on matches
-whose average badge is **Oracle (tier 8) or above, over 90 days**, with at
+whose average badge is **Oracle (tier 8) or above, over 90 days by default** (22 post-patch days
+since 2026-11-22), with at
 least 300 co-owning matches. Ascendant+ was the first choice, but at Ascendant+
 the per-pair se is several times the real spread between pairs. Shrinkage then
 zeroes almost everything: 0 pairs kept for Graves, Infernus, Baba and Violet,
@@ -969,7 +984,7 @@ can span balance patches: refresh after a major one.
 **Measured wins over the hand rules.** The fitter also writes `rulePairs`:
 each `SYNERGY_RULES` pair's measurement for every hero where its se ≤
 `ruleMaxSe` (0.05), plus any hand-rule pair that is significant whatever its
-se. At that precision a real effect of about 0.15 would have cleared 3 se. Both
+se. At that precision a real effect of about 0.15 is 3 se. Both
 terms read one helper, `measuredPair`, which returns the significant entry or
 else the `rulePairs` entry:
 
@@ -1061,13 +1076,13 @@ Behaviour is unchanged.
 **Verdict per rule and hero**, where the expected sign is positive for synergy
 and negative for anti-synergy:
 
-| Verdict      | Condition                                             |
-| ------------ | ----------------------------------------------------- |
-| Supported    | `abs(lift) / se >= minAbsZ` in the expected direction |
-| Contradicted | `abs(lift) / se >= minAbsZ` in the opposite direction |
-| No effect    | below that, with se ≤ `ruleMaxSe`                     |
-| Inconclusive | below that, with larger se                            |
-| No data      | not fitted                                            |
+| Verdict      | Condition                                       |
+| ------------ | ----------------------------------------------- |
+| Supported    | kept by the FDR rule, in the expected direction |
+| Contradicted | kept by the FDR rule, in the opposite direction |
+| No effect    | below that, with se ≤ `ruleMaxSe`               |
+| Inconclusive | below that, with larger se                      |
+| No data      | not fitted                                      |
 
 **Mechanics review of the rule reasons** (data-verifier, 2026-10-18, against
 deadlock.wiki and the live item API). These were the findings on the ORIGINAL

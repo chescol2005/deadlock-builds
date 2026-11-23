@@ -123,16 +123,17 @@ interface ReportData {
   totals: { heroes: number; pairs: number; heroesWithPairs: number };
 }
 
-const z = (e: PairLiftEntry) => (e.se > 0 ? Math.abs(e.lift) / e.se : 0);
 const byCode = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
 
+/** significant: the pair is in the hero's kept pairs (it passed the false-discovery test). */
 function verdictFor(
   entry: PairLiftEntry | undefined,
+  significant: boolean,
   expectPositive: boolean,
   method: PairLiftTable["method"],
 ): Verdict {
   if (!entry) return "no-data";
-  if (z(entry) >= method.minAbsZ) {
+  if (significant) {
     return entry.lift > 0 === expectPositive ? "supported" : "contradicted";
   }
   return entry.se <= method.ruleMaxSe ? "no-effect" : "inconclusive";
@@ -168,7 +169,12 @@ function buildData(
     const heroes: RuleHero[] = [];
     for (const id of heroIds) {
       const entry = table.handPairs[id]?.[key];
-      const verdict = verdictFor(entry, kind === "synergy", table.method);
+      const verdict = verdictFor(
+        entry,
+        table.heroes[id]?.[key] !== undefined,
+        kind === "synergy",
+        table.method,
+      );
       counts[verdict] += 1;
       if (!entry) continue;
       heroes.push({

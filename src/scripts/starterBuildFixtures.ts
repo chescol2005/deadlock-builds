@@ -86,8 +86,9 @@ const KNOWN_LEAN_GAPS: ReadonlySet<string> = new Set<string>([
   // 24%), and the engine follows, but under-buys vitality: late 16/70/14 against a real
   // 18/51/31. Real mid builds added spirit sustain (Spirit Lifesteal 23% -> 38%, Healbane
   // 15% -> 35%) the engine skips. An engine follow-up, not a data error.
+  // M1:Lady Geist:late closed by the FDR pair table (2026-11-22): measured pairs move
+  // her late build toward vitality, within 0.3 of real play.
   "M1:Lady Geist:early",
-  "M1:Lady Geist:late",
 ]);
 
 /**
@@ -120,8 +121,11 @@ const LIVE_NOISE = 0.01;
  * 0.155 for the 9-day post-patch refit (0.152, user decision 2026-11-09), until the
  * longer refit due around 2026-11-30. A pre-patch 9-day control refit measured 0.132,
  * so about 0.01 of the rise is the short window and about 0.02 the post-patch data.
+ * 0.16 for the FDR pair table on 22 post-patch days (0.156, user decision 2026-11-22):
+ * it closes Lady Geist's late gap but moves her mid build 0.06 -> 0.28 toward vitality.
+ * Tighten again at the 30-day refit due around 2026-11-30.
  */
-const MEAN_L1_MAX = 0.155;
+const MEAN_L1_MAX = 0.16;
 
 /** O1: early picks that must be among the hero's real top 10 early buys. */
 const O1_MIN_HITS = 2;

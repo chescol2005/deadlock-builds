@@ -383,9 +383,9 @@
         fmtInt(m.minPairMatches) +
         " players owned both, both items appear in at least " +
         m.minItemPairs +
-        " fitted pairs, and |lift| / se is at least " +
-        m.minAbsZ +
-        ". A hand rule is overridden in the basket when its measurement has se at most " +
+        " fitted pairs, and the pair passes a false discovery rate of " +
+        m.fdrQ +
+        " (Benjamini-Hochberg over the hero's tested pairs, so at most about that share of significant pairs is noise, assuming roughly independent pairs). A hand rule is overridden in the basket when its measurement has se at most " +
         m.ruleMaxSe +
         ".",
     ],

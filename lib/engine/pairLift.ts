@@ -244,6 +244,17 @@ export interface PairFit {
   banded: PooledInteraction;
   shrunk: number;
   pairOnly: number;
+  /** Item-wide effects removed from the UNSHRUNK banded estimates (the evidence, before shrinkage). */
+  pairOnlyRaw: number;
+  /**
+   * pairOnlyRaw / banded.se: how far the pair-specific effect is from 0 in its
+   * own standard errors. This is what pairs are SELECTED on (fdrZCutoff); the
+   * shrunk pairOnly is what is STORED as lift. Testing the shrunk value against
+   * the unshrunk se penalised noise twice (2026-11-21). The banded se slightly
+   * overstates the residual's se after item effects are removed, so z errs low
+   * (fewer pairs kept), never high.
+   */
+  z: number;
 }
 
 export interface HeroPairFit {
@@ -274,7 +285,7 @@ export function fitHeroPairs(
   }
   const componentsOf = (id: string) => byId.get(id)?.componentItems;
 
-  const kept: Array<Omit<PairFit, "shrunk" | "pairOnly">> = [];
+  const kept: Array<Omit<PairFit, "shrunk" | "pairOnly" | "pairOnlyRaw" | "z">> = [];
   let droppedChain = 0;
   let droppedUnknown = 0;
   for (const key of [...raw.pairs.keys()].sort(compareIds)) {
@@ -305,13 +316,78 @@ export function fitHeroPairs(
   const tau2 = estimateTau2(kept.map((k) => k.banded));
   const shrunk = kept.map((k) => shrinkTowardZero(k.banded.logOr, k.banded.se, tau2));
   const itemEffects = removeItemEffects(kept.map((k, i) => ({ a: k.a, b: k.b, value: shrunk[i] })));
+  const rawEffects = removeItemEffects(
+    kept.map((k) => ({ a: k.a, b: k.b, value: k.banded.logOr })),
+  );
   const pairs = kept.map((k, i) => ({
     ...k,
     shrunk: shrunk[i],
     pairOnly: itemEffects.pairOnly[i],
+    pairOnlyRaw: rawEffects.pairOnly[i],
+    z: rawEffects.pairOnly[i] / k.banded.se,
   }));
 
   return { pairs, tau2, itemEffects, droppedChain, droppedUnknown };
+}
+
+// ─── Pair selection: false discovery rate ─────────────────────────────────────
+
+/**
+ * Complementary error function, Chebyshev fit (Numerical Recipes `erfcc`):
+ * fractional error below 1.2e-7 everywhere, so small tail p-values keep their
+ * relative precision.
+ */
+function erfc(x: number): number {
+  const ax = Math.abs(x);
+  const t = 1 / (1 + 0.5 * ax);
+  const r =
+    t *
+    Math.exp(
+      -ax * ax -
+        1.26551223 +
+        t *
+          (1.00002368 +
+            t *
+              (0.37409196 +
+                t *
+                  (0.09678418 +
+                    t *
+                      (-0.18628806 +
+                        t *
+                          (0.27886807 +
+                            t *
+                              (-1.13520398 +
+                                t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))),
+    );
+  return x >= 0 ? r : 2 - r;
+}
+
+/** Two-sided normal p-value of a z-score. */
+export function twoSidedP(z: number): number {
+  return Math.min(1, erfc(Math.abs(z) / Math.SQRT2));
+}
+
+/**
+ * Benjamini-Hochberg at false discovery rate q over one family of z-scores
+ * (one hero's tested pairs): the smallest |z| that is kept, or null when none
+ * is. Keeping every pair with |z| >= the cut-off is the BH rejection set, so
+ * at most about q of the kept pairs are noise, assuming roughly independent
+ * pairs (pairs sharing an item are correlated; the split-half sign check is
+ * the empirical test, engine-design-notes.md "Pair lift table"). Ties in |z| are kept or
+ * dropped together, and the result does not depend on input order.
+ */
+export function fdrZCutoff(zs: ReadonlyArray<number>, q: number): number | null {
+  const abs = zs
+    .filter((z) => Number.isFinite(z))
+    .map((z) => Math.abs(z))
+    .sort((x, y) => y - x);
+  const m = abs.length;
+  if (m === 0 || !(q > 0)) return null;
+  let cut: number | null = null;
+  for (let k = 1; k <= m; k += 1) {
+    if (twoSidedP(abs[k - 1]) <= (k * q) / m) cut = abs[k - 1];
+  }
+  return cut;
 }
 
 // ─── The committed table ──────────────────────────────────────────────────────
@@ -321,16 +397,21 @@ export interface PairLiftEntry {
   lift: number;
   /**
    * Standard error of the BANDED estimate. lift is shrunk and has item effects
-   * removed, so lift / se is a ranking threshold, not a z-score, and lift ± se
-   * is not a confidence interval.
+   * removed, so lift ± se is not a confidence interval.
    */
   se: number;
+  /**
+   * PairFit.z: the pair-specific effect before shrinkage, in standard errors.
+   * A pair is in `heroes` when |z| >= its hero's fits.zCut (false discovery
+   * rate method.fdrQ) and z has the same sign as lift.
+   */
+  z: number;
   /** Matches where this hero's player bought both items (all bands). */
   n: number;
 }
 
 export interface PairLiftTable {
-  version: 3;
+  version: 4;
   /** YYYY-MM-DD the fitter ran. */
   generated: string;
   window: { from: string; to: string };
@@ -338,7 +419,12 @@ export interface PairLiftTable {
     gameMode: string;
     netWorthBands: number[];
     minPairMatches: number;
-    minAbsZ: number;
+    /**
+     * False discovery rate for keeping a pair in `heroes`: Benjamini-Hochberg
+     * over each hero's tested pairs (fdrZCutoff): at most about this share of
+     * kept pairs is noise, assuming roughly independent pairs.
+     */
+    fdrQ: number;
     /** Both items must be in at least this many fitted pairs. */
     minItemPairs: number;
     /** Only matches whose average badge is this rank tier or above; null = all ranks. */
@@ -351,8 +437,20 @@ export interface PairLiftTable {
     ruleMaxSe: number;
   };
   /** heroId -> fit summary, for reviewing a refresh diff. */
-  fits: Record<string, { matches: number; pairsFitted: number; kept: number; tau: number }>;
-  /** heroId -> pairLiftKey -> entry. Only pairs with |lift| / se >= minAbsZ. */
+  fits: Record<
+    string,
+    {
+      matches: number;
+      pairsFitted: number;
+      /** Pairs in the false-discovery family: both items in >= minItemPairs fitted pairs. */
+      tested: number;
+      /** fdrZCutoff over the tested pairs' z; null = no pair passed. */
+      zCut: number | null;
+      kept: number;
+      tau: number;
+    }
+  >;
+  /** heroId -> pairLiftKey -> entry. Only pairs that pass the false-discovery test (see PairLiftEntry.z). */
   heroes: Record<string, Record<string, PairLiftEntry>>;
   /**
    * heroId -> pairLiftKey -> entry for SYNERGY_RULES pairs that override the
@@ -405,7 +503,7 @@ export function pairLiftFor(
  * to a client component (never pass the whole table).
  */
 export interface HeroPairLift {
-  /** Significant pairs (|lift| / se >= minAbsZ), for pairTerm. */
+  /** Significant pairs (passed the false-discovery test), for pairTerm. */
   pairs: Readonly<Record<string, PairLiftEntry>>;
   /** Precisely measured SYNERGY_RULES pairs, for synergyTerm's override. */
   rulePairs: Readonly<Record<string, PairLiftEntry>>;
