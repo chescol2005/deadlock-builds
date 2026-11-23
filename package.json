@@ -19,7 +19,8 @@
     "fit-category-split": "npx tsx src/scripts/fitCategorySplit.ts",
     "fit-rush-groups": "npx tsx src/scripts/fitRushGroups.ts",
     "role-check": "npx tsx src/scripts/heroRoleCheck.ts",
-    "synergy-report": "npx tsx src/scripts/synergyReport.ts"
+    "synergy-report": "npx tsx src/scripts/synergyReport.ts",
+    "basket-map": "npx tsx src/scripts/basketMapReport.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

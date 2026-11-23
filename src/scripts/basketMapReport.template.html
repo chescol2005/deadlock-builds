@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Item Need Baskets</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #09090b;
+        --panel: #18181b;
+        --panel2: #27272a;
+        --line: #3f3f46;
+        --ink: #fafafa;
+        --ink2: #a1a1aa;
+        --amber: #fbbf24;
+        --gun: #c9802f;
+        --spirit: #9470e0;
+        --vitality: #3fa561;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          15px/1.45 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      button,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 32px 16px 48px;
+      }
+      h1 {
+        font-size: 30px;
+        line-height: 1.15;
+        margin: 0 0 6px;
+        letter-spacing: -0.01em;
+      }
+      .lede {
+        color: var(--ink2);
+        margin: 0 0 22px;
+        max-width: 68ch;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 18px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .controls label {
+        color: var(--ink2);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      select {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 7px 10px;
+        min-height: 38px;
+      }
+      .seg {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .seg button {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 7px 11px;
+        cursor: pointer;
+        min-height: 38px;
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--amber);
+        border-color: var(--amber);
+        color: #18181b;
+        font-weight: 600;
+      }
+      :focus-visible {
+        outline: 2px solid var(--amber);
+        outline-offset: 2px;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        color: var(--ink2);
+        font-size: 13px;
+        margin-bottom: 20px;
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .sw {
+        width: 11px;
+        height: 11px;
+        border-radius: 3px;
+        display: inline-block;
+      }
+      .gun {
+        background: var(--gun);
+      }
+      .spirit {
+        background: var(--spirit);
+      }
+      .vitality {
+        background: var(--vitality);
+      }
+      .sw.pick {
+        background: transparent;
+        box-shadow: inset 0 0 0 2px var(--ink);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      @media (max-width: 980px) {
+        .grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 700px) {
+        .grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      .sq {
+        aspect-ratio: 1;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 14px;
+        text-align: left;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        transition:
+          transform 0.18s ease,
+          border-color 0.18s ease,
+          box-shadow 0.18s ease;
+        animation: rise 0.5s both cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .sq:hover {
+        transform: translateY(-3px);
+        border-color: var(--amber);
+        box-shadow: 0 10px 26px #0008;
+      }
+      .sq h2 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        text-transform: capitalize;
+      }
+      .count {
+        font-size: 13px;
+        color: var(--ink2);
+      }
+      .count b {
+        font-size: 27px;
+        line-height: 1;
+        color: var(--ink);
+        font-weight: 650;
+        margin-right: 4px;
+      }
+      .dots {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        align-content: flex-start;
+        flex: 1;
+        min-height: 40px;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        animation: pop 0.34s both cubic-bezier(0.2, 1.5, 0.4, 1);
+      }
+      @media (min-width: 981px) {
+        .dot {
+          width: 14px;
+          height: 14px;
+          border-radius: 3px;
+        }
+      }
+      @media (max-width: 700px) {
+        .sq {
+          aspect-ratio: auto;
+        }
+        .dots {
+          flex: none;
+        }
+      }
+      .dot.picked {
+        box-shadow: 0 0 0 1.5px var(--ink);
+        position: relative;
+        z-index: 1;
+      }
+      .mix {
+        font-size: 12px;
+        color: var(--ink2);
+        display: flex;
+        gap: 9px;
+        flex-wrap: wrap;
+      }
+      .meter {
+        height: 6px;
+        background: var(--panel2);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .meter i {
+        display: block;
+        height: 100%;
+        background: var(--amber);
+        border-radius: 3px;
+        width: 0;
+        transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .fill {
+        font-size: 12px;
+        color: var(--ink2);
+      }
+      .foot {
+        color: var(--ink2);
+        font-size: 13px;
+        margin-top: 20px;
+        max-width: 80ch;
+      }
+      .back {
+        position: fixed;
+        inset: 0;
+        background: #000b;
+        animation: fade 0.25s both;
+        z-index: 9;
+      }
+      .detail {
+        position: fixed;
+        inset: 12px;
+        max-width: 1240px;
+        margin: 0 auto;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .dhead {
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .dhead h2 {
+        margin: 0;
+        font-size: 22px;
+        text-transform: capitalize;
+      }
+      .dhead p {
+        margin: 3px 0 0;
+        color: var(--ink2);
+        font-size: 14px;
+      }
+      .dhead .grow {
+        flex: 1;
+        min-width: 0;
+      }
+      .dmeter {
+        margin-top: 9px;
+        max-width: 420px;
+      }
+      .x {
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        min-width: 40px;
+        min-height: 40px;
+        cursor: pointer;
+        font-size: 18px;
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        padding: 14px 18px 18px;
+        overflow: auto;
+        flex: 1;
+        align-items: start;
+      }
+      @media (max-width: 760px) {
+        .cols {
+          grid-template-columns: 1fr;
+        }
+      }
+      .col h3 {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 0 0 8px;
+        font-size: 15px;
+        position: sticky;
+        top: -14px;
+        background: var(--panel);
+        padding: 6px 0;
+        z-index: 2;
+      }
+      .col h3 small {
+        color: var(--ink2);
+        font-weight: 400;
+        font-size: 13px;
+      }
+      .none {
+        color: var(--ink2);
+        font-size: 13px;
+        margin: 4px 0;
+      }
+      .item {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 38px 1fr auto;
+        gap: 2px 9px;
+        align-items: center;
+        background: var(--bg);
+        border: 1px solid #2c2c31;
+        border-radius: 8px;
+        padding: 6px 8px;
+        margin-bottom: 5px;
+        text-align: left;
+        cursor: pointer;
+        animation: slide 0.36s both cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .item:hover {
+        border-color: var(--line);
+      }
+      .item.picked {
+        border-color: var(--ink);
+      }
+      .ic {
+        width: 38px;
+        height: 38px;
+        grid-row: span 2;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        font-weight: 700;
+        color: #fff;
+      }
+      .ic img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        padding: 3px;
+        display: block;
+      }
+      .nm {
+        font-weight: 550;
+        font-size: 14px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .cost {
+        font-size: 12px;
+        color: var(--ink2);
+        white-space: nowrap;
+      }
+      .bar {
+        grid-column: 2/4;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        color: var(--ink2);
+      }
+      .bar .tr {
+        flex: 1;
+        height: 5px;
+        background: var(--panel2);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .bar .tr i {
+        display: block;
+        height: 100%;
+        border-radius: 3px;
+        transform-origin: left;
+        animation: grow 0.55s both cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .badge {
+        color: var(--ink);
+        font-size: 11px;
+        border: 1px solid var(--ink);
+        border-radius: 4px;
+        padding: 0 4px;
+        margin-left: 5px;
+        font-weight: 500;
+      }
+      .also {
+        grid-column: 1/4;
+        font-size: 12px;
+        color: var(--ink2);
+        padding-top: 7px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+        animation: fade 0.2s both;
+      }
+      .chip {
+        background: var(--panel2);
+        border-radius: 4px;
+        padding: 2px 7px;
+        color: var(--ink);
+        text-transform: capitalize;
+        cursor: pointer;
+        border: 1px solid transparent;
+      }
+      .chip:hover {
+        border-color: var(--amber);
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(14px);
+        }
+      }
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: scale(0.2);
+        }
+      }
+      @keyframes fade {
+        from {
+          opacity: 0;
+        }
+      }
+      @keyframes slide {
+        from {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+      }
+      @keyframes grow {
+        from {
+          transform: scaleX(0);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Item need baskets</h1>
+      <p class="lede">
+        The engine scores every shop item against 12 needs. Each square is one need, and every small
+        tile inside it is an item that helps with that need, coloured by the shop it comes from.
+        Click a square to open it.
+      </p>
+      <div class="controls">
+        <label
+          >Hero
+          <select id="hero"></select
+        ></label>
+        <div class="seg" id="boons" role="group" aria-label="Point in the game"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="grid" id="grid"></div>
+      <p class="foot" id="foot"></p>
+    </main>
+    <div id="layer"></div>
+    <script id="data" type="application/json">
+      null
+    </script>
+    <script>
+      (() => {
+        const D = JSON.parse(document.getElementById("data").textContent);
+        const FAM = ["gun", "spirit", "vitality"];
+        const FNAME = { gun: "Gun", spirit: "Spirit", vitality: "Vitality" };
+        const itemById = new Map(D.items.map((i) => [i.id, i]));
+        const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const S = { hero: -1, boon: 1, open: null };
+        const $ = (id) => document.getElementById(id);
+        const esc = (s) =>
+          String(s).replace(
+            /[&<>"']/g,
+            (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+          );
+        const num = (n) => n.toLocaleString("en-US");
+        const fmt = (n) => (n >= 100 ? Math.round(n) : n >= 10 ? n.toFixed(1) : n.toFixed(2));
+
+        const level = () => (S.hero < 0 ? null : D.heroes[S.hero].levels[S.boon]);
+        const valuesOf = (id) => {
+          const l = level();
+          return l ? l.values[id] || {} : itemById.get(id).values;
+        };
+        const pickRank = (id) => {
+          const l = level();
+          return l ? l.picks.indexOf(id) : -1;
+        };
+
+        function members(cat) {
+          const rows = D.items
+            .map((i) => ({ i, v: valuesOf(i.id)[cat] || 0 }))
+            .filter((r) => r.v > 0);
+          const out = {};
+          for (const f of FAM)
+            out[f] = rows
+              .filter((r) => r.i.family === f)
+              .sort((a, b) => b.v - a.v || a.i.cost - b.i.cost || a.i.name.localeCompare(b.i.name));
+          return out;
+        }
+        function fillText(cat) {
+          const l = level();
+          if (!l) return null;
+          const t = l.target[cat] || 0,
+            c = l.coverage[cat] || 0;
+          if (t <= 0) return { pct: 0, text: "This hero has no target for this need here" };
+          const pct = Math.round((c / t) * 100);
+          return { pct: Math.min(100, pct), text: "Basket fills " + pct + "% of this need" };
+        }
+        const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+        function render() {
+          const html = D.categories
+            .map((c, n) => {
+              const m = members(c.id);
+              let k = 0;
+              const dots = FAM.flatMap((f) =>
+                m[f].map((r) => {
+                  const p = pickRank(r.i.id) >= 0;
+                  return (
+                    '<span class="dot ' +
+                    f +
+                    (p ? " picked" : "") +
+                    '" style="animation-delay:' +
+                    (n * 35 + 120 + k++ * 9) +
+                    'ms"></span>'
+                  );
+                }),
+              ).join("");
+              const total = FAM.reduce((a, f) => a + m[f].length, 0);
+              const fill = fillText(c.id);
+              return (
+                '<button class="sq" data-cat="' +
+                c.id +
+                '" style="animation-delay:' +
+                n * 35 +
+                'ms" aria-label="Open ' +
+                esc(c.plain) +
+                " basket, " +
+                total +
+                ' items">' +
+                "<h2>" +
+                esc(c.plain) +
+                "</h2>" +
+                '<div class="count"><b>' +
+                total +
+                "</b>items</div>" +
+                '<div class="dots" aria-hidden="true">' +
+                dots +
+                "</div>" +
+                '<div class="mix">' +
+                FAM.map((f) => "<span>" + FNAME[f] + " " + m[f].length + "</span>").join("") +
+                "</div>" +
+                (fill
+                  ? '<div class="meter" aria-hidden="true"><i data-w="' +
+                    fill.pct +
+                    '"></i></div><div class="fill">' +
+                    fill.text +
+                    "</div>"
+                  : "") +
+                "</button>"
+              );
+            })
+            .join("");
+          $("grid").innerHTML = html;
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              document
+                .querySelectorAll(".meter i[data-w]")
+                .forEach((e) => (e.style.width = e.dataset.w + "%"));
+            }),
+          );
+          $("boons").style.display = S.hero < 0 ? "none" : "";
+          $("boons")
+            .querySelectorAll("button")
+            .forEach((b, i) => b.setAttribute("aria-pressed", String(i === S.boon)));
+          const l = level();
+          $("legend").innerHTML =
+            FAM.map((f) => '<span><i class="sw ' + f + '"></i>' + FNAME[f] + " shop</span>").join(
+              "",
+            ) +
+            (l
+              ? '<span><i class="sw pick"></i>In this hero\'s basket (' +
+                l.picks.length +
+                " items, " +
+                num(l.total) +
+                " souls)</span>"
+              : "");
+        }
+
+        function iconHtml(i) {
+          const fallback = esc(i.name.charAt(0));
+          return (
+            '<span class="ic ' +
+            i.family +
+            '" data-f="' +
+            fallback +
+            '">' +
+            (i.icon ? '<img loading="lazy" alt="" src="' + esc(i.icon) + '">' : fallback) +
+            "</span>"
+          );
+        }
+
+        function detailHtml(cat) {
+          const c = D.categories.find((x) => x.id === cat);
+          const m = members(cat);
+          const max = Math.max(0.01, ...FAM.flatMap((f) => m[f].map((r) => r.v)));
+          const total = FAM.reduce((a, f) => a + m[f].length, 0);
+          const fill = fillText(cat);
+          const l = level();
+          const scope = l
+            ? D.heroes[S.hero].name + " at " + num(l.souls) + " souls"
+            : "Any hero, before hero-specific pricing";
+          let k = 0;
+          const cols = FAM.map((f) => {
+            const rows = m[f]
+              .map((r) => {
+                const rank = pickRank(r.i.id);
+                return (
+                  '<button class="item' +
+                  (rank >= 0 ? " picked" : "") +
+                  '" data-item="' +
+                  esc(r.i.id) +
+                  '" aria-expanded="false" style="animation-delay:' +
+                  Math.min(k++ * 22, 520) +
+                  'ms">' +
+                  iconHtml(r.i) +
+                  '<span class="nm">' +
+                  esc(r.i.name) +
+                  (rank >= 0 ? '<span class="badge">Pick ' + (rank + 1) + "</span>" : "") +
+                  "</span>" +
+                  '<span class="cost">' +
+                  num(r.i.cost) +
+                  " souls</span>" +
+                  '<span class="bar"><span class="tr"><i class="' +
+                  f +
+                  '" style="width:' +
+                  Math.max(2, (r.v / max) * 100) +
+                  "%;animation-delay:" +
+                  Math.min(k * 22, 520) +
+                  'ms"></i></span>' +
+                  fmt(r.v) +
+                  "</span>" +
+                  "</button>"
+                );
+              })
+              .join("");
+            return (
+              '<section class="col"><h3><i class="sw ' +
+              f +
+              '"></i>' +
+              FNAME[f] +
+              " <small>" +
+              m[f].length +
+              " items</small></h3>" +
+              (rows ||
+                '<p class="none">No ' +
+                  FNAME[f].toLowerCase() +
+                  " shop items help with this need.</p>") +
+              "</section>"
+            );
+          }).join("");
+          return (
+            '<div class="dhead"><div class="grow"><h2 id="dt">' +
+            esc(c.plain) +
+            "</h2><p>" +
+            esc(scope) +
+            " · " +
+            total +
+            " items, strongest first. The bar is the item's score for this need.</p>" +
+            (fill
+              ? '<div class="dmeter"><div class="fill">' +
+                fill.text +
+                '</div><div class="meter"><i data-w="' +
+                fill.pct +
+                '"></i></div></div>'
+              : "") +
+            '</div><button class="x" aria-label="Close">&times;</button></div><div class="cols">' +
+            cols +
+            "</div>"
+          );
+        }
+
+        function fillOpenMeter() {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              document
+                .querySelectorAll(".detail .meter i[data-w]")
+                .forEach((e) => (e.style.width = e.dataset.w + "%"));
+            }),
+          );
+        }
+        function clipFrom(rect, el) {
+          const b = el.getBoundingClientRect();
+          return (
+            "inset(" +
+            (rect.top - b.top) +
+            "px " +
+            (b.right - rect.right) +
+            "px " +
+            (b.bottom - rect.bottom) +
+            "px " +
+            (rect.left - b.left) +
+            "px round 10px)"
+          );
+        }
+        function openDetail(cat, src) {
+          S.open = { cat, src };
+          $("layer").innerHTML =
+            '<div class="back"></div><div class="detail" role="dialog" aria-modal="true" aria-labelledby="dt">' +
+            detailHtml(cat) +
+            "</div>";
+          const d = document.querySelector(".detail");
+          if (!reduce && src)
+            d.animate(
+              [
+                { clipPath: clipFrom(src.getBoundingClientRect(), d) },
+                { clipPath: "inset(0 0 0 0 round 12px)" },
+              ],
+              { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" },
+            );
+          document.body.style.overflow = "hidden";
+          fillOpenMeter();
+          d.querySelector(".x").focus({ preventScroll: true });
+        }
+        function closeDetail() {
+          if (!S.open) return;
+          const { cat } = S.open;
+          S.open = null;
+          const d = document.querySelector(".detail");
+          const src = document.querySelector('.sq[data-cat="' + cat + '"]');
+          const done = () => {
+            $("layer").innerHTML = "";
+            document.body.style.overflow = "";
+            if (src) src.focus({ preventScroll: true });
+          };
+          if (reduce || !src) return done();
+          document.querySelector(".back").style.opacity = 0;
+          d.animate(
+            [
+              { clipPath: "inset(0 0 0 0 round 12px)" },
+              { clipPath: clipFrom(src.getBoundingClientRect(), d) },
+            ],
+            { duration: 260, easing: "ease-in", fill: "forwards" },
+          ).onfinish = done;
+        }
+        function toggleAlso(btn, cat) {
+          const open = btn.querySelector(".also");
+          if (open) {
+            open.remove();
+            btn.setAttribute("aria-expanded", "false");
+            return;
+          }
+          const vals = valuesOf(btn.dataset.item);
+          const others = D.categories.filter((c) => c.id !== cat && vals[c.id] > 0);
+          const el = document.createElement("span");
+          el.className = "also";
+          el.innerHTML = others.length
+            ? "<span>Also helps with:</span>" +
+              others
+                .map(
+                  (c) =>
+                    '<span class="chip" role="link" data-go="' +
+                    c.id +
+                    '">' +
+                    esc(c.plain) +
+                    "</span>",
+                )
+                .join("")
+            : "<span>This is the only need it helps with.</span>";
+          btn.appendChild(el);
+          btn.setAttribute("aria-expanded", "true");
+        }
+
+        // Controls
+        $("hero").innerHTML =
+          '<option value="-1">Any hero</option>' +
+          D.heroes.map((h, i) => '<option value="' + i + '">' + esc(h.name) + "</option>").join("");
+        $("boons").innerHTML = D.heroes[0].levels
+          .map((l, i) => '<button data-i="' + i + '">' + num(l.souls) + " souls</button>")
+          .join("");
+        $("hero").addEventListener("change", (e) => {
+          S.hero = Number(e.target.value);
+          render();
+        });
+        $("boons").addEventListener("click", (e) => {
+          const b = e.target.closest("button");
+          if (b) {
+            S.boon = Number(b.dataset.i);
+            render();
+          }
+        });
+        $("grid").addEventListener("click", (e) => {
+          const b = e.target.closest(".sq");
+          if (b) openDetail(b.dataset.cat, b);
+        });
+        $("layer").addEventListener("click", (e) => {
+          if (e.target.closest(".x") || e.target.classList.contains("back")) return closeDetail();
+          const go = e.target.closest("[data-go]");
+          if (go) {
+            const src = document.querySelector('.sq[data-cat="' + go.dataset.go + '"]');
+            S.open = null;
+            return openDetail(go.dataset.go, null, src);
+          }
+          const item = e.target.closest(".item");
+          if (item) toggleAlso(item, S.open.cat);
+        });
+        document.addEventListener("keydown", (e) => {
+          if (!S.open) return;
+          if (e.key === "Escape") closeDetail();
+          if (e.key === "Tab") {
+            const f = [...document.querySelectorAll(".detail button")];
+            const a = document.activeElement,
+              first = f[0],
+              last = f[f.length - 1];
+            if (e.shiftKey && a === first) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && a === last) {
+              e.preventDefault();
+              first.focus();
+            }
+          }
+        });
+        document.addEventListener(
+          "error",
+          (e) => {
+            const t = e.target;
+            if (t.tagName === "IMG" && t.parentElement && t.parentElement.dataset.f !== undefined)
+              t.parentElement.textContent = t.parentElement.dataset.f;
+          },
+          true,
+        );
+
+        $("foot").textContent =
+          "An item can sit in several baskets, because most items help with more than one need. Any hero uses fixed stat weights; choosing a hero rescores every item for that hero's kit and shows the items the engine actually picks with an empty build. Data: frozen engine inputs captured " +
+          D.captured +
+          " (game patch " +
+          D.patch +
+          "), so changes from later patches are not included.";
+        render();
+      })();
+    </script>
+  </body>
+</html>
